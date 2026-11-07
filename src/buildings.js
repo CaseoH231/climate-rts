@@ -5,8 +5,8 @@ import { UNIT_TYPES } from './unit.js';
 export const BUILDING_TYPES = {
   town_centre: {
     name: 'Town Centre', icon: '🏛️', w: 3, h: 3, hp: 600, cost: {}, buildTime: 60,
-    pop: 10, dropOff: true, trains: ['worker'],
-    desc: 'Trains workers. Drop off any resource here.',
+    pop: 10, dropOff: true, trains: ['worker'], upgrades: ['steel_axes', 'mining_carts', 'plough'],
+    desc: 'Trains workers and researches upgrades (paid with energy). Drop off any resource here.',
   },
   house: {
     name: 'House', icon: '🏠', w: 2, h: 2, hp: 200, cost: { wood: 30 }, buildTime: 10,
@@ -24,14 +24,29 @@ export const BUILDING_TYPES = {
     name: 'Barracks', icon: '⚔️', w: 3, h: 3, hp: 500, cost: { wood: 125, stone: 50 }, buildTime: 22,
     trains: ['soldier'], desc: 'Trains soldiers',
   },
+  wind_turbine: {
+    name: 'Wind Turbine', icon: '🌬️', w: 2, h: 2, hp: 150, cost: { wood: 80, stone: 30 }, buildTime: 15,
+    produces: { clean: 0.2 }, desc: 'Makes 0.2 clean energy per second. No pollution, but slow.',
+  },
+  trees: {
+    name: 'Plant Trees', icon: '🌱', w: 2, h: 2, hp: 40, cost: { food: 25 }, buildTime: 4,
+    walkable: true, growTime: 45, desc: 'Saplings grow into forest. Forests soak up CO₂ and give wood.',
+  },
 };
 
 // What a worker can build, in button order (keys 1, 2, 3…).
-export const WORKER_BUILDS = ['house', 'farm', 'storage', 'barracks'];
+export const WORKER_BUILDS = ['house', 'farm', 'storage', 'barracks', 'wind_turbine', 'trees'];
+
+// One-off upgrades researched at the Town Centre. "energy" can be paid with fossil fuel or clean energy.
+export const UPGRADES = {
+  steel_axes:   { name: 'Steel Axes',   icon: '🪓', cost: { energy: 40 },            desc: '+30% wood gathering' },
+  mining_carts: { name: 'Mining Carts', icon: '⛏️', cost: { energy: 60, wood: 50 },  desc: '+30% stone and coal mining' },
+  plough:       { name: 'Plough',       icon: '🚜', cost: { energy: 60, wood: 75 },  desc: '+30% food from farms' },
+};
 
 // ---------- Drawing ----------
 // Draws a building into Graphics `g` with its top-left at (0, 0).
-export function drawBuildingArt(g, type, colors, { progress = 1, foodFrac = 1, alpha = 1 } = {}) {
+export function drawBuildingArt(g, type, colors, { progress = 1, foodFrac = 1, alpha = 1, angle = 0, grow = 0 } = {}) {
   const def = BUILDING_TYPES[type];
   const W = def.w * TILE;
   const H = def.h * TILE;
@@ -109,6 +124,34 @@ export function drawBuildingArt(g, type, colors, { progress = 1, foodFrac = 1, a
       g.lineStyle(3, 0xdddddd, a).lineBetween(38, 44, 58, 58).lineBetween(58, 44, 38, 58);
       break;
     }
+    case 'wind_turbine': {
+      g.fillStyle(0x000000, 0.2 * a).fillEllipse(36, 58, 30, 10);
+      g.fillStyle(0x9e9e9e, a).fillRect(18, 50, 28, 10);
+      g.fillStyle(colors.main, a).fillRect(18, 56, 28, 3);
+      g.fillStyle(0xf2f2f2, a).fillRect(30, 16, 5, 38);
+      g.lineStyle(1, 0xbdbdbd, a).strokeRect(30, 16, 5, 38);
+      const hx = 32.5, hy = 16;
+      g.lineStyle(3, 0xffffff, a);
+      for (let i = 0; i < 3; i++) {
+        const ang = angle + (i * Math.PI * 2) / 3;
+        g.lineBetween(hx, hy, hx + Math.cos(ang) * 20, hy + Math.sin(ang) * 20);
+      }
+      g.fillStyle(0xdddddd, a).fillCircle(hx, hy, 3);
+      break;
+    }
+    case 'trees': {
+      g.fillStyle(0x6b4a2b, 0.8 * a).fillRect(2, 2, 60, 60);
+      for (let i = 0; i < 4; i++) {
+        for (let j = 0; j < 4; j++) {
+          const sx = 9 + i * 15;
+          const sy = 9 + j * 15;
+          const r = 2 + 4 * grow;
+          g.fillStyle(0x2f5a17, a).fillCircle(sx, sy + 1, r);
+          g.fillStyle(0x58a032, a).fillCircle(sx - 1, sy - 1, r * 0.6);
+        }
+      }
+      break;
+    }
   }
 }
 
@@ -134,6 +177,8 @@ export class Building {
     this.waitingForPop = false;
     this.food = def.food || 0;
     this.farmer = null;
+    this.angle = Math.random() * Math.PI;  // wind turbine blade angle
+    this.grow = 0;                          // sapling growth 0 → 1
     this.selected = false;
     this.dead = false;
 
@@ -173,6 +218,8 @@ export class Building {
     drawBuildingArt(g, this.type, TEAM_COLORS[this.team], {
       progress: this.progress,
       foodFrac: this.def.food ? this.food / this.def.food : 1,
+      angle: this.angle,
+      grow: this.grow,
     });
 
     const u = this.ui;
@@ -182,6 +229,7 @@ export class Building {
     let col = 0;
     if (!this.complete) { frac = this.progress; col = 0xffb300; }
     else if (this.queue.length) { frac = this.trainProgress; col = 0x5fa8ff; }
+    else if (this.hp < this.maxHp) { frac = this.hp / this.maxHp; col = frac > 0.5 ? 0xf1c232 : 0xe53935; }
     if (frac !== null) {
       u.fillStyle(0x000000, 0.6).fillRect(6, -12, this.W - 12, 6);
       u.fillStyle(col, 1).fillRect(7, -11, (this.W - 14) * frac, 4);
@@ -191,6 +239,22 @@ export class Building {
   setSelected(v) {
     this.selected = v;
     this.redraw();
+  }
+
+  // Per-frame work for buildings that do things on their own.
+  update(dt, world) {
+    if (!this.complete || this.dead) return;
+    if (this.def.produces) {
+      for (const [res, rate] of Object.entries(this.def.produces)) world.addResource(res, (rate * dt) / 1000);
+      this.angle += dt * 0.004;
+      this.redraw();
+    }
+    if (this.type === 'trees') {
+      const before = Math.floor(this.grow * 20);
+      this.grow = Math.min(1, this.grow + dt / 1000 / this.def.growTime);
+      if (Math.floor(this.grow * 20) !== before) this.redraw();
+      if (this.grow >= 1) world.growForest(this);
+    }
   }
 
   destroy() {

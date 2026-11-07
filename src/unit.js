@@ -7,10 +7,10 @@ export const UNIT_TYPES = {
   soldier: { name: 'Soldier', icon: '🗡️', speed: 85, hp: 45, cost: { food: 60, wood: 20 }, trainTime: 10 },
 };
 
-const GATHER_RATE = { wood: 0.9, stone: 0.7, food: 0.8 }; // per second
+const GATHER_RATE = { wood: 0.9, stone: 0.7, food: 0.8, fuel: 1.1 }; // per second (coal is quick to mine!)
 const CARRY_MAX = 10;
-const CARRY_COLOR = { wood: 0x8b5a2b, stone: 0xb0b0b0, food: 0xf1c232 };
-const GATHER_WORD = { wood: 'chopping wood', stone: 'mining stone', food: 'foraging' };
+const CARRY_COLOR = { wood: 0x8b5a2b, stone: 0xb0b0b0, food: 0xf1c232, fuel: 0x1a1a1a };
+const GATHER_WORD = { wood: 'chopping wood', stone: 'mining stone', food: 'foraging', fuel: 'mining coal' };
 
 let nextId = 1;
 
@@ -77,8 +77,20 @@ export class Unit {
     const o = this.order;
     if (!o) return this.isMoving ? 'moving' : 'idle';
     if (o.kind === 'build') return `building ${o.building.def.name}`;
-    if (o.phase === 'return') return `carrying ${o.res}`;
+    if (o.phase === 'return') return `carrying ${o.res === 'fuel' ? 'coal' : o.res}`;
     return o.farm ? 'farming' : GATHER_WORD[o.res];
+  }
+
+  // Move to the nearest safe tile (used when land floods or a forest grows on top of us).
+  rescue() {
+    const t = this.tile;
+    if (this.map.isWalkable(t.x, t.y)) return;
+    const safe = this.map.nearestWalkable(t.x, t.y, 20);
+    this.stop();
+    if (safe) {
+      const c = this.map.tileCenter(safe.x, safe.y);
+      this.container.setPosition(c.x, c.y);
+    }
   }
 
   setSelected(v) {
@@ -283,7 +295,7 @@ export class Unit {
 
     if (o.phase === 'work') {
       this.animateWork(dt);
-      const want = (GATHER_RATE[o.res] * dt) / 1000;
+      const want = (GATHER_RATE[o.res] * world.gatherMultiplier(o.res, !!o.farm) * dt) / 1000;
       let got;
       if (o.farm) {
         got = Math.min(want, o.farm.food);

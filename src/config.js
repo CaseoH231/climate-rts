@@ -16,6 +16,8 @@ export const TERRAIN = {
   FOREST: 2,
   STONE: 3,
   BERRIES: 4,
+  COAL: 5,
+  ASH: 6,   // burnt ground after a wildfire — turns back into grass over time
 };
 
 const GRASS_COLORS = [0x6aa84f, 0x70ae54, 0x649f49];
@@ -26,6 +28,8 @@ export const TERRAIN_INFO = {
   [TERRAIN.FOREST]:  { name: 'Forest',       walkable: false, colors: [0x4f7a30, 0x527d33, 0x4b752d], minimap: 0x274e13 },
   [TERRAIN.STONE]:   { name: 'Stone',        walkable: false, colors: GRASS_COLORS, minimap: 0x999999 },
   [TERRAIN.BERRIES]: { name: 'Berry bushes', walkable: false, colors: GRASS_COLORS, minimap: 0xc2185b },
+  [TERRAIN.COAL]:    { name: 'Coal',         walkable: false, colors: GRASS_COLORS, minimap: 0x1a1a1a },
+  [TERRAIN.ASH]:     { name: 'Burnt ground', walkable: true,  colors: [0x4a4038, 0x51463c, 0x463c34], minimap: 0x5d4e37 },
 };
 
 // Which resource each terrain gives, and how much is in one tile.
@@ -33,8 +37,22 @@ export const TERRAIN_RESOURCE = {
   [TERRAIN.FOREST]: 'wood',
   [TERRAIN.STONE]: 'stone',
   [TERRAIN.BERRIES]: 'food',
+  [TERRAIN.COAL]: 'fuel',
 };
-export const RESOURCE_AMOUNT = { wood: 100, stone: 150, food: 125 };
+export const RESOURCE_AMOUNT = { wood: 100, stone: 150, food: 125, fuel: 200 };
+
+// Climate tuning. Bigger numbers = faster/harsher climate change.
+export const CLIMATE = {
+  baseCO2: 280,          // ppm at the start (pre-industrial)
+  sensitivity: 3,        // °C of warming each time CO₂ doubles
+  tempLag: 40,           // seconds for temperature to catch up with CO₂
+  co2PerFuel: 0.06,      // ppm added for every 1 fossil fuel burned (gathered)
+  forestAbsorb: 0.00008, // ppm each forest tile soaks up per second
+  co2PerBurntTile: 0.6,  // ppm released when a forest tile burns
+  disasterCheck: 15,     // seconds between disaster dice-rolls
+  seaSteps: [1.5, 2.5, 3.5], // °C at which the sea rises
+  seaRise: 0.025,        // how much land each rise floods (bigger = more)
+};
 
 export const TEAM_COLORS = {
   player: { main: 0x3c78d8, dark: 0x1c4587 },

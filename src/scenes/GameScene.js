@@ -1,8 +1,9 @@
 // The main game world: map, units, buildings, economy, camera and mouse/keyboard controls.
-import { TILE, MAP_W, MAP_H, MAP_SEED, PLAYER_START, START_RESOURCES, POP_MAX, TEAM_COLORS } from '../config.js';
+import { TILE, MAP_W, MAP_H, MAP_SEED, PLAYER_START, START_RESOURCES, POP_MAX, TEAM_COLORS, TERRAIN, CLIMATE } from '../config.js';
 import { GameMap } from '../map.js';
 import { Unit, UNIT_TYPES } from '../unit.js';
-import { Building, BUILDING_TYPES, drawBuildingArt } from '../buildings.js';
+import { Building, BUILDING_TYPES, UPGRADES, drawBuildingArt } from '../buildings.js';
+import { Climate } from '../climate.js';
 
 export default class GameScene extends Phaser.Scene {
   constructor() {
@@ -34,6 +35,10 @@ export default class GameScene extends Phaser.Scene {
     const types = ['worker', 'worker', 'worker', 'worker', 'soldier', 'soldier', 'soldier'];
     const spots = this.map.tilesAround(s.x, s.y + 2, types.length);
     types.forEach((type, i) => this.units.push(new Unit(this, this.map, spots[i].x, spots[i].y, type)));
+
+    // --- Climate & upgrades ---
+    this.climate = new Climate(this);
+    this.upgrades = new Set();
 
     // --- Selection & placement ---
     this.selected = new Set();
@@ -115,8 +120,8 @@ export default class GameScene extends Phaser.Scene {
     return !!(ui && ui.isPointerOverUI && ui.isPointerOverUI(p));
   }
 
-  toast(msg) {
-    this.events.emit('toast', msg);
+  toast(msg, color) {
+    this.events.emit('toast', msg, color);
   }
 
   redrawTile(x, y) {
@@ -139,23 +144,92 @@ export default class GameScene extends Phaser.Scene {
     return Math.min(POP_MAX, total);
   }
 
+  // "energy" = fossil fuel + clean energy together.
+  have(k) {
+    return k === 'energy' ? this.resources.fuel + this.resources.clean : this.resources[k];
+  }
+
   canAfford(cost) {
-    return Object.entries(cost).every(([k, v]) => this.resources[k] >= v);
+    return Object.entries(cost).every(([k, v]) => this.have(k) >= v);
   }
 
   missingText(cost) {
     return Object.entries(cost)
-      .filter(([k, v]) => this.resources[k] < v)
-      .map(([k, v]) => `${Math.ceil(v - this.resources[k])} ${k}`)
+      .filter(([k, v]) => this.have(k) < v)
+      .map(([k, v]) => `${Math.ceil(v - this.have(k))} ${k}`)
       .join(', ');
   }
 
   spend(cost) {
-    for (const [k, v] of Object.entries(cost)) this.resources[k] -= v;
+    for (const [k, v] of Object.entries(cost)) {
+      if (k === 'energy') {
+        // Use clean energy first, then fossil fuel.
+        const fromClean = Math.min(this.resources.clean, v);
+        this.resources.clean -= fromClean;
+        this.resources.fuel -= v - fromClean;
+      } else {
+        this.resources[k] -= v;
+      }
+    }
   }
 
   addResource(res, n) {
     this.resources[res] += n;
+    // Coal gets burned for energy — that's where the CO₂ comes from.
+    if (res === 'fuel' && n > 0) this.climate.addCO2(n * CLIMATE.co2PerFuel);
+  }
+
+  gatherMultiplier(res, isFarm) {
+    let m = 1;
+    if (res === 'wood' && this.upgrades.has('steel_axes')) m *= 1.3;
+    if ((res === 'stone' || res === 'fuel') && this.upgrades.has('mining_carts')) m *= 1.3;
+    if (isFarm && this.upgrades.has('plough')) m *= 1.3;
+    if (res === 'food' && this.climate.drought > 0) m *= 0.5;
+    return m;
+  }
+
+  research(id) {
+    const up = UPGRADES[id];
+    const b = this.selectedBuilding;
+    if (!up || this.upgrades.has(id) || !b || !b.complete || !(b.def.upgrades || []).includes(id)) return;
+    if (!this.canAfford(up.cost)) {
+      this.toast(`Need ${this.missingText(up.cost)} more for ${up.name}`);
+      return;
+    }
+    this.spend(up.cost);
+    this.upgrades.add(id);
+    this.toast(`${up.icon} ${up.name} researched: ${up.desc}`, '#b6d7a8');
+    this.emitSelection();
+  }
+
+  // ---------- Damage & climate effects ----------
+  damageBuilding(b, amount, cause) {
+    if (b.dead) return;
+    b.hp -= amount;
+    if (b.hp <= 0) {
+      this.toast(`💥 Your ${b.def.name} was destroyed by ${cause}`, '#ea9999');
+      this.removeBuilding(b);
+    } else {
+      b.redraw();
+    }
+  }
+
+  growForest(b) {
+    this.removeBuilding(b);
+    for (let j = b.ty; j < b.ty + b.h; j++) {
+      for (let i = b.tx; i < b.tx + b.w; i++) {
+        if (this.map.get(i, j) === TERRAIN.GRASS) this.map.setTerrain(i, j, TERRAIN.FOREST);
+      }
+    }
+    for (const u of this.units) u.rescue();
+    this.toast('🌳 Your saplings have grown into a forest', '#b6d7a8');
+  }
+
+  stormEffect(x, y, r) {
+    const c = this.add.circle(x, y, r, 0x5f7f9f, 0.35).setDepth(6e5);
+    this.tweens.add({ targets: c, alpha: 0, scale: 1.3, duration: 1200, onComplete: () => c.destroy() });
+    const v = this.cameras.main.worldView;
+    if (Phaser.Geom.Rectangle.Contains(v, x, y)) this.cameras.main.shake(400, 0.006);
   }
 
   // ---------- Buildings ----------
@@ -457,6 +531,8 @@ export default class GameScene extends Phaser.Scene {
     // Cap frame time so a lag spike doesn't teleport units.
     const dt = Math.min(delta, 100);
     for (const u of this.units) u.update(dt, this);
+    for (const b of [...this.buildings]) b.update(dt, this);
     this.updateTraining(dt);
+    this.climate.update(dt);
   }
 }
