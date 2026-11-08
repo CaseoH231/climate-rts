@@ -1,5 +1,6 @@
 // Map generation, terrain/resource lookups and drawing.
-import { TILE, TERRAIN, TERRAIN_INFO, TERRAIN_RESOURCE, RESOURCE_AMOUNT, PLAYER_START } from './config.js';
+import { TILE, TERRAIN, TERRAIN_INFO, TERRAIN_RESOURCE, RESOURCE_AMOUNT, PLAYER_START, ENEMY_START } from './config.js';
+import { toIso, fromIso } from './iso.js';
 
 // Small seeded random number generator, so the same seed always makes the same map.
 function mulberry32(a) {
@@ -37,6 +38,33 @@ function hash(x, y, k = 0) {
   let h = (Math.imul(x, 374761393) + Math.imul(y, 668265263) + Math.imul(k, 1274126177)) | 0;
   h = Math.imul(h ^ (h >>> 13), 1274126177);
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
+// Smooth noise at a given pixel scale (for natural-looking colour variation).
+function pnoise(x, y, scale) {
+  const fx = x / scale;
+  const fy = y / scale;
+  const x0 = Math.floor(fx);
+  const y0 = Math.floor(fy);
+  const tx = fx - x0;
+  const ty = fy - y0;
+  const sx = tx * tx * (3 - 2 * tx);
+  const sy = ty * ty * (3 - 2 * ty);
+  const a = hash(x0, y0, scale);
+  const b = hash(x0 + 1, y0, scale);
+  const c = hash(x0, y0 + 1, scale);
+  const d = hash(x0 + 1, y0 + 1, scale);
+  return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
+}
+
+// Repeatable random numbers for one tile's decorations.
+function tileRand(x, y) {
+  let s = (Math.imul(x, 73856093) ^ Math.imul(y, 19349663)) >>> 0;
+  return () => {
+    s = (Math.imul(s ^ (s >>> 15), 2246822519) + 0x9e3779b9) >>> 0;
+    s ^= s >>> 13;
+    return (s >>> 0) / 4294967296;
+  };
 }
 
 const NEIGHBOURS_8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]];
@@ -86,30 +114,65 @@ export class GameMap {
       }
     }
 
-    // Clear open land around the player's start so there's room to build.
-    const s = PLAYER_START;
-    this.fillCircle(s.x, s.y, 6, TERRAIN.GRASS);
-    // Keep the starting base on high ground so it doesn't flood straight away.
-    for (let dy = -8; dy <= 8; dy++) {
-      for (let dx = -8; dx <= 8; dx++) {
-        if (this.inBounds(s.x + dx, s.y + dy)) {
-          const i = (s.y + dy) * this.w + s.x + dx;
-          this.elev[i] = Math.max(this.elev[i], 0.6);
+    // Each base: cleared land on high ground, with wood, stone, coal and berries nearby.
+    // The enemy's layout is a mirror image of the player's (dir = -1).
+    for (const [s, dir] of [[PLAYER_START, 1], [ENEMY_START, -1]]) {
+      this.fillCircle(s.x, s.y, 6, TERRAIN.GRASS);
+      for (let dy = -8; dy <= 8; dy++) {
+        for (let dx = -8; dx <= 8; dx++) {
+          if (this.inBounds(s.x + dx, s.y + dy)) {
+            const i = (s.y + dy) * this.w + s.x + dx;
+            this.elev[i] = Math.max(this.elev[i], 0.6);
+          }
         }
       }
+      this.fillCircle(s.x + 9 * dir, s.y, 2, TERRAIN.FOREST);
+      this.fillCircle(s.x, s.y + 9 * dir, 1, TERRAIN.STONE);
+      this.fillCircle(s.x - dir, s.y - 9 * dir, 1, TERRAIN.COAL);
+      for (const [dx, dy] of [[-4, 3], [-5, 3], [-4, 4], [-5, 4], [-3, 4]]) {
+        if (this.inBounds(s.x + dx * dir, s.y + dy * dir)) this.set(s.x + dx * dir, s.y + dy * dir, TERRAIN.BERRIES);
+      }
     }
-    // Guarantee wood, stone and berries close to the base.
-    this.fillCircle(s.x + 9, s.y, 2, TERRAIN.FOREST);
-    this.fillCircle(s.x, s.y + 9, 1, TERRAIN.STONE);
-    this.fillCircle(s.x - 1, s.y - 9, 1, TERRAIN.COAL);
-    for (const [dx, dy] of [[-4, 3], [-5, 3], [-4, 4], [-5, 4], [-3, 4]]) {
-      this.set(s.x + dx, s.y + dy, TERRAIN.BERRIES);
-    }
+    // Make sure the two bases are connected by walkable land.
+    this.ensureConnected(PLAYER_START, ENEMY_START);
 
     // Fill resource tiles with their starting amounts.
     for (let i = 0; i < this.tiles.length; i++) {
       const res = TERRAIN_RESOURCE[this.tiles[i]];
       this.amount[i] = res ? RESOURCE_AMOUNT[res] : 0;
+    }
+  }
+
+  // If you can't walk from a to b, carve a raised land bridge between them.
+  ensureConnected(a, b) {
+    const reach = () => {
+      const seen = new Uint8Array(this.w * this.h);
+      const q = [[a.x, a.y]];
+      seen[a.y * this.w + a.x] = 1;
+      while (q.length) {
+        const [x, y] = q.pop();
+        if (x === b.x && y === b.y) return true;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nx = x + dx, ny = y + dy;
+          if (!this.inBounds(nx, ny) || seen[ny * this.w + nx]) continue;
+          if (!TERRAIN_INFO[this.get(nx, ny)].walkable) continue;
+          seen[ny * this.w + nx] = 1;
+          q.push([nx, ny]);
+        }
+      }
+      return false;
+    };
+    if (reach()) return;
+    const steps = Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+    for (let i = 0; i <= steps; i++) {
+      const x = Math.round(a.x + ((b.x - a.x) * i) / steps);
+      const y = Math.round(a.y + ((b.y - a.y) * i) / steps);
+      for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
+        if (!this.inBounds(x + dx, y + dy)) continue;
+        const k = (y + dy) * this.w + x + dx;
+        if (!TERRAIN_INFO[this.tiles[k]].walkable) this.tiles[k] = TERRAIN.GRASS;
+        this.elev[k] = Math.max(this.elev[k], 0.6);
+      }
     }
   }
 
@@ -331,94 +394,288 @@ export class GameMap {
   }
 
   // ---------- Drawing ----------
-  // Draws one tile into a Graphics object at pixel position (px, py).
-  drawTile(g, x, y, px, py) {
-    const t = this.get(x, y);
-    const info = TERRAIN_INFO[t];
-    g.fillStyle(info.colors[Math.floor(hash(x, y) * info.colors.length)], 1);
-    g.fillRect(px, py, TILE, TILE);
+  // The ground is painted pixel by pixel in isometric view (grass, sand, water depth, burnt ground),
+  // then trees, rocks, coal and bushes are drawn on top, back to front.
+  renderAll(ctx) {
+    this.renderRegion(ctx, 0, 0, this.w - 1, this.h - 1, true);
+  }
 
-    if (t === TERRAIN.GRASS) {
-      if (hash(x, y, 1) < 0.3) {
-        g.fillStyle(0x5b9a40, 1);
-        g.fillRect(px + 4 + hash(x, y, 2) * 22, py + 4 + hash(x, y, 3) * 22, 3, 3);
+  // Colour of the ground at grid pixel (wx, wy).
+  groundColor(wx, wy, out) {
+    const lerp = (a, b, t) => a + (b - a) * t;
+    const tx = Math.min(this.w - 1, (wx / TILE) | 0);
+    const ty = Math.min(this.h - 1, (wy / TILE) | 0);
+    const t = this.tiles[ty * this.w + tx];
+    const n1 = pnoise(wx, wy, 5);
+    const n2 = pnoise(wx, wy, 26);
+    const n3 = pnoise(wx, wy, 110);
+    const grain = hash(wx | 0, wy | 0, 77) - 0.5;
+    let r, g, b;
+    const wobble = (n1 - 0.5) * 6 + (n2 - 0.5) * 10;
+    const wf = this.waterField(wx, wy) + wobble * 0.035;
+    if (wf > 0.5) {
+      let dl = t === TERRAIN.WATER ? this.distToClass(wx, wy, tx, ty, false) : 0;
+      dl = Math.min(dl, (wf - 0.5) * 60);
+      const depth = Math.min(1, dl / 26);
+      r = lerp(62, 22, depth); g = lerp(118, 62, depth); b = lerp(128, 104, depth);
+      const ripple = (n1 - 0.5) * 8 + (n2 - 0.5) * 10;
+      r += ripple; g += ripple; b += ripple;
+      if (dl < 2.5) { const f = (1 - dl / 2.5) * 0.4; r = lerp(r, 196, f); g = lerp(g, 200, f); b = lerp(b, 180, f); }
+    } else {
+      r = lerp(86, 112, n2); g = lerp(116, 138, n2); b = lerp(42, 54, n2);
+      const dry = Math.max(0, n3 - 0.55) * 1.8;
+      r = lerp(r, 142, dry); g = lerp(g, 134, dry); b = lerp(b, 68, dry);
+      const shade = this.edgeFade(wx, wy, tx, ty, t, wobble);
+      if (t === TERRAIN.FOREST || t === TERRAIN.BERRIES) { r *= 1 - 0.32 * shade; g *= 1 - 0.24 * shade; b *= 1 - 0.3 * shade; }
+      else if (t === TERRAIN.STONE || t === TERRAIN.COAL) { const k = 0.35 * shade; r = lerp(r, 120, k); g = lerp(g, 110, k); b = lerp(b, 86, k); }
+      else if (t === TERRAIN.ASH) { const k = shade; r = lerp(r, lerp(60, 78, n2), k); g = lerp(g, lerp(52, 64, n2), k); b = lerp(b, lerp(44, 52, n2), k); }
+      const dw = (0.5 - wf) * 40;
+      if (dw < 8) { const sand = (1 - Math.max(0, dw) / 8) * 0.85; r = lerp(r, 196, sand); g = lerp(g, 174, sand); b = lerp(b, 118, sand); }
+      const v = (n1 - 0.5) * 16;
+      r += v; g += v; b += v * 0.8;
+    }
+    out[0] = r + grain * 10;
+    out[1] = g + grain * 10;
+    out[2] = b + grain * 8;
+  }
+
+  // Repaint tiles x0..x1, y0..y1 (inclusive) onto the isometric canvas.
+  renderRegion(ctx, x0, y0, x1, y1, fresh = false) {
+    x0 = Math.max(0, x0); y0 = Math.max(0, y0);
+    x1 = Math.min(this.w - 1, x1); y1 = Math.min(this.h - 1, y1);
+    const T = TILE;
+    const gx0 = x0 * T, gy0 = y0 * T, gx1 = (x1 + 1) * T, gy1 = (y1 + 1) * T;
+    const top = toIso(gx0, gy0);
+    const right = toIso(gx1, gy0);
+    const bottom = toIso(gx1, gy1);
+    const left = toIso(gx0, gy1);
+    const bx = Math.floor(left.x);
+    const by = Math.floor(top.y);
+    const bw = Math.ceil(right.x) - bx;
+    const bh = Math.ceil(bottom.y) - by;
+    const img = fresh ? ctx.createImageData(bw, bh) : ctx.getImageData(bx, by, bw, bh);
+    const d = img.data;
+    const col = [0, 0, 0];
+    for (let py = 0; py < bh; py++) {
+      for (let px = 0; px < bw; px++) {
+        const g = fromIso(bx + px + 0.5, by + py + 0.5);
+        if (g.x < gx0 || g.y < gy0 || g.x >= gx1 || g.y >= gy1) continue;
+        this.groundColor(g.x, g.y, col);
+        const i = (py * bw + px) * 4;
+        d[i] = col[0]; d[i + 1] = col[1]; d[i + 2] = col[2]; d[i + 3] = 255;
       }
-      // Sandy edge where land meets water.
-      g.fillStyle(0xd9c58f, 1);
-      if (this.get(x, y - 1) === TERRAIN.WATER) g.fillRect(px, py, TILE, 4);
-      if (this.get(x, y + 1) === TERRAIN.WATER) g.fillRect(px, py + TILE - 4, TILE, 4);
-      if (this.get(x - 1, y) === TERRAIN.WATER) g.fillRect(px, py, 4, TILE);
-      if (this.get(x + 1, y) === TERRAIN.WATER) g.fillRect(px + TILE - 4, py, 4, TILE);
-    } else if (t === TERRAIN.WATER) {
-      if (hash(x, y, 1) < 0.35) {
-        g.fillStyle(0x6fa8dc, 0.8);
-        g.fillRect(px + 6 + hash(x, y, 2) * 10, py + 8 + hash(x, y, 3) * 16, 12, 2);
+    }
+    ctx.putImageData(img, bx, by);
+
+    // Objects: redraw everything that could overlap this area, clipped to it, back to front.
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(top.x, top.y);
+    ctx.lineTo(right.x, right.y);
+    ctx.lineTo(bottom.x, bottom.y);
+    ctx.lineTo(left.x, left.y);
+    ctx.closePath();
+    if (!fresh) ctx.clip();
+    const list = [];
+    for (let ty = Math.max(0, y0 - 1); ty <= Math.min(this.h - 1, y1 + 3); ty++) {
+      for (let tx = Math.max(0, x0 - 1); tx <= Math.min(this.w - 1, x1 + 3); tx++) list.push([tx, ty]);
+    }
+    list.sort((a, b) => a[0] + a[1] - (b[0] + b[1]));
+    for (const [tx, ty] of list) this.drawObject(ctx, tx, ty);
+    ctx.restore();
+  }
+
+  // 1 = water, 0 = land, blended smoothly between tile centres.
+  waterField(wx, wy) {
+    const u = (wx - TILE / 2) / TILE;
+    const v = (wy - TILE / 2) / TILE;
+    const ix = Math.floor(u);
+    const iy = Math.floor(v);
+    const fx = u - ix;
+    const fy = v - iy;
+    const sx = fx * fx * (3 - 2 * fx);
+    const sy = fy * fy * (3 - 2 * fy);
+    const at = (x, y) => {
+      x = Math.max(0, Math.min(this.w - 1, x));
+      y = Math.max(0, Math.min(this.h - 1, y));
+      return this.tiles[y * this.w + x] === TERRAIN.WATER ? 1 : 0;
+    };
+    const a = at(ix, iy);
+    const b = at(ix + 1, iy);
+    const c = at(ix, iy + 1);
+    const d = at(ix + 1, iy + 1);
+    return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
+  }
+
+  // 0 at the edge of a patch of this terrain → 1 inside it (with a wobbly edge).
+  edgeFade(wx, wy, tx, ty, t, wobble) {
+    let best = 99;
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (!dx && !dy) continue;
+        const nx = tx + dx;
+        const ny = ty + dy;
+        if (!this.inBounds(nx, ny) || this.tiles[ny * this.w + nx] === t) continue;
+        const ex = Math.max(nx * TILE - wx, 0, wx - (nx * TILE + TILE - 1));
+        const ey = Math.max(ny * TILE - wy, 0, wy - (ny * TILE + TILE - 1));
+        const dd = Math.hypot(ex, ey);
+        if (dd < best) best = dd;
       }
-    } else if (t === TERRAIN.FOREST) {
-      for (let i = 0; i < 3; i++) {
-        const tx = px + 8 + hash(x, y, i + 2) * 16;
-        const ty = py + 8 + hash(x, y, i + 5) * 16;
-        g.fillStyle(0x1f3d0f, 1); g.fillCircle(tx + 1, ty + 2, 7);
-        g.fillStyle(0x2f5a17, 1); g.fillCircle(tx, ty, 7);
-        g.fillStyle(0x45812a, 1); g.fillCircle(tx - 2, ty - 2, 3);
+    }
+    return Math.max(0, Math.min(1, (best + wobble * 0.6) / 8));
+  }
+
+  // Pixel distance from (wx, wy) to the nearest neighbouring tile that is water (or land).
+  distToClass(wx, wy, tx, ty, wantWater) {
+    let best = 99;
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (!dx && !dy) continue;
+        const nx = tx + dx;
+        const ny = ty + dy;
+        if (!this.inBounds(nx, ny)) continue;
+        const isWater = this.tiles[ny * this.w + nx] === TERRAIN.WATER;
+        if (isWater !== wantWater) continue;
+        const ex = Math.max(nx * TILE - wx, 0, wx - (nx * TILE + TILE - 1));
+        const ey = Math.max(ny * TILE - wy, 0, wy - (ny * TILE + TILE - 1));
+        const dd = Math.hypot(ex, ey);
+        if (dd < best) best = dd;
       }
-    } else if (t === TERRAIN.STONE) {
-      for (let i = 0; i < 2; i++) {
-        const sx = px + 9 + hash(x, y, i + 2) * 14;
-        const sy = py + 9 + hash(x, y, i + 5) * 14;
-        g.fillStyle(0x4d4d4d, 1); g.fillCircle(sx + 1, sy + 2, 7);
-        g.fillStyle(0x8e8e8e, 1); g.fillCircle(sx, sy, 7);
-        g.fillStyle(0xbdbdbd, 1); g.fillCircle(sx - 2, sy - 2, 3);
+    }
+    return best;
+  }
+
+  // Trees, rocks, coal, bushes and stumps, drawn standing up in isometric view.
+  drawObject(ctx, tx, ty) {
+    const t = this.get(tx, ty);
+    if (t === TERRAIN.WATER) return;
+    const r = tileRand(tx, ty);
+    const at = (fx, fy) => toIso(tx * TILE + fx, ty * TILE + fy); // point inside the tile
+    if (t === TERRAIN.FOREST) {
+      const trees = [];
+      const n = 3 + (r() < 0.5 ? 1 : 0);
+      for (let i = 0; i < n; i++) {
+        const p = at(4 + r() * 24, 4 + r() * 24);
+        trees.push({ x: p.x, y: p.y, s: 8 + r() * 3.5, pine: r() < 0.35, hue: r() });
       }
-    } else if (t === TERRAIN.COAL) {
-      for (let i = 0; i < 3; i++) {
-        const cx = px + 8 + hash(x, y, i + 2) * 16;
-        const cy = py + 8 + hash(x, y, i + 5) * 16;
-        g.fillStyle(0x0d0d0d, 1); g.fillCircle(cx + 1, cy + 2, 6);
-        g.fillStyle(0x262626, 1); g.fillCircle(cx, cy, 6);
-        g.fillStyle(0x5a5a5a, 1); g.fillCircle(cx - 2, cy - 2, 2);
+      trees.sort((a, b) => a.y - b.y);
+      for (const tr of trees) {
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.beginPath();
+        ctx.ellipse(tr.x + tr.s * 0.8, tr.y + 1, tr.s * 1.1, tr.s * 0.45, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#3b2a1a';
+        ctx.fillRect(tr.x - 1, tr.y - tr.s * 1.1, 2.5, tr.s * 1.1);
+        if (tr.pine) {
+          for (let k = 0; k < 4; k++) {
+            const w = tr.s * (1.05 - k * 0.2);
+            const yy = tr.y - tr.s * 0.6 - k * tr.s * 0.62;
+            const gr = ctx.createLinearGradient(tr.x - w, 0, tr.x + w, 0);
+            gr.addColorStop(0, '#4c6e33'); gr.addColorStop(1, '#1d3418');
+            ctx.fillStyle = gr;
+            ctx.beginPath();
+            ctx.moveTo(tr.x, yy - tr.s * 1.0);
+            ctx.lineTo(tr.x + w, yy);
+            ctx.lineTo(tr.x - w, yy);
+            ctx.closePath();
+            ctx.fill();
+          }
+        } else {
+          const cy = tr.y - tr.s * 1.7;
+          const light = tr.hue < 0.5 ? ['#8aa34e', '#4f7230', '#24401b'] : ['#9aa54a', '#5f7a2c', '#2e4419'];
+          for (const [ox, oy, k] of [[-0.55, 0.3, 0.7], [0.55, 0.3, 0.7], [0, -0.35, 0.8], [0, 0.25, 0.75]]) {
+            const cx = tr.x + ox * tr.s;
+            const cyy = cy + oy * tr.s;
+            const rad = tr.s * k;
+            const gr = ctx.createRadialGradient(cx - rad * 0.4, cyy - rad * 0.45, rad * 0.1, cx, cyy, rad);
+            gr.addColorStop(0, light[0]); gr.addColorStop(0.55, light[1]); gr.addColorStop(1, light[2]);
+            ctx.fillStyle = gr;
+            ctx.beginPath();
+            ctx.arc(cx, cyy, rad, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
       }
-    } else if (t === TERRAIN.ASH) {
-      g.fillStyle(0x2b2520, 1);
-      for (let k = 0; k < 5; k++) g.fillRect(px + hash(x, y, k + 1) * 28, py + hash(x, y, k + 9) * 28, 3, 2);
-      if (hash(x, y, 20) < 0.5) {
-        g.fillStyle(0x3a2a1a, 1);
-        g.fillRect(px + 10 + hash(x, y, 21) * 10, py + 12 + hash(x, y, 22) * 8, 3, 9); // burnt stump
+    } else if (t === TERRAIN.STONE || t === TERRAIN.COAL) {
+      const coal = t === TERRAIN.COAL;
+      const c = at(16, 16);
+      if (coal) {
+        ctx.fillStyle = 'rgba(20,18,16,0.4)';
+        ctx.beginPath();
+        ctx.ellipse(c.x, c.y, 22, 10, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      const n = coal ? 5 : 3;
+      const rocks = [];
+      for (let i = 0; i < n; i++) rocks.push({ p: at(7 + r() * 18, 7 + r() * 18), s: coal ? 4 + r() * 3 : 6 + r() * 4 });
+      rocks.sort((a, b) => a.p.y - b.p.y);
+      for (const { p, s: size } of rocks) {
+        const pts = [];
+        const k = 7;
+        for (let j = 0; j < k; j++) {
+          const a = (j / k) * Math.PI * 2;
+          const rr = size * (0.75 + r() * 0.35);
+          pts.push([p.x + Math.cos(a) * rr, p.y - size * 0.4 + Math.sin(a) * rr * 0.7]);
+        }
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.beginPath();
+        ctx.ellipse(p.x + 3, p.y + 1, size, size * 0.4, 0, 0, Math.PI * 2);
+        ctx.fill();
+        const gr = ctx.createLinearGradient(p.x - size, p.y - size, p.x + size, p.y + size * 0.5);
+        if (coal) { gr.addColorStop(0, '#55524c'); gr.addColorStop(1, '#100f0e'); }
+        else { gr.addColorStop(0, '#d1c9b5'); gr.addColorStop(1, '#6e6656'); }
+        ctx.fillStyle = gr;
+        ctx.beginPath();
+        ctx.moveTo(pts[0][0], pts[0][1]);
+        for (const q of pts) ctx.lineTo(q[0], q[1]);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = coal ? 'rgba(220,220,210,0.55)' : 'rgba(255,250,235,0.35)';
+        ctx.fillRect(p.x - size * 0.3, p.y - size * 0.8, coal ? 1 : 2, 1);
       }
     } else if (t === TERRAIN.BERRIES) {
       for (let i = 0; i < 2; i++) {
-        const bx = px + 9 + hash(x, y, i + 2) * 14;
-        const by = py + 9 + hash(x, y, i + 5) * 14;
-        g.fillStyle(0x1e4d1e, 1); g.fillCircle(bx + 1, by + 2, 8);
-        g.fillStyle(0x2e7d32, 1); g.fillCircle(bx, by, 8);
-        g.fillStyle(0xd81b60, 1);
-        for (let k = 0; k < 4; k++) {
-          g.fillCircle(bx - 4 + hash(x, y, i * 10 + k) * 8, by - 4 + hash(x, y, i * 10 + k + 5) * 8, 2);
+        const p = at(8 + r() * 16, 8 + r() * 16);
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.beginPath();
+        ctx.ellipse(p.x + 3, p.y + 1, 8, 3.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        const gr = ctx.createRadialGradient(p.x - 2, p.y - 8, 1, p.x, p.y - 5, 9);
+        gr.addColorStop(0, '#6f8f45'); gr.addColorStop(1, '#22361a');
+        ctx.fillStyle = gr;
+        ctx.beginPath();
+        ctx.ellipse(p.x, p.y - 5, 9, 7, 0, 0, Math.PI * 2);
+        ctx.fill();
+        for (let k = 0; k < 7; k++) {
+          ctx.fillStyle = '#a02838';
+          ctx.beginPath();
+          ctx.arc(p.x - 6 + r() * 12, p.y - 10 + r() * 9, 1.4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    } else if (t === TERRAIN.ASH) {
+      for (let i = 0; i < 2; i++) {
+        if (r() < 0.35) continue;
+        const p = at(6 + r() * 20, 6 + r() * 20);
+        ctx.fillStyle = 'rgba(15,12,10,0.5)';
+        ctx.beginPath();
+        ctx.ellipse(p.x, p.y, 6, 2.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#1e1813';
+        ctx.fillRect(p.x - 1.5, p.y - 7, 3, 7);
+      }
+    } else if (t === TERRAIN.GRASS) {
+      if (r() < 0.35) {
+        const p = at(4 + r() * 24, 4 + r() * 24);
+        ctx.strokeStyle = 'rgba(48,70,24,0.6)';
+        ctx.lineWidth = 1;
+        for (let k = -1; k <= 1; k++) {
+          ctx.beginPath();
+          ctx.moveTo(p.x, p.y);
+          ctx.lineTo(p.x + k * 2, p.y - 3 - r() * 2);
+          ctx.stroke();
         }
       }
     }
-  }
-
-  // Draws the whole map once into a texture (much faster than redrawing every frame).
-  createTexture(scene, key) {
-    const g = scene.make.graphics({ x: 0, y: 0, add: false });
-    for (let y = 0; y < this.h; y++) {
-      for (let x = 0; x < this.w; x++) this.drawTile(g, x, y, x * TILE, y * TILE);
-    }
-    g.generateTexture(key, this.w * TILE, this.h * TILE);
-    g.destroy();
-  }
-
-  // Small version of the map for the minimap.
-  createMinimapTexture(scene, key, scale) {
-    const g = scene.make.graphics({ x: 0, y: 0, add: false });
-    for (let y = 0; y < this.h; y++) {
-      for (let x = 0; x < this.w; x++) {
-        g.fillStyle(TERRAIN_INFO[this.get(x, y)].minimap, 1);
-        g.fillRect(x * scale, y * scale, scale, scale);
-      }
-    }
-    g.generateTexture(key, this.w * scale, this.h * scale);
-    g.destroy();
   }
 }

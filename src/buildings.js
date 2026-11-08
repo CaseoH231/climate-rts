@@ -1,159 +1,107 @@
-// Buildings: what they cost, what they do, and how they're drawn.
-import { TILE, TEAM_COLORS } from './config.js';
+// Buildings, eras and research: what they cost, what they unlock, and how they behave.
+import { TILE } from './config.js';
 import { UNIT_TYPES } from './unit.js';
+import { buildingKey, buildingTexInfo, BUILDING_POINTS } from './art.js';
+import { toIso } from './iso.js';
 
+// Local isometric point inside a building (footprint grid px + height) → container coordinates.
+const P = (x, y, z = 0) => ({ x: x - y, y: (x + y) / 2 - z });
+
+// ---------- Eras ----------
+export const ERAS = [
+  { name: 'Coal Age', short: 'I' },
+  { name: 'Industrial Age', short: 'II', cost: { food: 400, wood: 300, energy: 150 }, time: 40,
+    desc: 'Unlocks Workshops, Coal Power Plants and Riflemen.' },
+  { name: 'Transition Age', short: 'III', cost: { food: 700, stone: 300, energy: 400 }, time: 60,
+    desc: 'Unlocks Solar Farms, Carbon Capture and Armoured Cars.' },
+  { name: 'Green Age', short: 'IV', cost: { food: 1000, wood: 600, clean: 500 }, time: 80,
+    desc: 'Unlocks the Climate Restoration Project. Must be paid for with clean energy.' },
+];
+
+// ---------- Buildings ----------
+// era = first era (0–3) in which it can be built.
 export const BUILDING_TYPES = {
   town_centre: {
-    name: 'Town Centre', icon: '🏛️', w: 3, h: 3, hp: 600, cost: {}, buildTime: 60,
-    pop: 10, dropOff: true, trains: ['worker'], upgrades: ['steel_axes', 'mining_carts', 'plough'],
-    desc: 'Trains workers and researches upgrades (paid with energy). Drop off any resource here.',
+    name: 'Town Centre', w: 3, h: 3, hp: 1200, cost: {}, buildTime: 60, era: 0,
+    attack: { dmg: 6, range: 230, cooldown: 2 },
+    pop: 10, dropOff: true, trains: ['worker'], research: ['steel_axes', 'mining_carts', 'plough'], advancesEra: true,
+    desc: 'Trains workers, advances your era and researches basic upgrades. Drop off any resource here.',
   },
   house: {
-    name: 'House', icon: '🏠', w: 2, h: 2, hp: 200, cost: { wood: 30 }, buildTime: 10,
-    pop: 5, desc: '+5 population',
+    name: 'House', w: 2, h: 2, hp: 200, cost: { wood: 30 }, buildTime: 10, era: 0,
+    pop: 5, desc: '+5 population.',
   },
   farm: {
-    name: 'Farm', icon: '🌾', w: 2, h: 2, hp: 100, cost: { wood: 60 }, buildTime: 8,
-    walkable: true, food: 300, desc: 'One worker farms 300 food here',
+    name: 'Farm', w: 2, h: 2, hp: 100, cost: { wood: 60 }, buildTime: 8, era: 0,
+    walkable: true, food: 300, desc: 'One worker farms 300 food here.',
   },
   storage: {
-    name: 'Storage Shed', icon: '📦', w: 2, h: 2, hp: 300, cost: { wood: 100 }, buildTime: 14,
-    dropOff: true, desc: 'Drop off any resource here — build near forests and stone',
+    name: 'Storage Shed', w: 2, h: 2, hp: 300, cost: { wood: 100 }, buildTime: 14, era: 0,
+    dropOff: true, desc: 'Drop off any resource here. Build near forests, stone and coal.',
   },
   barracks: {
-    name: 'Barracks', icon: '⚔️', w: 3, h: 3, hp: 500, cost: { wood: 125, stone: 50 }, buildTime: 22,
-    trains: ['soldier'], desc: 'Trains soldiers',
+    name: 'Barracks', w: 3, h: 3, hp: 500, cost: { wood: 125, stone: 50 }, buildTime: 22, era: 0,
+    trains: ['soldier', 'archer', 'rifleman', 'armoured_car'], desc: 'Trains your army.',
+  },
+  tower: {
+    name: 'Watch Tower', w: 2, h: 2, hp: 500, cost: { wood: 60, stone: 100 }, buildTime: 20, era: 0,
+    attack: { dmg: 8, range: 250, cooldown: 1.6 }, desc: 'Shoots at enemies that come close.',
   },
   wind_turbine: {
-    name: 'Wind Turbine', icon: '🌬️', w: 2, h: 2, hp: 150, cost: { wood: 80, stone: 30 }, buildTime: 15,
-    produces: { clean: 0.2 }, desc: 'Makes 0.2 clean energy per second. No pollution, but slow.',
+    name: 'Wind Turbine', w: 2, h: 2, hp: 150, cost: { wood: 80, stone: 30 }, buildTime: 15, era: 0,
+    produces: { clean: 0.2 }, desc: 'Makes 0.2 clean energy per second. No pollution.',
   },
   trees: {
-    name: 'Plant Trees', icon: '🌱', w: 2, h: 2, hp: 40, cost: { food: 25 }, buildTime: 4,
-    walkable: true, growTime: 45, desc: 'Saplings grow into forest. Forests soak up CO₂ and give wood.',
+    name: 'Plant Trees', w: 2, h: 2, hp: 40, cost: { food: 25 }, buildTime: 4, era: 0,
+    walkable: true, growTime: 45, desc: 'Saplings grow into forest, which soaks up CO₂.',
+  },
+  workshop: {
+    name: 'Workshop', w: 3, h: 3, hp: 600, cost: { wood: 175, stone: 75 }, buildTime: 30, era: 1,
+    research: ['chainsaws', 'iron_weapons', 'electric_tools', 'smart_grid', 'reforestation', 'climate_shields'],
+    desc: 'Researches advanced technology.',
+  },
+  power_plant: {
+    name: 'Coal Power Plant', w: 3, h: 3, hp: 600, cost: { wood: 150, stone: 100 }, buildTime: 30, era: 1,
+    produces: { fuel: 0.6 }, smoke: true,
+    desc: 'Burns coal for 0.6 energy per second — and pumps out lots of CO₂.',
+  },
+  solar: {
+    name: 'Solar Farm', w: 2, h: 2, hp: 150, cost: { wood: 60, stone: 80 }, buildTime: 18, era: 2,
+    produces: { clean: 0.35 }, desc: 'Makes 0.35 clean energy per second. No pollution.',
+  },
+  carbon_capture: {
+    name: 'Carbon Capture', w: 3, h: 3, hp: 500, cost: { stone: 250, clean: 150 }, buildTime: 35, era: 2,
+    capture: { clean: 0.25, co2: 0.06 },
+    desc: 'Uses 0.25 clean energy per second to pull CO₂ out of the air.',
+  },
+  restoration: {
+    name: 'Climate Restoration Project', w: 4, h: 4, hp: 2500, cost: { food: 1000, wood: 1000, stone: 800, clean: 800 },
+    buildTime: 180, era: 3, wonder: true, removesCO2: 0.3,
+    desc: 'A huge project that heals the planet. Keep it standing for 3 minutes to win a Green Victory.',
   },
 };
 
-// What a worker can build, in button order (keys 1, 2, 3…).
-export const WORKER_BUILDS = ['house', 'farm', 'storage', 'barracks', 'wind_turbine', 'trees'];
+// What a worker can build, in button order.
+export const WORKER_BUILDS = [
+  'house', 'farm', 'storage', 'barracks', 'tower', 'wind_turbine',
+  'trees', 'workshop', 'power_plant', 'solar', 'carbon_capture', 'restoration',
+];
 
-// One-off upgrades researched at the Town Centre. "energy" can be paid with fossil fuel or clean energy.
+// ---------- Research ----------
+// "energy" can be paid with fossil fuel or clean energy; "clean" must be clean energy.
 export const UPGRADES = {
-  steel_axes:   { name: 'Steel Axes',   icon: '🪓', cost: { energy: 40 },            desc: '+30% wood gathering' },
-  mining_carts: { name: 'Mining Carts', icon: '⛏️', cost: { energy: 60, wood: 50 },  desc: '+30% stone and coal mining' },
-  plough:       { name: 'Plough',       icon: '🚜', cost: { energy: 60, wood: 75 },  desc: '+30% food from farms' },
+  steel_axes:      { name: 'Steel Axes', era: 0, time: 20, cost: { energy: 40 }, desc: '+30% wood gathering.' },
+  mining_carts:    { name: 'Mining Carts', era: 0, time: 25, cost: { energy: 60, wood: 50 }, desc: '+30% stone and coal mining.' },
+  plough:          { name: 'Plough', era: 0, time: 25, cost: { energy: 60, wood: 75 }, desc: '+30% food from farms.' },
+  chainsaws:       { name: 'Chainsaws', era: 1, time: 30, cost: { energy: 100, wood: 100 }, desc: 'Another +30% wood gathering.' },
+  iron_weapons:    { name: 'Iron Weapons', era: 1, time: 35, cost: { energy: 120, stone: 100 }, desc: '+25% attack for all units.' },
+  electric_tools:  { name: 'Electric Tools', era: 2, time: 40, cost: { clean: 150, food: 200 }, desc: '+20% gathering of everything.' },
+  smart_grid:      { name: 'Smart Grid', era: 2, time: 40, cost: { clean: 200, stone: 150 }, desc: 'Wind turbines and solar farms make 50% more.' },
+  reforestation:   { name: 'Reforestation', era: 2, time: 40, cost: { food: 300, wood: 200 }, desc: 'Forests soak up twice as much CO₂.' },
+  climate_shields: { name: 'Climate Shields', era: 3, time: 50, cost: { clean: 400, stone: 300 }, desc: 'Disasters do half damage to your buildings.' },
 };
 
-// ---------- Drawing ----------
-// Draws a building into Graphics `g` with its top-left at (0, 0).
-export function drawBuildingArt(g, type, colors, { progress = 1, foodFrac = 1, alpha = 1, angle = 0, grow = 0 } = {}) {
-  const def = BUILDING_TYPES[type];
-  const W = def.w * TILE;
-  const H = def.h * TILE;
-  let a = alpha;
-
-  if (progress < 1) {
-    // Foundation + scaffolding while under construction.
-    g.fillStyle(0x8b6b43, 0.55 * alpha).fillRect(0, 0, W, H);
-    g.lineStyle(2, 0x5c4326, 0.9 * alpha).strokeRect(1, 1, W - 2, H - 2);
-    g.lineStyle(2, 0x5c4326, 0.6 * alpha).lineBetween(0, 0, W, H).lineBetween(W, 0, 0, H);
-    a = alpha * (0.15 + 0.6 * progress);
-  }
-
-  switch (type) {
-    case 'town_centre': {
-      g.fillStyle(0x000000, 0.25 * a).fillRect(8, 14, 88, 82);
-      g.fillStyle(0x8f8f8f, a).fillRect(4, 40, 88, 52);
-      g.lineStyle(2, 0x5e5e5e, a).strokeRect(4, 40, 88, 52);
-      g.lineStyle(1, 0x6f6f6f, a);
-      for (const y of [52, 64, 76]) g.lineBetween(6, y, 90, y);
-      g.fillStyle(0xc8a165, a).fillRect(14, 28, 68, 22);
-      g.fillStyle(colors.main, a).fillTriangle(6, 34, 48, 4, 90, 34);
-      g.fillStyle(colors.dark, a).fillTriangle(48, 4, 90, 34, 48, 34);
-      g.fillStyle(0x5b3a1e, a).fillRect(40, 66, 16, 26);
-      g.fillStyle(0x9fc5e8, a).fillRect(16, 58, 12, 10).fillRect(68, 58, 12, 10);
-      g.fillStyle(0x5b3a1e, a).fillRect(47, -14, 2, 20);
-      g.fillStyle(colors.main, a).fillTriangle(49, -14, 62, -9, 49, -4);
-      break;
-    }
-    case 'house': {
-      g.fillStyle(0x000000, 0.25 * a).fillRect(10, 12, 54, 52);
-      g.fillStyle(0xe0cfa9, a).fillRect(8, 28, 48, 32);
-      g.lineStyle(2, 0x8b7355, a).strokeRect(8, 28, 48, 32);
-      g.fillStyle(0x6b4423, a).fillRect(27, 42, 10, 18);
-      g.fillStyle(0x9fc5e8, a).fillRect(13, 36, 9, 8).fillRect(42, 36, 9, 8);
-      g.fillStyle(0x6b6b6b, a).fillRect(44, 8, 6, 14);
-      g.fillStyle(0xa0522d, a).fillTriangle(2, 32, 32, 4, 62, 32);
-      g.fillStyle(0x7f3f1f, a).fillTriangle(32, 4, 62, 32, 32, 32);
-      g.fillStyle(colors.main, a).fillRect(8, 58, 48, 2);
-      break;
-    }
-    case 'farm': {
-      g.fillStyle(0x7a4f2a, a).fillRect(1, 1, 62, 62);
-      const rows = 6;
-      const shown = Math.ceil(rows * Math.max(0, foodFrac));
-      for (let i = 0; i < rows; i++) {
-        const col = i < shown ? (i % 2 ? 0xd4b83a : 0x9bbf3a) : 0x5e3d20;
-        g.fillStyle(col, a).fillRect(5, 5 + i * 10, 54, 5);
-      }
-      g.lineStyle(2, 0x5c3d1e, a).strokeRect(1, 1, 62, 62);
-      g.fillStyle(0x5c3d1e, a).fillRect(0, 0, 4, 4).fillRect(60, 0, 4, 4).fillRect(0, 60, 4, 4).fillRect(60, 60, 4, 4);
-      break;
-    }
-    case 'storage': {
-      g.fillStyle(0x000000, 0.25 * a).fillRect(10, 16, 54, 48);
-      g.fillStyle(0x9c6b3c, a).fillRect(6, 22, 52, 38);
-      g.lineStyle(1, 0x7a522c, a);
-      for (let x = 14; x < 58; x += 8) g.lineBetween(x, 26, x, 60);
-      g.fillStyle(0x5c3d1e, a).fillRect(2, 12, 60, 14);
-      g.fillStyle(colors.main, a).fillRect(6, 26, 52, 3);
-      g.fillStyle(0x3b2614, a).fillRect(24, 38, 16, 22);
-      g.fillStyle(0xc9a26b, a).fillRect(8, 48, 12, 12).fillRect(44, 48, 12, 12);
-      g.lineStyle(1, 0x7a522c, a).strokeRect(8, 48, 12, 12).strokeRect(44, 48, 12, 12);
-      break;
-    }
-    case 'barracks': {
-      g.fillStyle(0x000000, 0.25 * a).fillRect(10, 22, 86, 72);
-      g.fillStyle(0x7d6b57, a).fillRect(6, 34, 84, 56);
-      g.lineStyle(2, 0x4e4134, a).strokeRect(6, 34, 84, 56);
-      g.fillStyle(0x4a3b2a, a).fillRect(0, 18, 96, 22);
-      g.fillStyle(0x3a2d20, a).fillRect(0, 36, 96, 4);
-      g.fillStyle(0x2e2216, a).fillRect(40, 62, 16, 28);
-      g.fillStyle(colors.main, a).fillRect(14, 46, 12, 22).fillTriangle(14, 68, 26, 68, 20, 74);
-      g.fillStyle(colors.main, a).fillRect(70, 46, 12, 22).fillTriangle(70, 68, 82, 68, 76, 74);
-      g.lineStyle(3, 0xdddddd, a).lineBetween(38, 44, 58, 58).lineBetween(58, 44, 38, 58);
-      break;
-    }
-    case 'wind_turbine': {
-      g.fillStyle(0x000000, 0.2 * a).fillEllipse(36, 58, 30, 10);
-      g.fillStyle(0x9e9e9e, a).fillRect(18, 50, 28, 10);
-      g.fillStyle(colors.main, a).fillRect(18, 56, 28, 3);
-      g.fillStyle(0xf2f2f2, a).fillRect(30, 16, 5, 38);
-      g.lineStyle(1, 0xbdbdbd, a).strokeRect(30, 16, 5, 38);
-      const hx = 32.5, hy = 16;
-      g.lineStyle(3, 0xffffff, a);
-      for (let i = 0; i < 3; i++) {
-        const ang = angle + (i * Math.PI * 2) / 3;
-        g.lineBetween(hx, hy, hx + Math.cos(ang) * 20, hy + Math.sin(ang) * 20);
-      }
-      g.fillStyle(0xdddddd, a).fillCircle(hx, hy, 3);
-      break;
-    }
-    case 'trees': {
-      g.fillStyle(0x6b4a2b, 0.8 * a).fillRect(2, 2, 60, 60);
-      for (let i = 0; i < 4; i++) {
-        for (let j = 0; j < 4; j++) {
-          const sx = 9 + i * 15;
-          const sy = 9 + j * 15;
-          const r = 2 + 4 * grow;
-          g.fillStyle(0x2f5a17, a).fillCircle(sx, sy + 1, r);
-          g.fillStyle(0x58a032, a).fillCircle(sx - 1, sy - 1, r * 0.6);
-        }
-      }
-      break;
-    }
-  }
-}
+const CROP_ROWS = 9;
 
 export class Building {
   constructor(scene, map, type, tx, ty, team = 'player', complete = false) {
@@ -175,20 +123,29 @@ export class Building {
     this.queue = [];          // units waiting to be trained
     this.trainTimer = 0;
     this.waitingForPop = false;
+    this.research = null;     // { kind: 'upgrade' | 'era', id, time, t }
     this.food = def.food || 0;
     this.farmer = null;
-    this.angle = Math.random() * Math.PI;  // wind turbine blade angle
-    this.grow = 0;                          // sapling growth 0 → 1
+    this.angle = Math.random() * Math.PI; // turbine blades
+    this.grow = 0;                         // sapling growth 0 → 1
+    this.smokeTimer = Math.random();
+    this.wonderTime = 0;
+    this.capturing = false;
+    this.cooldown = 1;
+    this.isBuilding = true;
     this.selected = false;
     this.dead = false;
 
-    const px = tx * TILE;
-    const py = ty * TILE;
-    this.container = scene.add.container(px, py);
-    this.container.setDepth(def.walkable ? py : py + this.H);
-    this.gfx = scene.add.graphics();
+    // The container sits at the footprint's top corner (in isometric world space).
+    const iso = toIso(tx * TILE, ty * TILE);
+    this.container = scene.add.container(iso.x, iso.y);
+    this.container.setDepth(def.walkable ? iso.y : iso.y + (this.W + this.H) / 2);
+    this.tex = buildingTexInfo(def);
+    this.foundation = scene.add.graphics();
+    this.image = scene.add.image(-this.tex.ox, -this.tex.oy, buildingKey(type, team)).setOrigin(0);
+    this.overlay = scene.add.graphics();
     this.ui = scene.add.graphics();
-    this.container.add([this.gfx, this.ui]);
+    this.container.add([this.foundation, this.image, this.overlay, this.ui]);
 
     map.placeBuilding(this);
     this.redraw();
@@ -212,27 +169,88 @@ export class Building {
     return this.complete;
   }
 
-  redraw() {
-    const g = this.gfx;
-    g.clear();
-    drawBuildingArt(g, this.type, TEAM_COLORS[this.team], {
-      progress: this.progress,
-      foodFrac: this.def.food ? this.food / this.def.food : 1,
-      angle: this.angle,
-      grow: this.grow,
-    });
+  // Footprint diamond as a list of points (container coordinates).
+  diamondPts(z = 0, inset = 0) {
+    const W = this.W - inset;
+    const H = this.H - inset;
+    return [P(inset, inset, z), P(W, inset, z), P(W, H, z), P(inset, H, z)];
+  }
 
+  redraw() {
+    const W = this.W;
+    const H = this.H;
+
+    // Foundation & scaffolding while under construction; the building "rises" as it's built.
+    const f = this.foundation;
+    f.clear();
+    if (!this.complete) {
+      f.fillStyle(0x6b5640, 0.85).fillPoints(this.diamondPts(), true);
+      f.lineStyle(1, 0x3e2f22, 0.9).strokePoints(this.diamondPts(), true);
+      f.lineStyle(2, 0x8a6b45, 0.9);
+      const hgt = 10 + 30 * this.progress;
+      for (const p of this.diamondPts(0, 4)) f.lineBetween(p.x, p.y, p.x, p.y - hgt);
+      const top = this.diamondPts(hgt, 4);
+      f.strokePoints(top, true);
+    }
+    const fullH = this.tex.height;
+    const visible = this.complete ? fullH : Math.max(2, fullH * this.progress);
+    this.image.setCrop(0, fullH - visible, this.tex.width, visible);
+    this.image.setAlpha(this.complete ? 1 : 0.92);
+
+    // Moving / changing parts drawn on top.
+    const o = this.overlay;
+    o.clear();
+    if (this.complete) {
+      if (this.type === 'farm') {
+        const frac = this.def.food ? this.food / this.def.food : 1;
+        const rows = 11;
+        const shown = Math.ceil(rows * Math.max(0, frac));
+        for (let i = 0; i < shown; i++) {
+          const y = 5 + i * 5;
+          const a = P(4, y), b = P(60, y);
+          o.lineStyle(3, i % 2 ? 0xb39a4e : 0x86973f, 1).lineBetween(a.x, a.y - 1.5, b.x, b.y - 1.5);
+          o.lineStyle(1, 0x000000, 0.18).lineBetween(a.x, a.y, b.x, b.y);
+        }
+      } else if (this.type === 'wind_turbine') {
+        const [hx, hy] = BUILDING_POINTS.wind_turbine.hub;
+        for (let i = 0; i < 3; i++) {
+          const a = this.angle + (i * Math.PI * 2) / 3;
+          o.lineStyle(3, 0x000000, 0.12).lineBetween(hx + 3, hy + 4, hx + 3 + Math.cos(a) * 24, hy + 4 + Math.sin(a) * 24);
+          o.lineStyle(2.5, 0xeaeae6, 1).lineBetween(hx, hy, hx + Math.cos(a) * 24, hy + Math.sin(a) * 24);
+        }
+        o.fillStyle(0xcfcfcb, 1).fillCircle(hx, hy, 2.5);
+      } else if (this.type === 'trees') {
+        for (let i = 0; i < 4; i++) {
+          for (let j = 0; j < 4; j++) {
+            const q = P(9 + i * 15, 9 + j * 15);
+            const r = 2 + 5 * this.grow;
+            o.fillStyle(0x000000, 0.25).fillEllipse(q.x + r * 0.6, q.y, r * 2, r * 0.8);
+            o.fillStyle(0x3b2a1a, 1).fillRect(q.x - 0.75, q.y - r * 1.2, 1.5, r * 1.2);
+            o.fillStyle(0x2f4a24, 1).fillCircle(q.x, q.y - r * 1.6, r);
+            o.fillStyle(0x6f9a4c, 1).fillCircle(q.x - r * 0.3, q.y - r * 1.9, r * 0.55);
+          }
+        }
+      }
+    }
+
+    // Selection outline and progress / health bars (shown just below the building).
     const u = this.ui;
     u.clear();
-    if (this.selected) u.lineStyle(2, 0x7cfc00, 1).strokeRect(-3, -3, this.W + 6, this.H + 6);
+    if (this.selected) {
+      u.lineStyle(1.5, 0xe8dca0, 0.95).strokePoints(this.diamondPts(), true);
+    }
     let frac = null;
     let col = 0;
-    if (!this.complete) { frac = this.progress; col = 0xffb300; }
-    else if (this.queue.length) { frac = this.trainProgress; col = 0x5fa8ff; }
-    else if (this.hp < this.maxHp) { frac = this.hp / this.maxHp; col = frac > 0.5 ? 0xf1c232 : 0xe53935; }
+    if (!this.complete) { frac = this.progress; col = 0xc8a960; }
+    else if (this.research) { frac = this.research.t / this.research.time; col = 0x9c86c9; }
+    else if (this.queue.length) { frac = this.trainProgress; col = 0x7fa6d6; }
+    else if (this.hp < this.maxHp || this.selected) { frac = this.hp / this.maxHp; col = frac > 0.5 ? 0x5fb04a : frac > 0.25 ? 0xd0a63a : 0xb8433a; }
     if (frac !== null) {
-      u.fillStyle(0x000000, 0.6).fillRect(6, -12, this.W - 12, 6);
-      u.fillStyle(col, 1).fillRect(7, -11, (this.W - 14) * frac, 4);
+      const bw = Math.min(70, (W + H) * 0.45);
+      const cx = (W - H) / 2;
+      const y = (W + H) / 2 + 6;
+      u.fillStyle(0x000000, 0.7).fillRect(cx - bw / 2, y, bw, 5);
+      u.fillStyle(col, 1).fillRect(cx - bw / 2 + 1, y + 1, (bw - 2) * Math.max(0, Math.min(1, frac)), 3);
     }
   }
 
@@ -244,14 +262,69 @@ export class Building {
   // Per-frame work for buildings that do things on their own.
   update(dt, world) {
     if (!this.complete || this.dead) return;
-    if (this.def.produces) {
-      for (const [res, rate] of Object.entries(this.def.produces)) world.addResource(res, (rate * dt) / 1000);
-      this.angle += dt * 0.004;
+    const s = dt / 1000;
+
+    // Town Centres and towers shoot arrows at nearby enemy units.
+    if (this.def.attack) {
+      this.cooldown -= s;
+      if (this.cooldown <= 0) {
+        const e = world.findEnemyUnitNear(this.cx, this.cy, this.def.attack.range, this.team);
+        if (e) {
+          world.shoot(this.cx, this.cy, e, this.def.attack.dmg, this, this.type === 'tower' ? 60 : 50);
+          this.cooldown = this.def.attack.cooldown;
+        } else {
+          this.cooldown = 0.5;
+        }
+      }
+    }
+
+    // Research in progress (upgrades / new era).
+    if (this.research) {
+      this.research.t += s;
+      if (this.research.t >= this.research.time) world.finishResearch(this);
       this.redraw();
     }
+
+    // Energy producers.
+    if (this.def.produces) {
+      for (const [res, rate] of Object.entries(this.def.produces)) {
+        world.addResource(res, rate * world.productionMultiplier(res, this.team) * s, this.team);
+      }
+      if (this.type === 'wind_turbine') {
+        this.angle += dt * 0.003;
+        this.redraw();
+      }
+    }
+
+    // Coal power plant smoke.
+    if (this.def.smoke) {
+      this.smokeTimer -= s;
+      if (this.smokeTimer <= 0) {
+        this.smokeTimer = 0.35;
+        for (const [sx, sy] of BUILDING_POINTS.power_plant.smoke) world.smoke(this.container.x + sx, this.container.y + sy);
+      }
+    }
+
+    // Carbon capture uses clean energy to remove CO₂.
+    if (this.def.capture) {
+      const need = this.def.capture.clean * s;
+      const r = world.teams[this.team].resources;
+      this.capturing = r.clean >= need;
+      if (this.capturing) {
+        r.clean -= need;
+        world.climate.addCO2(-this.def.capture.co2 * s);
+      }
+    }
+
+    // The wonder heals the planet and counts down to a Green Victory.
+    if (this.def.wonder) {
+      this.wonderTime += s;
+      world.climate.addCO2(-this.def.removesCO2 * s);
+    }
+
     if (this.type === 'trees') {
       const before = Math.floor(this.grow * 20);
-      this.grow = Math.min(1, this.grow + dt / 1000 / this.def.growTime);
+      this.grow = Math.min(1, this.grow + s / this.def.growTime);
       if (Math.floor(this.grow * 20) !== before) this.redraw();
       if (this.grow >= 1) world.growForest(this);
     }

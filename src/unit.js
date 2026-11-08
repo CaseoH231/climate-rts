@@ -1,15 +1,32 @@
 // Units: workers and soldiers. Workers can gather resources and construct buildings.
-import { TEAM_COLORS } from './config.js';
 import { findPath } from './pathfinding.js';
+import { unitKey } from './art.js';
+import { toIso } from './iso.js';
 
+// attack = damage per hit, range in pixels, cooldown in seconds between hits,
+// sight = how far idle units notice enemies, vsBuilding = damage multiplier against buildings.
+// era = first era it can be trained in.
 export const UNIT_TYPES = {
-  worker:  { name: 'Worker',  icon: '👷', speed: 75, hp: 25, cost: { food: 50 },           trainTime: 8 },
-  soldier: { name: 'Soldier', icon: '🗡️', speed: 85, hp: 45, cost: { food: 60, wood: 20 }, trainTime: 10 },
+  worker:  { name: 'Worker',  era: 0, speed: 75, hp: 25, cost: { food: 50 },           trainTime: 8,
+             attack: 3, range: 24, cooldown: 1.5, sight: 0,   vsBuilding: 0.3,
+             desc: 'Gathers resources and constructs buildings.' },
+  soldier: { name: 'Soldier', era: 0, speed: 85, hp: 60, cost: { food: 60, wood: 20 }, trainTime: 10,
+             attack: 8, range: 26, cooldown: 1.1, sight: 210, vsBuilding: 0.6,
+             desc: 'Tough close-range fighter.' },
+  archer:  { name: 'Archer',  era: 0, speed: 80, hp: 35, cost: { food: 40, wood: 45 }, trainTime: 11,
+             attack: 6, range: 150, cooldown: 1.6, sight: 230, vsBuilding: 0.25,
+             desc: 'Shoots from range. Fragile up close.' },
+  rifleman: { name: 'Rifleman', era: 1, speed: 80, hp: 55, cost: { food: 60, wood: 20, energy: 20 }, trainTime: 13,
+             attack: 11, range: 170, cooldown: 1.8, sight: 240, vsBuilding: 0.35,
+             desc: 'Long-range gunner. Needs energy to equip.' },
+  armoured_car: { name: 'Armoured Car', era: 2, speed: 95, hp: 220, cost: { wood: 80, stone: 60, energy: 80 }, trainTime: 20,
+             attack: 14, range: 120, cooldown: 1.4, sight: 240, vsBuilding: 1.0, vehicle: true,
+             desc: 'Fast, tough and great against buildings. Runs on energy.' },
 };
 
 const GATHER_RATE = { wood: 0.9, stone: 0.7, food: 0.8, fuel: 1.1 }; // per second (coal is quick to mine!)
 const CARRY_MAX = 10;
-const CARRY_COLOR = { wood: 0x8b5a2b, stone: 0xb0b0b0, food: 0xf1c232, fuel: 0x1a1a1a };
+const CARRY_COLOR = { wood: 0x8a6440, stone: 0xa9a59b, food: 0xc9a94e, fuel: 0x1f1f1f };
 const GATHER_WORD = { wood: 'chopping wood', stone: 'mining stone', food: 'foraging', fuel: 'mining coal' };
 
 let nextId = 1;
@@ -33,49 +50,59 @@ export class Unit {
     this.carry = 0;
     this.carryType = null;
     this.workAnim = 0;
+    this.cooldown = 0;
+    this.sfxTimer = Math.random() * 600;
+    this.scanTimer = Math.random() * 500;
+    this.isBuilding = false;
+    this.dead = false;
     this.selected = false;
 
-    const colors = TEAM_COLORS[team];
     const c = map.tileCenter(tx, ty);
-    this.container = scene.add.container(c.x, c.y);
+    this.px = c.x; // position on the game grid (pixels); the sprite is drawn isometrically
+    this.py = c.y;
+    const iso = toIso(c.x, c.y);
+    this.container = scene.add.container(iso.x, iso.y);
+    this.walkPhase = Math.random() * 6;
 
-    const shadow = scene.add.ellipse(0, 9, 22, 9, 0x000000, 0.3);
-    this.ring = scene.add.ellipse(0, 9, 30, 13).setStrokeStyle(2, 0x7cfc00).setVisible(false);
+    const big = def.vehicle;
+    const shadow = scene.add.ellipse(0, 1, big ? 34 : 18, big ? 12 : 8, 0x000000, 0.32);
+    this.ring = scene.add.ellipse(0, 1, big ? 42 : 26, big ? 16 : 12).setStrokeStyle(1.5, 0xe0d8b0, 0.9).setVisible(false);
+    this.sprite = scene.add.image(0, 0, unitKey(type, team)).setOrigin(0.5, big ? 0.72 : 0.86);
+    this.tool = null;
+    const body = [this.sprite];
 
-    let body;
-    if (type === 'worker') {
-      this.tool = scene.add.rectangle(9, 0, 3, 13, 0x8b5a2b);
-      body = [
-        this.tool,
-        scene.add.circle(0, 0, 8, colors.main).setStrokeStyle(2, colors.dark),
-        scene.add.circle(0, -6, 4, 0xe6b85c),                        // straw hat
-      ];
-    } else {
-      this.tool = null;
-      body = [
-        scene.add.rectangle(11, -2, 3, 16, 0xdddddd),                // sword
-        scene.add.rectangle(0, 0, 16, 16, colors.main).setStrokeStyle(2, colors.dark),
-        scene.add.rectangle(0, -7, 12, 5, 0x9a9a9a),                 // helmet
-      ];
-    }
+    this.body = body;
 
-    this.carryIcon = scene.add.rectangle(-9, -7, 7, 7, 0xffffff).setStrokeStyle(1, 0x000000).setVisible(false);
-    this.hpBg = scene.add.rectangle(-12, -20, 24, 4, 0x000000, 0.6).setOrigin(0, 0.5).setVisible(false);
-    this.hpFill = scene.add.rectangle(-12, -20, 24, 4, 0x6aff4d).setOrigin(0, 0.5).setVisible(false);
+    this.carryIcon = scene.add.rectangle(-9, -6, 6, 6, 0xffffff).setStrokeStyle(1, 0x1a1a1a).setVisible(false);
+    const barY = big ? -26 : -32;
+    this.hpBg = scene.add.rectangle(-11, barY, 22, 4, 0x000000, 0.65).setOrigin(0, 0.5).setVisible(false);
+    this.hpFill = scene.add.rectangle(-10, barY, 20, 2, 0x8fb04a).setOrigin(0, 0.5).setVisible(false);
 
     this.container.add([shadow, this.ring, ...body, this.carryIcon, this.hpBg, this.hpFill]);
-    this.container.setDepth(c.y);
+    this.container.setDepth(iso.y);
   }
 
-  get x() { return this.container.x; }
-  get y() { return this.container.y; }
+  get x() { return this.px; }
+  get y() { return this.py; }
+  get isoX() { return this.container.x; }
+  get isoY() { return this.container.y; }
+
+  setPos(x, y) {
+    this.px = x;
+    this.py = y;
+    const iso = toIso(x, y);
+    this.container.setPosition(iso.x, iso.y);
+    this.container.setDepth(iso.y);
+  }
   get tile() { return this.map.worldToTile(this.x, this.y); }
   get isMoving() { return this.path.length > 0; }
   get isIdle() { return !this.order && !this.isMoving; }
+  get isMilitary() { return this.type !== 'worker'; }
 
   get statusText() {
     const o = this.order;
     if (!o) return this.isMoving ? 'moving' : 'idle';
+    if (o.kind === 'attack') return 'fighting';
     if (o.kind === 'build') return `building ${o.building.def.name}`;
     if (o.phase === 'return') return `carrying ${o.res === 'fuel' ? 'coal' : o.res}`;
     return o.farm ? 'farming' : GATHER_WORD[o.res];
@@ -89,16 +116,30 @@ export class Unit {
     this.stop();
     if (safe) {
       const c = this.map.tileCenter(safe.x, safe.y);
-      this.container.setPosition(c.x, c.y);
+      this.setPos(c.x, c.y);
     }
   }
 
   setSelected(v) {
     this.selected = v;
     this.ring.setVisible(v);
-    this.hpBg.setVisible(v);
-    this.hpFill.setVisible(v);
-    this.hpFill.width = 24 * (this.hp / this.maxHp);
+    this.updateHpBar();
+  }
+
+  // Health bar shows when selected or hurt.
+  updateHpBar() {
+    const show = this.selected || this.hp < this.maxHp;
+    this.hpBg.setVisible(show);
+    this.hpFill.setVisible(show);
+    const f = Math.max(0, this.hp / this.maxHp);
+    this.hpFill.width = 20 * f;
+    this.hpFill.setFillStyle(f > 0.6 ? 0x8fb04a : f > 0.3 ? 0xd0a63a : 0xb8433a);
+  }
+
+  orderAttack(target) {
+    if (!target || target.dead || target.team === this.team) return;
+    this.stop();
+    this.order = { kind: 'attack', target, repath: 0 };
   }
 
   // ---------- Walking ----------
@@ -127,7 +168,14 @@ export class Unit {
     if (this.order && this.order.farm && this.order.farm.farmer === this) this.order.farm.farmer = null;
     this.order = null;
     this.path = [];
-    if (this.tool) this.tool.rotation = 0;
+    this.sprite.rotation = 0;
+    this.sprite.y = 0;
+  }
+
+  // Turn to face a point on the grid (left/right on screen).
+  face(x, y) {
+    const dx = (x - y) - (this.px - this.py);
+    if (Math.abs(dx) > 1) this.sprite.setFlipX(dx < 0);
   }
 
   moveTo(goal) {
@@ -172,9 +220,9 @@ export class Unit {
 
   returnCargo(world) {
     const o = this.order;
-    const d = world.nearestDropOff(this.x, this.y);
+    const d = world.nearestDropOff(this.x, this.y, this.team);
     if (!d) {
-      world.toast('Nowhere to drop off resources — build a Storage Shed');
+      if (this.team === 'player') world.toast('Nowhere to drop off resources — build a Storage Shed');
       this.stop();
       return;
     }
@@ -205,14 +253,22 @@ export class Unit {
       this.orderFarm(b);
       return;
     }
-    const other = world.nearestUnfinished(this.x, this.y, 10);
+    const other = world.nearestUnfinished(this.x, this.y, 10, this.team);
     if (other) this.orderBuild(other);
   }
 
+  // Work noises (chopping, mining, hammering…) every so often.
+  workSound(dt, world, name) {
+    this.sfxTimer -= dt;
+    if (this.sfxTimer > 0) return;
+    this.sfxTimer = name === 'build' ? 450 + Math.random() * 250 : 700 + Math.random() * 500;
+    world.sfx(name, this.x, this.y);
+  }
+
   animateWork(dt) {
-    if (!this.tool) return;
     this.workAnim += dt;
-    this.tool.rotation = Math.sin(this.workAnim / 110) * 0.7;
+    this.sprite.rotation = Math.sin(this.workAnim / 140) * 0.12;
+    this.sprite.y = -Math.max(0, Math.sin(this.workAnim / 140)) * 1.5;
   }
 
   updateCarryIcon() {
@@ -222,36 +278,126 @@ export class Unit {
   }
 
   // ---------- Every frame ----------
+  stepPath(dt) {
+    if (!this.path.length) return;
+    const target = this.path[0];
+    const nt = this.map.worldToTile(target.x, target.y);
+    if (!this.map.isWalkable(nt.x, nt.y) && this.dest) {
+      // Something was built in the way — find a new route.
+      if (!this.walkTo(this.dest)) this.path = [];
+      return;
+    }
+    const dx = target.x - this.x;
+    const dy = target.y - this.y;
+    const dist = Math.hypot(dx, dy);
+    const step = (this.speed * dt) / 1000;
+    this.face(target.x, target.y);
+    this.sprite.rotation = 0;
+    this.walkPhase += dt * 0.014;
+    this.sprite.y = this.def.vehicle ? 0 : -Math.abs(Math.sin(this.walkPhase)) * 1.6;
+    if (dist <= step) {
+      this.setPos(target.x, target.y);
+      this.path.shift();
+      if (!this.path.length) this.sprite.y = 0;
+    } else {
+      this.setPos(this.px + (dx / dist) * step, this.py + (dy / dist) * step);
+    }
+  }
+
   update(dt, world) {
+    if (this.dead) return;
+    this.cooldown = Math.max(0, this.cooldown - dt / 1000);
+
+    if (this.order && this.order.kind === 'attack') {
+      this.updateAttack(dt, world);
+      return;
+    }
+
     // 1. Walk along the path.
     if (this.path.length) {
-      const target = this.path[0];
-      const nt = this.map.worldToTile(target.x, target.y);
-      if (!this.map.isWalkable(nt.x, nt.y) && this.dest) {
-        // Something was built in the way — find a new route.
-        if (!this.walkTo(this.dest)) this.path = [];
-        return;
-      }
-      const dx = target.x - this.x;
-      const dy = target.y - this.y;
-      const dist = Math.hypot(dx, dy);
-      const step = (this.speed * dt) / 1000;
-      if (dist <= step) {
-        this.container.setPosition(target.x, target.y);
-        this.path.shift();
-      } else {
-        this.container.x += (dx / dist) * step;
-        this.container.y += (dy / dist) * step;
-      }
-      this.container.setDepth(this.container.y);
+      this.stepPath(dt);
       return;
     }
 
     // 2. Carry out the current order.
     const o = this.order;
-    if (!o) return;
+    if (!o) {
+      // Idle soldiers and archers watch for enemies.
+      if (this.isMilitary) {
+        this.scanTimer -= dt;
+        if (this.scanTimer <= 0) {
+          this.scanTimer = 500;
+          const e = world.findEnemyNear(this.x, this.y, this.def.sight, this.team);
+          if (e) this.orderAttack(e);
+        }
+      }
+      return;
+    }
     if (o.kind === 'build') this.updateBuild(dt, world);
     else if (o.kind === 'gather') this.updateGather(dt, world);
+  }
+
+  updateAttack(dt, world) {
+    const o = this.order;
+    let t = o.target;
+    if (!t || t.dead) {
+      // Target gone — soldiers look for the next enemy nearby.
+      const next = this.isMilitary ? world.findEnemyNear(this.x, this.y, this.def.sight, this.team) : null;
+      if (next) { o.target = next; o.repath = 0; return; }
+      this.stop();
+      return;
+    }
+    // Soldiers hitting a building switch to enemy soldiers that come close.
+    if (t.isBuilding && this.isMilitary) {
+      this.scanTimer -= dt;
+      if (this.scanTimer <= 0) {
+        this.scanTimer = 500;
+        const e = world.findEnemyUnitNear(this.x, this.y, this.def.sight * 0.7, this.team);
+        if (e) { o.target = e; o.repath = 0; return; }
+      }
+    }
+    const d = world.distanceTo(this.x, this.y, t);
+    if (d > this.def.range) {
+      o.repath -= dt;
+      if (o.repath <= 0 || !this.path.length) {
+        o.repath = 700;
+        const ok = t.isBuilding
+          ? this.walkToAny(this.map.standSpots(t.tx, t.ty, t.w, t.h, this.tile))
+          : this.walkTo(t.tile);
+        if (!ok) { this.stop(); return; }
+      }
+      this.stepPath(dt);
+      return;
+    }
+    this.path = [];
+    this.sprite.y = 0;
+    this.face(t.isBuilding ? t.cx : t.x, t.isBuilding ? t.cy : t.y);
+    if (this.cooldown <= 0) {
+      this.cooldown = this.def.cooldown;
+      const dmg = this.def.attack * (t.isBuilding ? this.def.vsBuilding : 1) * world.attackMultiplier(this.team);
+      if (this.def.range > 60) {
+        world.shoot(this.x, this.y, t, dmg, this, 18);
+      } else {
+        world.dealDamage(t, dmg, this);
+        world.sfx(this.type === 'worker' ? 'build' : 'sword', this.x, this.y);
+        // little lunge
+        const tx = t.isBuilding ? t.cx : t.x;
+        const ty = t.isBuilding ? t.cy : t.y;
+        const ti = toIso(tx, ty);
+        const a = Math.atan2(ti.y - this.isoY, ti.x - this.isoX);
+        for (const part of this.body) {
+          part.x += Math.cos(a) * 3;
+          part.y += Math.sin(a) * 3;
+        }
+        this.scene.time.delayedCall(120, () => {
+          if (this.dead) return;
+          for (const part of this.body) {
+            part.x -= Math.cos(a) * 3;
+            part.y -= Math.sin(a) * 3;
+          }
+        });
+      }
+    }
   }
 
   updateBuild(dt, world) {
@@ -267,7 +413,9 @@ export class Unit {
       }
       o.phase = 'work';
     }
+    this.face(b.cx, b.cy);
     this.animateWork(dt);
+    this.workSound(dt, world, 'build');
     if (b.addProgress(dt)) {
       world.onBuildingComplete(b);
       this.finishBuild(b, world);
@@ -294,8 +442,10 @@ export class Unit {
     }
 
     if (o.phase === 'work') {
+      if (!o.farm) { const c = this.map.tileCenter(o.tx, o.ty); this.face(c.x, c.y); }
       this.animateWork(dt);
-      const want = (GATHER_RATE[o.res] * world.gatherMultiplier(o.res, !!o.farm) * dt) / 1000;
+      this.workSound(dt, world, o.res === 'wood' ? 'chop' : o.res === 'food' ? 'forage' : 'mine');
+      const want = (GATHER_RATE[o.res] * world.gatherMultiplier(o.res, !!o.farm, this.team) * dt) / 1000;
       let got;
       if (o.farm) {
         got = Math.min(want, o.farm.food);
@@ -335,7 +485,7 @@ export class Unit {
         return;
       }
       o.retriedReturn = false;
-      world.addResource(o.res, Math.round(this.carry));
+      world.addResource(o.res, Math.round(this.carry), this.team);
       this.carry = 0;
       this.updateCarryIcon();
       if (o.noMore) { this.stop(); return; }

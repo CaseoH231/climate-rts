@@ -6,6 +6,7 @@ export const MAP_H = 64;     // map height in tiles
 export const MAP_SEED = 20261107; // change this for a different map
 
 export const PLAYER_START = { x: 12, y: 12 }; // centre tile of the player's Town Centre
+export const ENEMY_START = { x: 51, y: 50 };  // centre tile of the enemy's Town Centre
 
 export const START_RESOURCES = { food: 200, wood: 200, stone: 100, fuel: 0, clean: 0 };
 export const POP_MAX = 200;
@@ -55,5 +56,6 @@ export const CLIMATE = {
 };
 
 export const TEAM_COLORS = {
-  player: { main: 0x3c78d8, dark: 0x1c4587 },
+  player: { main: 0x3f6296, dark: 0x253c5e },
+  enemy:  { main: 0x93382f, dark: 0x5c201b },
 };

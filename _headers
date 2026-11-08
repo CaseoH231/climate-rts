@@ -1,0 +1,7 @@
+# Cloudflare Pages headers
+/sw.js
+  Cache-Control: no-cache
+/manifest.webmanifest
+  Content-Type: application/manifest+json
+/src/*
+  Cache-Control: no-cache

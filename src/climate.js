@@ -1,5 +1,6 @@
 // The climate: CO₂ in the air, global temperature, and the disasters that get worse as it heats up.
 import { TILE, TERRAIN, CLIMATE } from './config.js';
+import { toIso } from './iso.js';
 
 const N8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]];
 
@@ -19,7 +20,9 @@ export class Climate {
     this.secondTimer = 0;
     this.disasterTimer = 0;
     this.emittedTotal = 0;
-    this.fireGfx = world.add.graphics().setDepth(5e5);
+    this.fireGfx = world.add.graphics().setDepth(2);
+    this.fireGlow = world.add.graphics().setDepth(3);
+    if (this.fireGlow.setBlendMode && typeof Phaser !== 'undefined' && Phaser.BlendModes) this.fireGlow.setBlendMode(Phaser.BlendModes.ADD);
   }
 
   // Temperature the planet is heading towards for the current CO₂.
@@ -28,7 +31,7 @@ export class Climate {
   }
 
   addCO2(ppm) {
-    this.co2 += ppm;
+    this.co2 = Math.max(CLIMATE.baseCO2, this.co2 + ppm);
     if (ppm > 0) this.emittedTotal += ppm;
   }
 
@@ -61,7 +64,9 @@ export class Climate {
   tickSecond() {
     this.forestTiles = this.map.countTiles(TERRAIN.FOREST);
     const excess = Math.max(0, this.co2 - CLIMATE.baseCO2);
-    this.co2 -= Math.min(excess, this.forestTiles * CLIMATE.forestAbsorb);
+    const teams = this.world.teams || {};
+    const boost = Object.values(teams).some((t) => t.upgrades.has('reforestation')) ? 2 : 1;
+    this.co2 -= Math.min(excess, this.forestTiles * CLIMATE.forestAbsorb * boost);
     this.updateFires();
     this.updateAsh();
   }
@@ -82,6 +87,7 @@ export class Climate {
     // Hotter planet = bigger fires.
     this.fireBudget += Math.round(10 + 12 * Math.max(0, this.temp));
     this.ignite(tile.x, tile.y, true);
+    if (this.world.sfx) this.world.sfx('whoosh', tile.x * TILE + 16, tile.y * TILE + 16);
     this.world.toast('🔥 Wildfire! A forest is burning', '#ff8a50');
     this.world.events.emit('alert', tile.x, tile.y);
   }
@@ -157,18 +163,36 @@ export class Climate {
 
   drawFires() {
     const g = this.fireGfx;
+    const glow = this.fireGlow;
     g.clear();
+    glow.clear();
     if (!this.fires.size) return;
     const now = this.world.time.now;
     for (const f of this.fires.values()) {
-      const cx = f.x * TILE + TILE / 2;
-      const cy = f.y * TILE + TILE / 2;
-      const w1 = Math.sin(now / 90 + f.x * 3 + f.y) * 2;
-      const w2 = Math.cos(now / 70 + f.x + f.y * 5) * 2;
-      g.fillStyle(0x333333, 0.25).fillCircle(cx + 4 + w2, cy - 16 - (now / 40 + f.x * 7) % 10, 8);
-      g.fillStyle(0xd84315, 0.85).fillCircle(cx + w1, cy + 2, 11 + w2);
-      g.fillStyle(0xff9800, 0.9).fillCircle(cx - w2, cy - 2, 7 + w1);
-      g.fillStyle(0xffeb3b, 0.9).fillCircle(cx + w1 * 0.5, cy - 5, 3 + w2 * 0.5);
+      const iso = toIso(f.x * TILE + TILE / 2, f.y * TILE + TILE / 2);
+      const cx = iso.x;
+      const cy = iso.y - 4;
+      // smoke drifting up
+      for (let k = 0; k < 2; k++) {
+        const life = ((now / 1600 + f.x * 0.37 + f.y * 0.61 + k * 0.5) % 1);
+        g.fillStyle(0x2b2724, 0.35 * (1 - life)).fillCircle(cx + 6 + life * 14, cy - 8 - life * 40, 5 + life * 10);
+      }
+      // scorched base + flickering flame tongues (additive glow)
+      g.fillStyle(0x140d08, 0.4).fillEllipse(cx, cy + 6, 26, 9);
+      const flick = (a, k) => Math.sin(now / a + f.x * 3.1 + f.y * 1.7 + k * 2.3);
+      glow.fillStyle(0xff5a14, 0.08).fillCircle(cx, cy, 22 + flick(150, 0) * 3);
+      for (let k = 0; k < 5; k++) {
+        const bx = cx - 10 + k * 5 + flick(120, k) * 1.5;
+        const h = 9 + (k % 2 ? 6 : 3) + flick(70 + k * 13, k) * 4;
+        const lean = flick(200, k) * 2;
+        glow.fillStyle(0xb8360c, 0.55).fillTriangle(bx - 3.5, cy + 5, bx + 3.5, cy + 5, bx + lean, cy + 5 - h);
+        glow.fillStyle(0xe8891c, 0.45).fillTriangle(bx - 2, cy + 5, bx + 2, cy + 5, bx + lean * 0.6, cy + 5 - h * 0.6);
+      }
+      // embers
+      for (let k = 0; k < 2; k++) {
+        const life = ((now / 900 + f.x * 0.53 + f.y * 0.29 + k * 0.5) % 1);
+        glow.fillStyle(0xffb04a, 0.8 * (1 - life)).fillRect(cx - 6 + k * 10 + flick(90, k) * 3, cy - life * 26, 1.5, 1.5);
+      }
     }
   }
 
@@ -187,6 +211,7 @@ export class Climate {
     const hit = bs.filter((b) => Math.hypot(b.cx - centre.cx, b.cy - centre.cy) <= radius);
     this.world.toast(`🌪️ A severe storm hit your town! ${hit.length} building${hit.length === 1 ? '' : 's'} damaged`, '#9fc5e8');
     this.world.stormEffect(centre.cx, centre.cy, radius);
+    if (this.world.sfx) this.world.sfx('thunder');
     for (const b of hit) this.world.damageBuilding(b, Math.round(b.maxHp * (0.25 + Math.random() * 0.2)), 'a storm');
   }
 
@@ -218,19 +243,14 @@ export class Climate {
       this.ash.delete(k);
     }
     for (const b of lost) {
-      w.toast(`🌊 Your ${b.def.name} was swallowed by the sea`, '#9fc5e8');
+      if (b.team === 'player') w.toast(`🌊 Your ${b.def.name} was swallowed by the sea`, '#9fc5e8');
       w.removeBuilding(b);
     }
     // Redraw flooded tiles and their neighbours (for the new beaches).
-    const redraw = new Set();
-    for (const t of flooded) {
-      for (const [dx, dy] of [[0, 0], ...N8]) {
-        if (this.map.inBounds(t.x + dx, t.y + dy)) redraw.add((t.y + dy) * this.map.w + t.x + dx);
-      }
-    }
-    for (const k of redraw) w.redrawTile(k % this.map.w, Math.floor(k / this.map.w));
+    for (const t of flooded) w.redrawTile(t.x, t.y); // each redraw also repaints neighbours
     for (const u of w.units) u.rescue();
     w.toast(`🌊 Sea levels rose! ${flooded.length} tiles of coastline are now underwater`, '#9fc5e8');
+    if (w.sfx) w.sfx('wave');
     w.events.emit('seaRise', flooded.length);
   }
 }
