@@ -6,23 +6,34 @@ import { toIso } from './iso.js';
 // attack = damage per hit, range in pixels, cooldown in seconds between hits,
 // sight = how far idle units notice enemies, vsBuilding = damage multiplier against buildings.
 // era = first era it can be trained in.
+// bonus = damage multiplier against particular unit types (the counter system).
 export const UNIT_TYPES = {
   worker:  { name: 'Worker',  era: 0, speed: 75, hp: 25, cost: { food: 50 },           trainTime: 8,
              attack: 3, range: 24, cooldown: 1.5, sight: 0,   vsBuilding: 0.3,
              desc: 'Gathers resources and constructs buildings.' },
   soldier: { name: 'Soldier', era: 0, speed: 85, hp: 60, cost: { food: 60, wood: 20 }, trainTime: 10,
              attack: 8, range: 26, cooldown: 1.1, sight: 210, vsBuilding: 0.6,
-             desc: 'Tough close-range fighter.' },
-  archer:  { name: 'Archer',  era: 0, speed: 80, hp: 35, cost: { food: 40, wood: 45 }, trainTime: 11,
-             attack: 6, range: 150, cooldown: 1.6, sight: 230, vsBuilding: 0.25,
-             desc: 'Shoots from range. Fragile up close.' },
+             bonus: { rifleman: 1.5 },
+             desc: 'Tough close-range fighter. Strong against riflemen and buildings; archers can wear it down.' },
+  archer:  { name: 'Archer',  era: 0, speed: 80, hp: 40, cost: { food: 40, wood: 45 }, trainTime: 11,
+             attack: 6, range: 150, cooldown: 1.3, sight: 230, vsBuilding: 0.25,
+             bonus: { soldier: 2, worker: 1.25, armoured_car: 0.4 },
+             desc: 'Shoots from range. Strong against soldiers, useless against armour, fragile up close.' },
   rifleman: { name: 'Rifleman', era: 1, speed: 80, hp: 55, cost: { food: 60, wood: 20, energy: 20 }, trainTime: 13,
              attack: 11, range: 170, cooldown: 1.8, sight: 240, vsBuilding: 0.35,
-             desc: 'Long-range gunner. Needs energy to equip.' },
+             bonus: { armoured_car: 2, soldier: 1.2 },
+             desc: 'Long-range gunner. Strong against armoured cars. Needs energy to equip.' },
   armoured_car: { name: 'Armoured Car', era: 2, speed: 95, hp: 220, cost: { wood: 80, stone: 60, energy: 80 }, trainTime: 20,
              attack: 14, range: 120, cooldown: 1.4, sight: 240, vsBuilding: 1.0, vehicle: true,
-             desc: 'Fast, tough and great against buildings. Runs on energy.' },
+             bonus: { archer: 1.5, soldier: 1.3 },
+             desc: 'Fast, tough and great against buildings, soldiers and archers. Weak to riflemen. Runs on energy.' },
 };
+
+// How much damage `attacker` does to `target` per hit, before upgrades.
+export function hitDamage(def, target) {
+  if (target.isBuilding) return def.attack * def.vsBuilding;
+  return def.attack * ((def.bonus && def.bonus[target.type]) || 1);
+}
 
 const GATHER_RATE = { wood: 0.9, stone: 0.7, food: 0.8, fuel: 1.1 }; // per second (coal is quick to mine!)
 const CARRY_MAX = 10;
@@ -104,6 +115,7 @@ export class Unit {
     const o = this.order;
     if (!o) return this.isMoving ? 'moving' : 'idle';
     if (o.kind === 'attack') return 'fighting';
+    if (o.kind === 'amove') return 'advancing';
     if (o.kind === 'build') return `building ${o.building.def.name}`;
     if (o.phase === 'return') return `carrying ${o.res === 'fuel' ? 'coal' : o.res}`;
     return o.farm ? 'farming' : GATHER_WORD[o.res];
@@ -141,6 +153,14 @@ export class Unit {
     if (!target || target.dead || target.team === this.team) return;
     this.stop();
     this.order = { kind: 'attack', target, repath: 0 };
+  }
+
+  // Walk somewhere, but stop to fight any enemy met on the way, then carry on.
+  orderAttackMove(dest) {
+    if (!this.isMilitary) { this.moveTo(dest); return; }
+    this.stop();
+    this.order = { kind: 'amove', dest, scan: 0 };
+    if (!this.walkTo(dest)) this.stop();
   }
 
   // ---------- Walking ----------
@@ -323,6 +343,20 @@ export class Unit {
       this.updateAttack(dt, world);
       return;
     }
+    if (this.order && this.order.kind === 'amove') {
+      const o = this.order;
+      o.scan -= dt;
+      if (o.scan <= 0) {
+        o.scan = 400;
+        const e = world.findEnemyNear(this.x, this.y, this.def.sight, this.team);
+        if (e) {
+          this.orderAttack(e);
+          this.order.resume = o.dest;
+          return;
+        }
+      }
+      if (!this.path.length) { this.stop(); return; }
+    }
 
     // 1. Walk along the path.
     if (this.path.length) {
@@ -357,6 +391,8 @@ export class Unit {
       // Target gone — soldiers look for the next enemy nearby.
       const next = this.isMilitary ? world.findEnemyNear(this.x, this.y, this.def.sight, this.team) : null;
       if (next) { o.target = next; o.repath = 0; return; }
+      // On an attack-move: carry on to where we were heading.
+      if (o.resume) { this.orderAttackMove(o.resume); return; }
       this.stop();
       return;
     }
@@ -394,7 +430,7 @@ export class Unit {
     this.face(t.isBuilding ? t.cx : t.x, t.isBuilding ? t.cy : t.y);
     if (this.cooldown <= 0) {
       this.cooldown = this.def.cooldown;
-      const dmg = this.def.attack * (t.isBuilding ? this.def.vsBuilding : 1) * world.attackMultiplier(this.team);
+      const dmg = hitDamage(this.def, t) * world.attackMultiplier(this.team);
       if (this.def.range > 60) {
         world.shoot(this.x, this.y, t, dmg, this, 18);
       } else {

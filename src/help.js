@@ -8,10 +8,12 @@ export const HOW_TO_PLAY = [
   'Town Centre: trains workers, researches upgrades and advances your age. Barracks train your army.',
   'Rally point: select a Town Centre or Barracks and right-click the ground. Right-click a resource and new workers go straight to work.',
   'Groups: Ctrl+1–9 (or Alt+1–9) saves your selection, 1–9 selects it, press twice to jump there.',
+  'Attack-move: select soldiers, press A, click the map — they fight everything on the way.',
+  'Counters: archers beat soldiers, soldiers beat riflemen, riflemen beat armoured cars, armoured cars beat archers.',
   '',
   'Coal is fast energy but adds CO₂. Wind, solar, forests and carbon capture fight back.',
   'Heat brings wildfires, droughts, storms and rising seas.',
   '',
   'Camera: arrow keys / screen edge, mouse wheel to zoom, click the minimap.',
-  'H: home   ·   Full stop: idle worker   ·   Esc / F10: menu   ·   Shift: add to selection / place several',
+  'H: home   ·   Full stop: idle worker   ·   + / −: game speed   ·   Esc / F10: menu   ·   Shift: add to selection / place several',
 ].join('\n');

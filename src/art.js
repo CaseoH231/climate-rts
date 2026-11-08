@@ -1019,6 +1019,25 @@ export const ICON_ART = {
 
 // Bigger 40×40 icons for research buttons.
 const UPGRADE_ICON = {
+  // Attack-move: an arrow with a sword across it
+  amove(ctx) {
+    ctx.strokeStyle = '#e8dcc0';
+    ctx.fillStyle = '#e8dcc0';
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(6, 32); ctx.lineTo(28, 10); ctx.stroke();
+    poly(ctx, [[34, 4], [22, 8], [30, 16]]);
+    ctx.fill();
+    // sword
+    ctx.strokeStyle = '#c9ccd2';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(10, 10); ctx.lineTo(30, 30); ctx.stroke();
+    ctx.strokeStyle = '#8a5a2a';
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(7, 13); ctx.lineTo(13, 7); ctx.stroke();
+    ctx.strokeStyle = '#b8433a';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(20, 20, 16, 0, Math.PI * 2); ctx.stroke();
+  },
   // Stop: a red octagon with a white bar
   stop(ctx) {
     ctx.fillStyle = '#7d1f18';

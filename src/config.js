@@ -59,3 +59,6 @@ export const TEAM_COLORS = {
   player: { main: 0x3f6296, dark: 0x253c5e },
   enemy:  { main: 0x93382f, dark: 0x5c201b },
 };
+
+// Game speeds the player can pick (+ / - keys or the ×1 button in the top bar).
+export const GAME_SPEEDS = [0.5, 1, 1.5, 2, 3];

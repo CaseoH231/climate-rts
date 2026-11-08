@@ -52,7 +52,8 @@ export function serialize(w) {
     if (!o) return null;
     if (o.kind === 'gather') return { kind: 'gather', res: o.res, tx: o.tx, ty: o.ty, farm: o.farm ? bIndex.get(o.farm) : null };
     if (o.kind === 'build') return { kind: 'build', building: bIndex.get(o.building) };
-    if (o.kind === 'attack') return { kind: 'attack', target: ref(o.target) };
+    if (o.kind === 'attack') return { kind: 'attack', target: ref(o.target), resume: o.resume || null };
+    if (o.kind === 'amove') return { kind: 'amove', dest: o.dest };
     return null;
   };
   const c = w.climate;
@@ -90,6 +91,7 @@ export function serialize(w) {
       nextWave: w.ai.nextWave, waveSize: w.ai.waveSize, waveNum: w.ai.waveNum,
       assault: [...w.ai.assault].map((u) => uIndex.get(u)).filter((i) => i !== undefined),
     },
+    stats: w.stats ? w.stats.serialize() : null,
     groups: (w.groups || []).map((g) => g.map((u) => uIndex.get(u)).filter((i) => i !== undefined)),
     camera: { x: cam.midPoint.x, y: cam.midPoint.y, zoom: cam.zoom },
     fog: w.fog ? w.fog.serialize() : null,

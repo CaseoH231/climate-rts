@@ -96,6 +96,17 @@ Research takes time and is shown by a purple bar. Hover any button to see what i
   - 🌊 **Sea-level rise** at +1.5°C, +2.5°C and +3.5°C — low coastal land floods and anything on it is lost
 - Climate numbers can be tweaked in `src/config.js` (the `CLIMATE` section).
 
+## Unit counters
+
+| Unit | Strong against | Weak against |
+|---|---|---|
+| Soldier | Riflemen, buildings | Archers, armoured cars |
+| Archer | Soldiers, workers | Armoured cars, riflemen |
+| Rifleman (Industrial) | Armoured cars | Soldiers |
+| Armoured Car (Transition) | Archers, soldiers, buildings | Riflemen |
+
+The enemy watches your army and trains whatever beats it (rarely on Easy, often on Hard).
+
 ## Controls
 
 | Action | Control |
@@ -112,6 +123,8 @@ Research takes time and is shown by a purple bar. Hover any button to see what i
 | Control groups | Ctrl+1–9 (or Alt+1–9) saves the selection, Shift+number adds to it, the number selects it, press twice to jump there |
 | Rally point | Select a Town Centre or Barracks and right-click the ground (or a resource / farm for workers) |
 | Stop | Q with units selected |
+| Attack-move | A (or W) with soldiers selected, then left-click the map: they march there and fight everything on the way |
+| Game speed | + and − keys, or click the ×1 in the top bar (right-click to slow down) |
 | Help build / farm | Right-click an unfinished building or a farm with workers |
 | Train / research / advance | Select a Town Centre, Barracks or Workshop and use its buttons |
 | Find idle worker | . (full stop) or the worker button above the command panel |
@@ -165,4 +178,5 @@ src/scenes/UIScene.js   resource bar, command panel, diamond minimap, climate pa
 - [x] Phase 9 – Hosting (Cloudflare Pages), installable app, itch.io
 - [x] Phase 10 – Polish: double-click select, fog of war, sharper art, walk animation, clouds and water glints
 - [x] Phase 11 – Command & control: control groups, rally points, idle-worker button, walls and gates
-- [ ] Phase 12 – Playtesting and balance
+- [x] Phase 12 – Battle & balance: unit counters, attack-move, game speed, end-of-game stats and charts, AI that counters your army
+- [ ] Phase 13 – Playtesting feedback

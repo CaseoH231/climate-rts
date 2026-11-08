@@ -19,9 +19,17 @@ export const AI_SETTINGS = {
 
 // Difficulty levels change how fast and hard the enemy attacks, and how big its economy gets.
 export const DIFFICULTY = {
-  easy:   { name: 'Easy',   firstWave: 600, waveGap: 210, firstWaveSize: 3, waveGrowth: 1, maxWorkers: 14, bonus: 0 },
-  normal: { name: 'Normal', firstWave: 420, waveGap: 150, firstWaveSize: 4, waveGrowth: 2, maxWorkers: 20, bonus: 0 },
-  hard:   { name: 'Hard',   firstWave: 300, waveGap: 115, firstWaveSize: 6, waveGrowth: 3, maxWorkers: 26, bonus: 250 },
+  easy:   { name: 'Easy',   firstWave: 600, waveGap: 210, firstWaveSize: 3, waveGrowth: 1, maxWorkers: 14, bonus: 0, counterChance: 0.15 },
+  normal: { name: 'Normal', firstWave: 420, waveGap: 150, firstWaveSize: 4, waveGrowth: 2, maxWorkers: 20, bonus: 0, counterChance: 0.45 },
+  hard:   { name: 'Hard',   firstWave: 300, waveGap: 115, firstWaveSize: 6, waveGrowth: 3, maxWorkers: 26, bonus: 250, counterChance: 0.75 },
+};
+
+// What beats what (best answer first, falling back if that unit isn't available yet).
+const COUNTERS = {
+  soldier: ['archer'],
+  archer: ['armoured_car', 'rifleman', 'soldier'],
+  rifleman: ['soldier'],
+  armoured_car: ['rifleman', 'soldier'],
 };
 
 export class EnemyAI {
@@ -37,6 +45,17 @@ export class EnemyAI {
     this.storageTimer = 30;
     this.rebalanceTimer = 20;
     this.unreachable = new Set(); // resource tiles our workers can't get to
+  }
+
+  // Look at the opponent's army and pick the unit that beats the most common type in it.
+  counterPick(era) {
+    const seen = {};
+    for (const u of this.world.units) {
+      if (u.team !== this.team && u.isMilitary && !u.dead) seen[u.type] = (seen[u.type] || 0) + 1;
+    }
+    const common = Object.keys(seen).sort((a, b) => seen[b] - seen[a])[0];
+    if (!common || seen[common] < 3) return null;
+    return (COUNTERS[common] || []).find((t) => UNIT_TYPES[t].era <= era) || null;
   }
 
   update(dt) {
@@ -110,6 +129,7 @@ export class EnemyAI {
       if (b.type !== 'barracks' || !b.complete || b.queue.length >= 2) continue;
       let type = Math.random() < 0.55 ? 'soldier' : era >= 1 ? 'rifleman' : 'archer';
       if (era >= 2 && Math.random() < 0.3) type = 'armoured_car';
+      if (Math.random() < this.cfg.counterChance) type = this.counterPick(era) || type;
       const reserve = (workers.length < 12 ? 60 : 0) + (this.saving ? this.saving.food || 0 : 0);
       if (this.res.food - reserve >= (UNIT_TYPES[type].cost.food || 0)) w.trainAt(b, type);
     }

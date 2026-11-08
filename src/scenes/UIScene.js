@@ -10,6 +10,7 @@ import { audio } from '../audio.js';
 import { listSaves, readSave, writeSave } from '../save.js';
 import { DIFFICULTY } from '../ai.js';
 import { HOW_TO_PLAY } from '../help.js';
+import { GAME_SPEEDS } from '../config.js';
 
 const TOP_H = 34;
 const PANEL_H = 180;
@@ -71,6 +72,17 @@ export default class UIScene extends Phaser.Scene {
     this.popText = this.add.text(10 + 5 * 104 + 30, 8, '', { fontFamily: SERIF, fontSize: '15px', color: COL.text });
     this.eraText = this.add.text(0, 7, '', { fontFamily: SERIF, fontSize: '17px', color: COL.gold, stroke: '#000', strokeThickness: 3 }).setOrigin(0.5, 0);
     this.clockText = this.add.text(0, 8, '', { fontFamily: SERIF, fontSize: '15px', color: COL.dim }).setOrigin(1, 0);
+    // Game speed: click to speed up, right-click to slow down (or + / - keys).
+    this.speedText = this.add.text(0, 8, '', { fontFamily: SERIF, fontSize: '15px', color: COL.gold }).setOrigin(1, 0)
+      .setInteractive({ useHandCursor: true });
+    this.speedText.on('pointerdown', (p) => {
+      const i = GAME_SPEEDS.indexOf(this.world.speed);
+      const n = GAME_SPEEDS.length;
+      audio.play('click');
+      this.world.setSpeed(GAME_SPEEDS[(i + (p.rightButtonDown() ? n - 1 : 1)) % n]);
+    });
+    this.speedText.on('pointerover', () => this.showTip({ name: 'Game speed', cost: null, desc: 'Click to speed up, right-click to slow down. Keys: + and -.' }, this.speedText.x - 120, 40, true));
+    this.speedText.on('pointerout', () => this.hideTip());
     this.menuBtn = button(this, 0, 4, 78, 26, 'Menu', () => this.openMenu(), { size: '14px' });
 
     // ---- Climate panel (top right) ----
@@ -191,6 +203,7 @@ export default class UIScene extends Phaser.Scene {
     for (let i = 0; i < 6; i++) inset(this.topBoxes, 8 + i * 104, 4, 96, TOP_H - 10);
     this.eraText.setPosition(w / 2 + 120, 6);
     this.clockText.setPosition(w - 98, 8);
+    this.speedText.setPosition(w - 150, 8);
     this.menuBtn.setPosition(w - 86, 3);
 
     const cx = w - CLIM_W - 8;
@@ -326,7 +339,8 @@ export default class UIScene extends Phaser.Scene {
       for (const type of b.def.trains || []) {
         const u = UNIT_TYPES[type];
         cmds.push({
-          thumb: unitKey(type, 'player'), name: `Train ${u.name}`, cost: u.cost, desc: u.desc,
+          thumb: unitKey(type, 'player'), name: `Train ${u.name}`, cost: u.cost,
+          desc: `${u.desc}\nHealth ${u.hp}  ·  Damage ${u.attack}  ·  ${u.range > 60 ? 'Ranged' : 'Close combat'}`,
           locked: u.era > era ? `Requires the ${ERAS[u.era].name}` : null, lockEra: u.era, action: () => w.train(type),
         });
       }
@@ -368,6 +382,7 @@ export default class UIScene extends Phaser.Scene {
     }
     if (units.length) {
       cmds.push({ thumb: 'up_stop', name: 'Stop', cost: null, desc: 'Stop what they are doing and stand still.', action: () => w.stopSelected() });
+      cmds.push({ thumb: 'up_amove', name: 'Attack-move', cost: null, desc: 'Then click the map: they march there and fight anything they meet on the way. Key: A or W.', action: () => w.startAttackMove() });
       return cmds;
     }
     if (!units.length) {
@@ -428,7 +443,7 @@ export default class UIScene extends Phaser.Scene {
     return Object.entries(cost).map(([k, v]) => `${v} ${RES_NAME[k]}`).join('   ');
   }
 
-  showTip(cmd, bx) {
+  showTip(cmd, bx, by = 0, below = false) {
     this.hovered = cmd;
     this.tipTitle.setText(cmd.name);
     this.tipCost.setText(this.costText(cmd.cost));
@@ -446,7 +461,7 @@ export default class UIScene extends Phaser.Scene {
     this.tipBg.fillStyle(0x15120e, 0.96).fillRect(0, -total, 326, total);
     this.tipBg.lineStyle(2, UI_COL.bronzeDark, 1).strokeRect(1, -total + 1, 324, total - 2);
     this.tipBg.lineStyle(1, UI_COL.bronze, 1).strokeRect(3, -total + 3, 320, total - 6);
-    this.tip.setPosition(Math.min(bx, this.scale.width - 336), this.scale.height - PANEL_H - 4).setVisible(true);
+    this.tip.setPosition(Math.min(bx, this.scale.width - 336), below ? by + total : this.scale.height - PANEL_H - 4).setVisible(true);
   }
 
   hideTip() {
@@ -640,18 +655,115 @@ export default class UIScene extends Phaser.Scene {
       defeat: ['Defeat', 'Your Town Centre has fallen.', '#e07a6a'],
       collapse: ['Climate Collapse', 'The planet passed +5°C. Nobody wins on a ruined world.', '#e8a060'],
     }[result];
-    const c = this.world.climate;
-    const stats = `Game time ${fmtTime(this.world.gameTime)}   ·   CO₂ ${Math.round(c.co2)} ppm   ·   ` +
-      `+${Math.max(0, c.temp).toFixed(1)}°C   ·   Sea rises ${c.seaStage}   ·   ${ERAS[this.world.eraOf('player')].name}`;
+    const world = this.world;
+    const c = world.climate;
+    const PW = Math.min(860, w - 20);
+    const PH = Math.min(580, h - 20);
+    const x0 = Math.round(w / 2 - PW / 2);
+    const y0 = Math.round(h / 2 - PH / 2);
+    const D = 101;
     this.add.rectangle(0, 0, w, h, 0x000000, 0.6).setOrigin(0).setInteractive().setDepth(100);
-    panel(this, w / 2 - 340, h / 2 - 140, 680, 280, 100);
-    this.add.text(w / 2, h / 2 - 95, info[0], { fontFamily: SERIF, fontSize: '52px', color: info[2], stroke: '#000', strokeThickness: 6 }).setOrigin(0.5).setDepth(101);
-    this.add.text(w / 2, h / 2 - 32, info[1], { fontFamily: SERIF, fontSize: '19px', fontStyle: 'italic', color: COL.text, stroke: '#000', strokeThickness: 3 }).setOrigin(0.5).setDepth(101);
-    this.add.text(w / 2, h / 2 + 6, stats, { fontFamily: SANS, fontSize: '13px', color: COL.dim, stroke: '#000', strokeThickness: 2 }).setOrigin(0.5).setDepth(101);
-    button(this, w / 2 - 210, h / 2 + 60, 200, 44, 'Play Again', () => {
+    panel(this, x0, y0, PW, PH, 100);
+    const txt = (x, y, str, style, ox = 0) => this.add.text(x, y, str, { fontFamily: SANS, fontSize: '13px', color: COL.text, stroke: '#000', strokeThickness: 2, ...style }).setOrigin(ox, 0).setDepth(D);
+    txt(w / 2, y0 + 16, info[0], { fontFamily: SERIF, fontSize: '44px', color: info[2], strokeThickness: 6 }, 0.5);
+    txt(w / 2, y0 + 70, info[1], { fontFamily: SERIF, fontSize: '17px', fontStyle: 'italic', strokeThickness: 3 }, 0.5);
+    txt(w / 2, y0 + 96, `Game time ${fmtTime(world.gameTime)}   ·   CO₂ ${Math.round(c.co2)} ppm   ·   +${Math.max(0, c.temp).toFixed(1)}°C   ·   ` +
+      `Sea rises ${c.seaStage}   ·   ${ERAS[world.eraOf('player')].name}`, { color: COL.dim }, 0.5);
+
+    // --- Left: the numbers ---
+    const st = world.stats.teams;
+    const sum = (g) => Math.round(g.food + g.wood + g.stone + g.fuel + g.clean);
+    const rows = [
+      ['Resources gathered', sum(st.player.gathered), sum(st.enemy.gathered)],
+      ['   of which coal', Math.round(st.player.gathered.fuel), Math.round(st.enemy.gathered.fuel)],
+      ['   of which clean energy', Math.round(st.player.gathered.clean), Math.round(st.enemy.gathered.clean)],
+      ['CO₂ added (ppm)', Math.round(st.player.co2), Math.round(st.enemy.co2)],
+      ['Units trained', st.player.trained, st.enemy.trained],
+      ['Units lost', st.player.lost, st.enemy.lost],
+      ['Enemy units killed', st.player.kills, st.enemy.kills],
+      ['Buildings completed', st.player.built, st.enemy.built],
+      ['Buildings lost', st.player.buildingsLost, st.enemy.buildingsLost],
+      ['Enemy buildings destroyed', st.player.razed, st.enemy.razed],
+    ];
+    const lx = x0 + 28;
+    const ty = y0 + 132;
+    const colA = lx + 300;
+    const colB = lx + 380;
+    const tw = colB + 10 - lx;
+    const g = this.add.graphics().setDepth(D);
+    g.fillStyle(0x000000, 0.35).fillRect(lx - 8, ty - 6, tw + 16, 28 + rows.length * 25);
+    txt(colA, ty, 'You', { fontFamily: SERIF, fontSize: '15px', color: '#9fb9e0' }, 1);
+    txt(colB, ty, 'Enemy', { fontFamily: SERIF, fontSize: '15px', color: '#e0a49c' }, 1);
+    rows.forEach(([label, a, b], i) => {
+      const y = ty + 26 + i * 25;
+      if (i % 2 === 0) g.fillStyle(0xffffff, 0.04).fillRect(lx - 8, y - 4, tw + 16, 25);
+      const sub = label.startsWith('   ');
+      txt(lx, y, label.trim(), { color: sub ? COL.dim : COL.text, fontSize: sub ? '12px' : '13px' }).setX(sub ? lx + 14 : lx);
+      // the better number glows a little (fewer is better for losses and CO₂)
+      const lowerBetter = /lost|CO₂|coal/.test(label);
+      const aWins = a !== b && (lowerBetter ? a < b : a > b);
+      const bWins = a !== b && !aWins;
+      txt(colA, y, String(a), { color: aWins ? COL.gold : COL.text }, 1);
+      txt(colB, y, String(b), { color: bWins ? COL.gold : COL.text }, 1);
+    });
+
+    // --- Right: charts over time ---
+    const tl = world.stats.timeline;
+    const cx = x0 + PW - 28 - 330;
+    const chartW = 330;
+    const chartH = 120;
+    this.drawChart(cx, ty, chartW, chartH, 'Temperature (°C above normal)', tl.map((p) => p.t),
+      [{ values: tl.map((p) => Math.max(0, p.temp)), color: 0xe08a4a }], { min: 0, maxAtLeast: 1, fmt: (v) => `+${v.toFixed(1)}` });
+    this.drawChart(cx, ty + chartH + 58, chartW, chartH, 'Army size', tl.map((p) => p.t),
+      [{ values: tl.map((p) => p.army.player), color: TEAM_COLORS.player.main, name: 'You' },
+        { values: tl.map((p) => p.army.enemy), color: TEAM_COLORS.enemy.main, name: 'Enemy' }], { min: 0, maxAtLeast: 5, fmt: (v) => String(Math.round(v)) });
+
+    const by = y0 + PH - 64;
+    button(this, w / 2 - 210, by, 200, 44, 'Play Again', () => {
       this.world.scene.start('GameScene', { seed: Math.floor(Math.random() * 1e9), difficulty: this.world.difficulty, fog: this.world.fog ? this.world.fog.enabled : true });
-    }, { depth: 101 });
-    button(this, w / 2 + 10, h / 2 + 60, 200, 44, 'Main Menu', () => this.quitToMenu(), { depth: 101 });
+    }, { depth: D });
+    button(this, w / 2 + 10, by, 200, 44, 'Main Menu', () => this.quitToMenu(), { depth: D });
+  }
+
+  // A small line chart: times along the bottom, one line per series.
+  drawChart(x, y, cw, ch, title, times, series, opt) {
+    const D = 101;
+    const g = this.add.graphics().setDepth(D);
+    this.add.text(x, y, title, { fontFamily: SERIF, fontSize: '14px', color: COL.gold, stroke: '#000', strokeThickness: 2 }).setDepth(D);
+    const top = y + 22;
+    g.fillStyle(0x000000, 0.4).fillRect(x, top, cw, ch);
+    g.lineStyle(1, UI_COL.bronzeDark, 1).strokeRect(x, top, cw, ch);
+    const all = series.flatMap((s) => s.values);
+    const max = Math.max(opt.maxAtLeast, ...all) * 1.08;
+    const min = opt.min;
+    const tMax = Math.max(60, times[times.length - 1] || 0);
+    // gridlines
+    g.lineStyle(1, 0xffffff, 0.07);
+    for (let i = 1; i < 4; i++) g.lineBetween(x, top + (ch * i) / 4, x + cw, top + (ch * i) / 4);
+    const lbl = (tx, ty2, str, ox = 0, oy = 0) => this.add.text(tx, ty2, str, { fontFamily: SANS, fontSize: '11px', color: COL.dim }).setOrigin(ox, oy).setDepth(D);
+    lbl(x - 4, top, opt.fmt(max), 1, 0);
+    lbl(x - 4, top + ch, opt.fmt(min), 1, 1);
+    lbl(x, top + ch + 3, '0:00');
+    lbl(x + cw, top + ch + 3, fmtTime(tMax), 1, 0);
+    const px = (t) => x + (t / tMax) * cw;
+    const py = (v) => top + ch - ((v - min) / (max - min || 1)) * ch;
+    for (const s of series) {
+      if (times.length < 2) continue;
+      g.lineStyle(2, s.color, 1);
+      g.beginPath();
+      times.forEach((t, i) => (i ? g.lineTo(px(t), py(s.values[i])) : g.moveTo(px(t), py(s.values[i]))));
+      g.strokePath();
+    }
+    if (times.length < 2) lbl(x + cw / 2, top + ch / 2, 'Not enough time played', 0.5, 0.5);
+    // legend
+    let lx = x + cw;
+    for (const s of [...series].reverse()) {
+      if (!s.name) continue;
+      const t = lbl(lx, y + 3, s.name, 1, 0);
+      lx -= t.width + 4;
+      g.fillStyle(s.color, 1).fillRect(lx - 10, y + 8, 10, 3);
+      lx -= 22;
+    }
   }
 
   // ---------- Every frame ----------
@@ -670,6 +782,8 @@ export default class UIScene extends Phaser.Scene {
     if (this.eraText.text !== era) this.eraText.setText(era);
     const clock = fmtTime(w.gameTime);
     if (this.clockText.text !== clock) this.clockText.setText(clock);
+    const sp = `×${w.speed}`;
+    if (this.speedText.text !== sp) this.speedText.setText(sp);
 
     this.haze.setAlpha(Math.min(0.2, Math.max(0, w.climate.temp) * 0.045));
 

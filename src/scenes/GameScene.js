@@ -9,6 +9,13 @@ import { generateArt, buildingKey, buildingTexInfo, ART_RES } from '../art.js';
 import { toIso, fromIso, ISO_W, ISO_H } from '../iso.js';
 import { Climate } from '../climate.js';
 import { findPath } from '../pathfinding.js';
+import { Stats } from '../stats.js';
+import { GAME_SPEEDS } from '../config.js';
+
+const SPEED_KEY = 'climate-rts-speed';
+function loadSpeed() {
+  try { const v = Number(localStorage.getItem(SPEED_KEY)); return GAME_SPEEDS.includes(v) ? v : 1; } catch (e) { return 1; }
+}
 import { EnemyAI, DIFFICULTY } from '../ai.js';
 import { audio } from '../audio.js';
 import { Fog } from '../fog.js';
@@ -71,6 +78,11 @@ export default class GameScene extends Phaser.Scene {
     this.gameOver = null;
     this.paused = false;
     this.lastAttackAlert = -999;
+    this.projectiles = [];
+    this.renderShots = true;       // shots in flight: damage lands on game time, not animation time
+    this.speed = loadSpeed();
+    this.targeting = null;       // 'amove' while choosing an attack-move destination
+    this.stats = new Stats(save && save.stats);
 
     if (save) {
       this.restore(save);
@@ -114,10 +126,20 @@ export default class GameScene extends Phaser.Scene {
 
     // --- Input ---
     this.input.mouse.disableContextMenu();
-    this.keys = this.input.keyboard.addKeys('UP,DOWN,LEFT,RIGHT,SHIFT,ESC,H,PERIOD', false);
+    this.keys = this.input.keyboard.addKeys('UP,DOWN,LEFT,RIGHT,SHIFT,ESC,H,PERIOD,A', false);
+    this.keys.A.on('down', (k) => {
+      if (k.originalEvent && (k.originalEvent.ctrlKey || k.originalEvent.metaKey)) return;
+      if (!this.paused && !this.gameOver) this.startAttackMove();
+    });
+    this.input.keyboard.on('keydown', (e) => {
+      if (this.gameOver) return;
+      if (e.key === '+' || e.key === '=' || e.code === 'NumpadAdd') this.changeSpeed(1);
+      else if (e.key === '-' || e.key === '_' || e.code === 'NumpadSubtract') this.changeSpeed(-1);
+    });
     this.keys.ESC.on('down', () => {
       if (this.paused || this.gameOver) return;
-      if (this.placing) this.cancelPlacing();
+      if (this.targeting) this.cancelTargeting();
+      else if (this.placing) this.cancelPlacing();
       else if (this.selected.size || this.selectedBuilding) this.clearSelection();
       else this.events.emit('openMenu');
     });
@@ -156,6 +178,11 @@ export default class GameScene extends Phaser.Scene {
       if (this.gameOver || this.paused || this.overUI(p)) return;
       const w = this.worldPoint(p);
       const iso = this.isoPoint(p);
+      if (this.targeting) {
+        if (p.leftButtonDown()) this.attackMoveTo(w.x, w.y);
+        else this.cancelTargeting();
+        return;
+      }
       if (this.placing) {
         if (p.rightButtonDown()) this.cancelPlacing();
         else if (p.leftButtonDown()) {
@@ -243,8 +270,8 @@ export default class GameScene extends Phaser.Scene {
         else if (o.kind === 'build' && bs[o.building]) u.orderBuild(bs[o.building]);
         else if (o.kind === 'attack' && o.target) {
           const tgt = o.target.b !== undefined ? bs[o.target.b] : us[o.target.u];
-          if (tgt) u.orderAttack(tgt);
-        }
+          if (tgt) { u.orderAttack(tgt); if (o.resume && u.order) u.order.resume = o.resume; }
+        } else if (o.kind === 'amove' && o.dest) u.orderAttackMove(o.dest);
       }
       u.carry = d.carry;
       u.carryType = d.carryType;
@@ -397,8 +424,12 @@ export default class GameScene extends Phaser.Scene {
 
   addResource(res, n, team = 'player') {
     this.teams[team].resources[res] += n;
+    this.stats.gather(team, res, n);
     // Coal gets burned for energy — that's where the CO₂ comes from (anyone's coal heats everyone's planet).
-    if (res === 'fuel' && n > 0) this.climate.addCO2(n * CLIMATE.co2PerFuel);
+    if (res === 'fuel' && n > 0) {
+      this.climate.addCO2(n * CLIMATE.co2PerFuel);
+      this.stats.emit(team, n * CLIMATE.co2PerFuel);
+    }
   }
 
   productionMultiplier(res, team) {
@@ -525,6 +556,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   onBuildingComplete(b) {
+    this.stats.built(b.team);
     if (b.def.wonder) {
       this.toast(b.team === 'player'
         ? 'The Climate Restoration Project is complete! Defend it for 3 minutes to win.'
@@ -631,27 +663,79 @@ export default class GameScene extends Phaser.Scene {
     const to = target.isBuilding ? toIso(target.cx, target.cy) : { x: target.isoX, y: target.isoY };
     to.y -= target.isBuilding ? 20 : 12;
     const dist = Math.hypot(to.x - from.x, to.y - from.y);
+    const flight = Math.max(80, dist * 2.2); // ms of game time
+    this.projectiles.push({ t: flight, target, dmg, attacker });
+    if (!this.renderShots) return;
     const arrow = this.add.rectangle(from.x, from.y, 10, 1.5, 0xe8e2cf).setRotation(Math.atan2(to.y - from.y, to.x - from.x)).setDepth(9e5);
     this.tweens.add({
-      targets: arrow, x: to.x, y: to.y, duration: Math.max(80, dist * 2.2),
-      onComplete: () => {
-        arrow.destroy();
-        if (!target.dead) this.dealDamage(target, dmg, attacker);
-      },
+      targets: arrow, x: to.x, y: to.y, duration: flight / this.speed,
+      onComplete: () => arrow.destroy(),
     });
+  }
+
+  // Shots land after their flight time (in game time, so pausing and game speed stay fair).
+  updateProjectiles(dt) {
+    if (!this.projectiles.length) return;
+    const landed = [];
+    for (const p of this.projectiles) {
+      p.t -= dt;
+      if (p.t <= 0) landed.push(p);
+    }
+    if (!landed.length) return;
+    this.projectiles = this.projectiles.filter((p) => p.t > 0);
+    for (const p of landed) if (!p.target.dead) this.dealDamage(p.target, p.dmg, p.attacker);
+  }
+
+  // ---------- Game speed ----------
+  changeSpeed(dir) {
+    const i = GAME_SPEEDS.indexOf(this.speed);
+    const next = GAME_SPEEDS[Math.max(0, Math.min(GAME_SPEEDS.length - 1, (i < 0 ? 1 : i) + dir))];
+    this.setSpeed(next);
+  }
+
+  setSpeed(v) {
+    if (v === this.speed) return;
+    this.speed = v;
+    try { localStorage.setItem(SPEED_KEY, String(v)); } catch (e) { /* private mode */ }
+    this.toast(`Game speed ×${v}`);
+    this.events.emit('speed', v);
+  }
+
+  // ---------- Attack-move ----------
+  startAttackMove() {
+    if (![...this.selected].some((u) => u.isMilitary)) return;
+    if (this.placing) this.cancelPlacing();
+    this.targeting = 'amove';
+    this.input.setDefaultCursor('crosshair');
+    this.toast('Attack-move: click where to go. They fight anything on the way.');
+  }
+
+  cancelTargeting() {
+    this.targeting = null;
+    this.input.setDefaultCursor('default');
+  }
+
+  attackMoveTo(wx, wy) {
+    const t = this.map.worldToTile(wx, wy);
+    const army = [...this.selected].filter((u) => u.isMilitary);
+    const spots = this.map.tilesAround(t.x, t.y, army.length);
+    army.forEach((u, i) => u.orderAttackMove(spots[i] || t));
+    audio.play('confirm');
+    this.showMarker(wx, wy, 0xe05a4a);
+    if (!this.keys.SHIFT.isDown) this.cancelTargeting();
   }
 
   dealDamage(target, dmg, attacker) {
     if (target.dead) return;
     if (target.team === 'player') this.alertAttack(target);
     if (target.isBuilding) {
-      this.damageBuilding(target, dmg, attacker.team === 'player' ? 'your army' : 'the enemy');
+      this.damageBuilding(target, dmg, attacker.team === 'player' ? 'your army' : 'the enemy', attacker.team);
       return;
     }
     target.hp -= dmg;
     target.updateHpBar();
     if (target.hp <= 0) {
-      this.killUnit(target);
+      this.killUnit(target, attacker.team);
       return;
     }
     // Fight back if we're a soldier with nothing better to do.
@@ -661,8 +745,9 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
-  killUnit(u) {
+  killUnit(u, killer = null) {
     if (u.dead) return;
+    this.stats.unitDied(u, killer);
     u.stop();
     u.dead = true;
     this.sfx('death', u.x, u.y);
@@ -684,7 +769,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   // ---------- Damage & climate effects ----------
-  damageBuilding(b, amount, cause) {
+  damageBuilding(b, amount, cause, killer = null) {
     if (b.dead) return;
     const disaster = cause === 'fire' || cause === 'a storm';
     if (disaster && this.teams[b.team].upgrades.has('climate_shields')) amount *= 0.5;
@@ -693,6 +778,7 @@ export default class GameScene extends Phaser.Scene {
       this.sfx('collapse', b.cx, b.cy);
       if (b.team === 'player') this.toast(`Your ${b.def.name} was destroyed by ${cause}`, '#d9a39b');
       else if (cause === 'your army') this.toast(`Enemy ${b.def.name} destroyed`, '#b8c99a');
+      this.stats.buildingDied(b, killer);
       this.removeBuilding(b);
     } else {
       b.redraw();
@@ -914,6 +1000,7 @@ export default class GameScene extends Phaser.Scene {
     if (!free) return;
     const u = new Unit(this, this.map, free.x, free.y, type, b.team);
     this.units.push(u);
+    this.stats.trained(b.team);
     if (b.rally) this.sendToRally(u, b.rally);
   }
 
@@ -1056,6 +1143,7 @@ export default class GameScene extends Phaser.Scene {
 
   clearSelection(silent = false) {
     if (this.placing) this.cancelPlacing();
+    if (this.targeting) this.cancelTargeting();
     for (const u of this.selected) u.setSelected(false);
     this.selected.clear();
     if (this.selectedBuilding) {
@@ -1157,6 +1245,8 @@ export default class GameScene extends Phaser.Scene {
     else if (!hasTC('enemy')) result = 'victory';
     if (!result) return;
     this.gameOver = result;
+    this.stats.sample(this);
+    this.cancelTargeting();
     audio.play(result === 'victory' || result === 'green' ? 'victory' : 'defeat');
     this.clearSelection();
     this.events.emit('gameOver', result);
@@ -1211,7 +1301,13 @@ export default class GameScene extends Phaser.Scene {
 
     if (this.gameOver || this.paused) return;
     this.ambientEffects(delta);
-    this.step(Math.min(delta, 100)); // cap frame time so a lag spike doesn't teleport units
+    // Cap frame time so a lag spike doesn't teleport units; faster speeds run extra ticks.
+    let left = Math.min(delta, 100) * this.speed;
+    while (left > 0 && !this.gameOver) {
+      const d = Math.min(left, 50);
+      this.step(d);
+      left -= d;
+    }
   }
 
   // Drifting cloud shadows and glints of sunlight on water near the camera.
@@ -1244,12 +1340,14 @@ export default class GameScene extends Phaser.Scene {
   // One tick of the simulation.
   step(dt) {
     this.gameTime += dt / 1000;
+    this.updateProjectiles(dt);
     for (const u of [...this.units]) u.update(dt, this);
     for (const b of [...this.buildings]) b.update(dt, this);
     this.updateTraining(dt);
     this.climate.update(dt);
     this.ai.update(dt);
     if (this.fog) this.fog.update(dt);
+    this.stats.update(dt, this);
     this.checkGameOver();
   }
 }
