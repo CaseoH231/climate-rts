@@ -1,7 +1,7 @@
 // Buildings, eras and research: what they cost, what they unlock, and how they behave.
 import { TILE } from './config.js';
 import { UNIT_TYPES } from './unit.js';
-import { buildingKey, buildingTexInfo, BUILDING_POINTS } from './art.js';
+import { buildingKey, buildingTexInfo, BUILDING_POINTS, ART_RES } from './art.js';
 import { toIso } from './iso.js';
 
 // Local isometric point inside a building (footprint grid px + height) → container coordinates.
@@ -142,7 +142,7 @@ export class Building {
     this.container.setDepth(def.walkable ? iso.y : iso.y + (this.W + this.H) / 2);
     this.tex = buildingTexInfo(def);
     this.foundation = scene.add.graphics();
-    this.image = scene.add.image(-this.tex.ox, -this.tex.oy, buildingKey(type, team)).setOrigin(0);
+    this.image = scene.add.image(-this.tex.ox, -this.tex.oy, buildingKey(type, team)).setOrigin(0).setScale(1 / ART_RES);
     this.overlay = scene.add.graphics();
     this.ui = scene.add.graphics();
     this.container.add([this.foundation, this.image, this.overlay, this.ui]);
@@ -194,7 +194,7 @@ export class Building {
     }
     const fullH = this.tex.height;
     const visible = this.complete ? fullH : Math.max(2, fullH * this.progress);
-    this.image.setCrop(0, fullH - visible, this.tex.width, visible);
+    this.image.setCrop(0, (fullH - visible) * ART_RES, this.tex.width * ART_RES, visible * ART_RES);
     this.image.setAlpha(this.complete ? 1 : 0.92);
 
     // Moving / changing parts drawn on top.

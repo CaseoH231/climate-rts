@@ -63,10 +63,10 @@ export default class UIScene extends Phaser.Scene {
     this.resItems = {};
     RES_ORDER.forEach((res, i) => {
       const x = 10 + i * 104;
-      this.add.image(x + 6, 7, `i_${res}`).setOrigin(0);
+      this.add.image(x + 6, 7, `i_${res}`).setOrigin(0).setScale(0.5);
       this.resItems[res] = this.add.text(x + 30, 8, '0', { fontFamily: SERIF, fontSize: '15px', color: COL.text });
     });
-    this.add.image(10 + 5 * 104 + 6, 7, 'i_pop').setOrigin(0);
+    this.add.image(10 + 5 * 104 + 6, 7, 'i_pop').setOrigin(0).setScale(0.5);
     this.popText = this.add.text(10 + 5 * 104 + 30, 8, '', { fontFamily: SERIF, fontSize: '15px', color: COL.text });
     this.eraText = this.add.text(0, 7, '', { fontFamily: SERIF, fontSize: '17px', color: COL.gold, stroke: '#000', strokeThickness: 3 }).setOrigin(0.5, 0);
     this.clockText = this.add.text(0, 8, '', { fontFamily: SERIF, fontSize: '15px', color: COL.dim }).setOrigin(1, 0);
@@ -74,7 +74,7 @@ export default class UIScene extends Phaser.Scene {
 
     // ---- Climate panel (top right) ----
     this.climPanel = panel(this, 0, 0, CLIM_W, CLIM_H);
-    this.climIcons = [this.add.image(0, 0, 'i_co2').setOrigin(0), this.add.image(0, 0, 'i_temp').setOrigin(0), this.add.image(0, 0, 'i_forest').setOrigin(0)];
+    this.climIcons = ['i_co2', 'i_temp', 'i_forest'].map((k) => this.add.image(0, 0, k).setOrigin(0).setScale(0.5));
     this.climTexts = [0, 1, 2].map(() => this.add.text(0, 0, '', { fontFamily: SERIF, fontSize: '14px', color: COL.text }));
     this.climBar = this.add.graphics();
     this.climEvents = this.add.text(0, 0, '', { fontFamily: SANS, fontSize: '12px', color: '#e0b070' });
@@ -240,7 +240,10 @@ export default class UIScene extends Phaser.Scene {
     ctx.clearRect(0, 0, MM_W, MM_H);
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(this.world.terrainTex.getSourceImage(), 0, 0, ISO_W, ISO_H, 0, 0, MM_W, MM_H);
+    const fog = this.world.fog && this.world.fog.canvas;
+    if (fog) ctx.drawImage(fog, 0, 0, fog.width, fog.height, 0, 0, MM_W, MM_H);
     this.mmTex.refresh();
+    this.mmFogVersion = this.world.fog ? this.world.fog.version : 0;
   }
 
   // ---------- Messages ----------
@@ -600,7 +603,7 @@ export default class UIScene extends Phaser.Scene {
     this.add.text(w / 2, h / 2 - 32, info[1], { fontFamily: SERIF, fontSize: '19px', fontStyle: 'italic', color: COL.text, stroke: '#000', strokeThickness: 3 }).setOrigin(0.5).setDepth(101);
     this.add.text(w / 2, h / 2 + 6, stats, { fontFamily: SANS, fontSize: '13px', color: COL.dim, stroke: '#000', strokeThickness: 2 }).setOrigin(0.5).setDepth(101);
     button(this, w / 2 - 210, h / 2 + 60, 200, 44, 'Play Again', () => {
-      this.world.scene.start('GameScene', { seed: Math.floor(Math.random() * 1e9), difficulty: this.world.difficulty });
+      this.world.scene.start('GameScene', { seed: Math.floor(Math.random() * 1e9), difficulty: this.world.difficulty, fog: this.world.fog ? this.world.fog.enabled : true });
     }, { depth: 101 });
     button(this, w / 2 + 10, h / 2 + 60, 200, 44, 'Main Menu', () => this.quitToMenu(), { depth: 101 });
   }
@@ -655,6 +658,7 @@ export default class UIScene extends Phaser.Scene {
 
     // Minimap terrain refresh when something changed.
     this.mmTimer -= delta;
+    if (w.fog && w.fog.version !== this.mmFogVersion) this.mmDirty = true;
     if (this.mmDirty && this.mmTimer <= 0) {
       this.mmTimer = 1500;
       this.mmDirty = false;
@@ -665,12 +669,14 @@ export default class UIScene extends Phaser.Scene {
     const g = this.mmDots;
     g.clear();
     for (const b of w.buildings) {
+      if (!b.container.visible) continue;
       const i = toIso(b.cx, b.cy);
       g.fillStyle(TEAM_COLORS[b.team].main, b.complete ? 1 : 0.5);
       g.fillRect(i.x / MM_K - 2.5, i.y / MM_K - 2, 5, 4);
       g.lineStyle(1, 0x000000, 0.6).strokeRect(i.x / MM_K - 2.5, i.y / MM_K - 2, 5, 4);
     }
     for (const u of w.units) {
+      if (!u.container.visible) continue;
       g.fillStyle(u.selected ? 0xffffff : u.team === 'player' ? 0x7aa8ff : 0xff6a5a, 1);
       g.fillRect(u.isoX / MM_K - 1, u.isoY / MM_K - 1, 2, 2);
     }

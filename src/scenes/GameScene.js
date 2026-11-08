@@ -5,11 +5,12 @@ import {
 import { GameMap } from '../map.js';
 import { Unit, UNIT_TYPES } from '../unit.js';
 import { Building, BUILDING_TYPES, UPGRADES, ERAS } from '../buildings.js';
-import { generateArt, buildingKey, buildingTexInfo } from '../art.js';
+import { generateArt, buildingKey, buildingTexInfo, ART_RES } from '../art.js';
 import { toIso, fromIso, ISO_W, ISO_H } from '../iso.js';
 import { Climate } from '../climate.js';
 import { EnemyAI, DIFFICULTY } from '../ai.js';
 import { audio } from '../audio.js';
+import { Fog } from '../fog.js';
 
 export default class GameScene extends Phaser.Scene {
   constructor() {
@@ -82,6 +83,23 @@ export default class GameScene extends Phaser.Scene {
       this.ai = new EnemyAI(this, 'enemy', this.difficulty);
     }
 
+    // --- Fog of war ---
+    const fogOn = save ? (save.fog ? save.fog.enabled : true) : data.fog !== false;
+    this.fog = new Fog(this, fogOn, save && save.fog ? save.fog.explored : null);
+    this.fog.applyVisibility();
+
+    // --- Living world: cloud shadows drifting over the land, glints on the water ---
+    this.clouds = [];
+    for (let i = 0; i < 5; i++) {
+      const c = this.add.image(Math.random() * ISO_W, Math.random() * ISO_H, 'cloud')
+        .setScale(2.5 + Math.random() * 1.5).setAlpha(0.16).setDepth(1e6 - 6);
+      c.speed = 10 + Math.random() * 8;
+      this.clouds.push(c);
+    }
+    this.glintTimer = 0;
+    this.glints = 0;
+    this.lastClick = null;
+
     // --- Selection & placement ---
     this.selected = new Set();
     this.selectedBuilding = null;
@@ -89,7 +107,7 @@ export default class GameScene extends Phaser.Scene {
     this.placing = null;
     this.selBox = this.add.graphics().setDepth(1e6);
     this.ghost = this.add.graphics().setDepth(1e6 - 1);
-    this.ghostImg = this.add.image(0, 0, buildingKey('house', 'player')).setOrigin(0).setAlpha(0.6).setDepth(1e6 - 2).setVisible(false);
+    this.ghostImg = this.add.image(0, 0, buildingKey('house', 'player')).setOrigin(0).setScale(1 / ART_RES).setAlpha(0.6).setDepth(1e6 - 2).setVisible(false);
 
     // --- Input ---
     this.input.mouse.disableContextMenu();
@@ -144,7 +162,12 @@ export default class GameScene extends Phaser.Scene {
         this.selectWhere((u) => Phaser.Geom.Rectangle.Contains(r, u.isoX, u.isoY - 10), additive);
       } else {
         const u = this.unitAt(iso.x, iso.y, 'player');
-        if (u && additive && this.selected.has(u)) this.deselect(u);
+        const now = this.time.now;
+        const ctrl = p.event && (p.event.ctrlKey || p.event.metaKey);
+        const dbl = u && this.lastClick && this.lastClick.unit === u && now - this.lastClick.t < 350;
+        this.lastClick = { unit: u, t: now };
+        if (u && (dbl || ctrl)) this.selectSameOnScreen(u, additive);
+        else if (u && additive && this.selected.has(u)) this.deselect(u);
         else if (u) this.selectWhere((x) => x === u, additive);
         else {
           const b = this.buildingAtIso(iso.x, iso.y);
@@ -235,6 +258,7 @@ export default class GameScene extends Phaser.Scene {
   buildingAtIso(ix, iy) {
     let best = null;
     for (const b of this.buildings) {
+      if (!b.container.visible) continue;
       const left = b.container.x - b.tex.ox;
       const top = b.container.y - b.tex.oy * 0.55;
       const bottom = b.container.y + (b.W + b.H) / 2;
@@ -265,6 +289,7 @@ export default class GameScene extends Phaser.Scene {
   // Play a sound that happens at grid point (x, y): only if it's on screen, quieter towards the edges.
   sfx(name, x, y) {
     if (x === undefined) { audio.play(name); return; }
+    if (this.fog && !this.fog.visibleAt(x, y)) return;
     const i = toIso(x, y);
     const v = this.cameras.main.worldView;
     const margin = 120;
@@ -808,7 +833,7 @@ export default class GameScene extends Phaser.Scene {
     let best = null;
     let bestD = 17;
     for (const u of this.units) {
-      if (u.team === 'player') continue;
+      if (u.team === 'player' || !u.container.visible) continue;
       const d = Phaser.Math.Distance.Between(ix, iy, u.isoX, u.isoY - 12);
       if (d < bestD) { bestD = d; best = u; }
     }
@@ -828,6 +853,12 @@ export default class GameScene extends Phaser.Scene {
       }
     }
     this.emitSelection();
+  }
+
+  // Double-click / Ctrl+click: every unit of the same type that's on screen.
+  selectSameOnScreen(u, additive) {
+    const v = this.cameras.main.worldView;
+    this.selectWhere((x) => x.type === u.type && Phaser.Geom.Rectangle.Contains(v, x.isoX, x.isoY), additive);
   }
 
   selectBuilding(b) {
@@ -989,7 +1020,35 @@ export default class GameScene extends Phaser.Scene {
     audio.updateAmbience(delta / 1000, { temp: this.climate.temp, firesOnScreen: this.firesOnScreen, paused: this.paused || !!this.gameOver });
 
     if (this.gameOver || this.paused) return;
+    this.ambientEffects(delta);
     this.step(Math.min(delta, 100)); // cap frame time so a lag spike doesn't teleport units
+  }
+
+  // Drifting cloud shadows and glints of sunlight on water near the camera.
+  ambientEffects(delta) {
+    for (const c of this.clouds) {
+      c.x += (c.speed * delta) / 1000;
+      c.y += (c.speed * 0.3 * delta) / 1000;
+      if (c.x > ISO_W + 900) { c.x = -900; c.y = Math.random() * ISO_H; }
+      if (c.y > ISO_H + 500) c.y = -500;
+    }
+    this.glintTimer -= delta;
+    if (this.glintTimer > 0 || this.glints > 40) return;
+    this.glintTimer = 70;
+    const v = this.cameras.main.worldView;
+    const ix = v.x + Math.random() * v.width;
+    const iy = v.y + Math.random() * v.height;
+    const g = fromIso(ix, iy);
+    const tx = Math.floor(g.x / TILE);
+    const ty = Math.floor(g.y / TILE);
+    if (!this.map.inBounds(tx, ty) || this.map.get(tx, ty) !== TERRAIN.WATER) return;
+    if (this.fog && !this.fog.isExplored(tx, ty)) return;
+    const s = this.add.image(ix, iy, 'glint').setDepth(1).setAlpha(0).setScale(0.6 + Math.random() * 0.8);
+    this.glints++;
+    this.tweens.add({
+      targets: s, alpha: 0.75, duration: 450, yoyo: true, ease: 'Sine.easeInOut',
+      onComplete: () => { s.destroy(); this.glints--; },
+    });
   }
 
   // One tick of the simulation.
@@ -1000,6 +1059,7 @@ export default class GameScene extends Phaser.Scene {
     this.updateTraining(dt);
     this.climate.update(dt);
     this.ai.update(dt);
+    if (this.fog) this.fog.update(dt);
     this.checkGameOver();
   }
 }

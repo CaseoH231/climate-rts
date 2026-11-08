@@ -91,5 +91,6 @@ export function serialize(w) {
       assault: [...w.ai.assault].map((u) => uIndex.get(u)).filter((i) => i !== undefined),
     },
     camera: { x: cam.midPoint.x, y: cam.midPoint.y, zoom: cam.zoom },
+    fog: w.fog ? w.fog.serialize() : null,
   };
 }

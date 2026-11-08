@@ -1,6 +1,6 @@
 // Units: workers and soldiers. Workers can gather resources and construct buildings.
 import { findPath } from './pathfinding.js';
-import { unitKey } from './art.js';
+import { unitKey, ART_RES } from './art.js';
 import { toIso } from './iso.js';
 
 // attack = damage per hit, range in pixels, cooldown in seconds between hits,
@@ -67,7 +67,8 @@ export class Unit {
     const big = def.vehicle;
     const shadow = scene.add.ellipse(0, 1, big ? 34 : 18, big ? 12 : 8, 0x000000, 0.32);
     this.ring = scene.add.ellipse(0, 1, big ? 42 : 26, big ? 16 : 12).setStrokeStyle(1.5, 0xe0d8b0, 0.9).setVisible(false);
-    this.sprite = scene.add.image(0, 0, unitKey(type, team)).setOrigin(0.5, big ? 0.72 : 0.86);
+    this.sprite = scene.add.image(0, 0, unitKey(type, team)).setOrigin(0.5, big ? 0.72 : 0.86).setScale(1 / ART_RES);
+    this.frame = 0;
     this.tool = null;
     const body = [this.sprite];
 
@@ -170,6 +171,14 @@ export class Unit {
     this.path = [];
     this.sprite.rotation = 0;
     this.sprite.y = 0;
+    this.setFrame(0);
+  }
+
+  // Walking animation: switch between standing and two stride poses.
+  setFrame(f) {
+    if (this.def.vehicle || f === this.frame) return;
+    this.frame = f;
+    this.sprite.setTexture(unitKey(this.type, this.team, f));
   }
 
   // Turn to face a point on the grid (left/right on screen).
@@ -295,10 +304,12 @@ export class Unit {
     this.sprite.rotation = 0;
     this.walkPhase += dt * 0.014;
     this.sprite.y = this.def.vehicle ? 0 : -Math.abs(Math.sin(this.walkPhase)) * 1.6;
+    const sw = Math.sin(this.walkPhase);
+    this.setFrame(sw > 0.35 ? 1 : sw < -0.35 ? 2 : 0);
     if (dist <= step) {
       this.setPos(target.x, target.y);
       this.path.shift();
-      if (!this.path.length) this.sprite.y = 0;
+      if (!this.path.length) { this.sprite.y = 0; this.setFrame(0); }
     } else {
       this.setPos(this.px + (dx / dist) * step, this.py + (dy / dist) * step);
     }
@@ -371,6 +382,7 @@ export class Unit {
     }
     this.path = [];
     this.sprite.y = 0;
+    this.setFrame(0);
     this.face(t.isBuilding ? t.cx : t.x, t.isBuilding ? t.cy : t.y);
     if (this.cooldown <= 0) {
       this.cooldown = this.def.cooldown;

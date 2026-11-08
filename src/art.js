@@ -673,16 +673,20 @@ export function buildingTexInfo(def) {
 
 // ---------- units ----------
 // Little people seen from slightly above, drawn on a 32×40 canvas with feet at (16, 34).
+// Which walking pose to draw: 0 = standing, 1 / -1 = mid-stride.
+let LEG_STEP = 0;
+
 function figure(ctx, team, opts) {
   const c = TEAM_RGB[team];
   const skin = '#c49a78';
   // legs
   ctx.fillStyle = '#3a3128';
-  ctx.fillRect(12, 26, 3, 8);
-  ctx.fillRect(17, 26, 3, 8);
+  const s = LEG_STEP;
+  ctx.fillRect(12 - s * 1.5, 26, 3, 8 - Math.max(0, s));
+  ctx.fillRect(17 + s * 1.5, 26, 3, 8 - Math.max(0, -s));
   ctx.fillStyle = '#211b15';
-  ctx.fillRect(11, 33, 4, 2);
-  ctx.fillRect(17, 33, 4, 2);
+  ctx.fillRect(11 - s * 1.5, 33 - Math.max(0, s), 4, 2);
+  ctx.fillRect(17 + s * 1.5, 33 - Math.max(0, -s), 4, 2);
   // body
   const body = opts.body || c.main;
   ctx.fillStyle = hgrad(ctx, 9, 23, [c.light, body, c.dark]);
@@ -1067,16 +1071,20 @@ function vignette(ctx, s) {
 }
 
 // ---------- make Phaser textures from all of the above ----------
-function makeCanvas(scene, key, w, h, draw) {
+// Art is drawn at ART_RES× size and shown at 1/ART_RES scale, so it stays crisp when you zoom in.
+export const ART_RES = 2;
+
+function makeCanvas(scene, key, w, h, draw, res = 1) {
   if (scene.textures.exists(key)) return; // already made (e.g. when starting a second game)
-  const tex = scene.textures.createCanvas(key, w, h);
+  const tex = scene.textures.createCanvas(key, Math.ceil(w * res), Math.ceil(h * res));
   const ctx = tex.getContext();
+  ctx.scale(res, res);
   draw(ctx);
   tex.refresh();
 }
 
 export function buildingKey(type, team) { return `b_${type}_${team}`; }
-export function unitKey(type, team) { return `u_${type}_${team}`; }
+export function unitKey(type, team, frame = 0) { return `u_${type}_${team}${frame ? `_w${frame}` : ''}`; }
 
 export function generateArt(scene, buildingTypes) {
   for (const team of Object.keys(TEAM_RGB)) {
@@ -1087,15 +1095,45 @@ export function generateArt(scene, buildingTypes) {
       makeCanvas(scene, buildingKey(type, team), info.width, info.height, (ctx) => {
         ctx.translate(info.ox, info.oy);
         draw(ctx, team);
-      });
+      }, ART_RES);
     }
     for (const [type, draw] of Object.entries(UNIT_ART)) {
-      makeCanvas(scene, unitKey(type, team), 32, 40, (ctx) => draw(ctx, team));
+      // standing pose + two walking poses
+      [0, 1, 2].forEach((frame) => {
+        LEG_STEP = frame === 1 ? 1 : frame === 2 ? -1 : 0;
+        makeCanvas(scene, unitKey(type, team, frame), 32, 40, (ctx) => draw(ctx, team), ART_RES);
+      });
+      LEG_STEP = 0;
     }
-    makeCanvas(scene, unitKey('armoured_car', team), 44, 40, (ctx) => armouredCar(ctx, team));
+    makeCanvas(scene, unitKey('armoured_car', team), 44, 40, (ctx) => armouredCar(ctx, team), ART_RES);
   }
-  for (const [name, draw] of Object.entries(ICON_ART)) makeCanvas(scene, `i_${name}`, 20, 20, draw);
-  for (const [name, draw] of Object.entries(UPGRADE_ICON)) makeCanvas(scene, `up_${name}`, 40, 40, draw);
+  for (const [name, draw] of Object.entries(ICON_ART)) makeCanvas(scene, `i_${name}`, 20, 20, draw, ART_RES);
+  for (const [name, draw] of Object.entries(UPGRADE_ICON)) makeCanvas(scene, `up_${name}`, 40, 40, draw, ART_RES);
+  // soft cloud shadow and a water glint
+  makeCanvas(scene, 'cloud', 512, 256, (ctx) => {
+    const r = rand(77);
+    for (let i = 0; i < 9; i++) {
+      const x = 120 + r() * 270;
+      const y = 80 + r() * 100;
+      const rad = 50 + r() * 70;
+      const g = ctx.createRadialGradient(x, y, 0, x, y, rad);
+      g.addColorStop(0, 'rgba(0,0,0,0.5)');
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.ellipse(x, y, rad, rad * 0.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  });
+  makeCanvas(scene, 'glint', 16, 6, (ctx) => {
+    const g = ctx.createRadialGradient(8, 3, 0, 8, 3, 8);
+    g.addColorStop(0, 'rgba(255,255,245,1)');
+    g.addColorStop(1, 'rgba(255,255,245,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.ellipse(8, 3, 8, 2.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+  });
   makeCanvas(scene, 'vignette', 512, 512, (ctx) => vignette(ctx, 512));
   makeCanvas(scene, 'ui_stone', 256, 256, (ctx) => uiStone(ctx, 256));
   makeCanvas(scene, 'ui_wood', 256, 64, (ctx) => uiWood(ctx, 256, 64));

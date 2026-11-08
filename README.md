@@ -34,10 +34,14 @@ The `_headers` file tells Cloudflare not to cache the game code too hard, so upd
 
 ## Menus & saving
 
-- **Main menu:** New Game (choose **Easy / Normal / Hard** and a **random** or **classic** map), Load Game, How to Play.
+- **Main menu:** New Game (choose **Easy / Normal / Hard**, a **random** or **classic** map, and **fog of war** on/off), Load Game, How to Play.
 - **In game:** press **Esc** (with nothing selected), **F10** or the **Menu** button to pause. From there you can **save** to one of 3 slots, **load**, read the help, or quit to the main menu.
 - Saves are kept in your browser's storage on this computer.
 - **Settings** (main menu or in-game menu): master, sound-effects and ambience volume.
+
+## Fog of war
+
+Unexplored land is black; places you've explored but can't currently see are dimmed. Enemy units only show up when one of your units or buildings can see them. Towers and the Town Centre see furthest. Turn it off in New Game if you prefer.
 
 ## Sound
 
@@ -95,6 +99,7 @@ Research takes time and is shown by a purple bar. Hover any button to see what i
 | --- | --- |
 | Select a unit / building | Left-click it |
 | Select a group | Left-click and drag a box |
+| Select all of one type on screen | Double-click a unit (or Ctrl+click) |
 | Add/remove from selection | Hold Shift while clicking/dragging |
 | Move | Right-click on the map (or on the minimap) |
 | Gather | Right-click trees, stone, berries or coal with workers selected |
@@ -124,6 +129,7 @@ src/main.js             starts Phaser (menu → game + interface)
 src/iso.js              isometric maths (grid ↔ screen)
 src/ui.js               stone panels and buttons used by the menus
 src/save.js             saving / loading to browser storage
+src/fog.js              fog of war
 src/audio.js            all sound effects and ambience (Web Audio synthesis)
 src/help.js             the How to Play text
 src/scenes/MenuScene.js title screen, new game options, load game
@@ -150,4 +156,4 @@ src/scenes/UIScene.js   resource bar, command panel, diamond minimap, climate pa
 - [x] Phase 7 – Menus, saving and loading
 - [x] Phase 8 – Art and sound
 - [x] Phase 9 – Hosting (Cloudflare Pages), installable app, itch.io
-- [ ] Phase 10 – Playtesting and balance
+- [ ] Phase 10 – Playtesting and balance (started: double-click select, fog of war, sharper art, walk animation, clouds and water glints)

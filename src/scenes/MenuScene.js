@@ -2,7 +2,7 @@
 import { TILE, MAP_W, MAP_H, PLAYER_START } from '../config.js';
 import { GameMap } from '../map.js';
 import { BUILDING_TYPES, ERAS } from '../buildings.js';
-import { generateArt, buildingKey, unitKey, buildingTexInfo, BUILDING_POINTS } from '../art.js';
+import { generateArt, buildingKey, unitKey, buildingTexInfo, BUILDING_POINTS, ART_RES } from '../art.js';
 import { toIso, ISO_W, ISO_H } from '../iso.js';
 import { panel, button, volumeRows, FONT_SERIF, FONT_SANS, UI_COL } from '../ui.js';
 import { audio } from '../audio.js';
@@ -23,7 +23,7 @@ export default class MenuScene extends Phaser.Scene {
     generateArt(this, BUILDING_TYPES);
     audio.init(this.sound.context);
     audio.startAmbience();
-    this.options = { difficulty: 'normal', map: 'random' };
+    this.options = { difficulty: 'normal', map: 'random', fog: true };
 
     // --- Background: paint a corner of a map and put a little town on it ---
     if (!this.textures.exists('menu_terrain')) {
@@ -37,7 +37,7 @@ export default class MenuScene extends Phaser.Scene {
     const put = (type, tx, ty) => {
       const info = buildingTexInfo(BUILDING_TYPES[type]);
       const p = toIso(tx * TILE, ty * TILE);
-      this.add.image(p.x - info.ox, p.y - info.oy, buildingKey(type, 'player')).setOrigin(0)
+      this.add.image(p.x - info.ox, p.y - info.oy, buildingKey(type, 'player')).setOrigin(0).setScale(1 / ART_RES)
         .setDepth(p.y + (BUILDING_TYPES[type].w + BUILDING_TYPES[type].h) * TILE / 2);
       return p;
     };
@@ -52,8 +52,8 @@ export default class MenuScene extends Phaser.Scene {
     for (let i = 0; i < 6; i++) {
       const type = i < 4 ? 'worker' : 'soldier';
       const p = toIso((s.x - 2 + i) * TILE, (s.y + 2.5) * TILE);
-      const img = this.add.image(p.x, p.y, unitKey(type, 'player')).setOrigin(0.5, 0.86).setDepth(p.y);
-      this.walkers.push({ img, base: p, phase: i });
+      const img = this.add.image(p.x, p.y, unitKey(type, 'player')).setOrigin(0.5, 0.86).setDepth(p.y).setScale(1 / ART_RES);
+      this.walkers.push({ img, base: p, phase: i, type });
     }
     const cam = this.cameras.main;
     cam.setBackgroundColor('#0b0c0d');
@@ -138,7 +138,7 @@ export default class MenuScene extends Phaser.Scene {
       for (const o of volumeRows(this, (w - PW) / 2 + 30, top + 66, PW - 60, D + 1)) this.addUI(o);
       btn(top + 226, 'Back', () => this.show('main'), { w: 200 });
     } else if (view === 'new') {
-      this.addUI(panel(this, (w - PW) / 2, top, PW, 330, D));
+      this.addUI(panel(this, (w - PW) / 2, top, PW, 400, D));
       this.addUI(this.add.text(w / 2, top + 22, 'Difficulty', { fontFamily: FONT_SERIF, fontSize: '18px', color: UI_COL.text, stroke: '#000', strokeThickness: 3 }).setOrigin(0.5, 0).setDepth(D + 1));
       const diffBtns = Object.entries(DIFFICULTY).map(([k, d], i) => {
         const b = this.addUI(button(this, (w - PW) / 2 + 30 + i * 130, top + 52, 120, 38, d.name, () => {
@@ -157,8 +157,17 @@ export default class MenuScene extends Phaser.Scene {
         b.setSelected(k === this.options.map);
         return [k, b];
       });
-      btn(top + 200, 'Start Game', () => this.startGame());
-      btn(top + 260, 'Back', () => this.show('main'), { w: 200 });
+      this.addUI(this.add.text(w / 2, top + 188, 'Fog of war', { fontFamily: FONT_SERIF, fontSize: '18px', color: UI_COL.text, stroke: '#000', strokeThickness: 3 }).setOrigin(0.5, 0).setDepth(D + 1));
+      const fogBtns = [[true, 'On'], [false, 'Off']].map(([k, label], i) => {
+        const b = this.addUI(button(this, (w - PW) / 2 + 30 + i * 195, top + 218, 185, 38, label, () => {
+          this.options.fog = k;
+          fogBtns.forEach(([kk, bb]) => bb.setSelected(kk === k));
+        }, { depth: D + 1, size: '16px' }));
+        b.setSelected(k === this.options.fog);
+        return [k, b];
+      });
+      btn(top + 276, 'Start Game', () => this.startGame());
+      btn(top + 334, 'Back', () => this.show('main'), { w: 200 });
     } else if (view === 'load') {
       const saves = listSaves();
       this.addUI(panel(this, (w - PW) / 2, top, PW, 90 + saves.length * 54 + 40, D));
@@ -184,7 +193,7 @@ export default class MenuScene extends Phaser.Scene {
 
   startGame() {
     const seed = this.options.map === 'random' ? Math.floor(Math.random() * 1e9) : undefined;
-    this.scene.start('GameScene', { seed, difficulty: this.options.difficulty });
+    this.scene.start('GameScene', { seed, difficulty: this.options.difficulty, fog: this.options.fog });
   }
 
   update(time, delta) {
@@ -207,6 +216,8 @@ export default class MenuScene extends Phaser.Scene {
       const dx = Math.sin(t * 0.4) * 30;
       wk.img.setPosition(wk.base.x + dx, wk.base.y + dx * 0.5 - Math.abs(Math.sin(t * 6)) * 1.5);
       wk.img.setFlipX(Math.cos(t * 0.4) < 0);
+      const sw = Math.sin(t * 6);
+      wk.img.setTexture(unitKey(wk.type, 'player', sw > 0.35 ? 1 : sw < -0.35 ? 2 : 0));
     }
   }
 }

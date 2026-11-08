@@ -1,7 +1,7 @@
 // Service worker: lets the installed game run offline.
 // Strategy: always try the network first (so updates show up straight away), fall back to the saved copy when offline.
 // Bump CACHE when you want old offline copies thrown away.
-const CACHE = 'age-of-emissions-v1';
+const CACHE = 'age-of-emissions-v2';
 const FILES = [
   './',
   'index.html',
@@ -23,6 +23,7 @@ const FILES = [
   'src/climate.js',
   'src/ai.js',
   'src/audio.js',
+  'src/fog.js',
   'src/save.js',
   'src/ui.js',
   'src/help.js',
