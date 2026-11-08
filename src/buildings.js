@@ -47,6 +47,14 @@ export const BUILDING_TYPES = {
     name: 'Watch Tower', w: 2, h: 2, hp: 500, cost: { wood: 60, stone: 100 }, buildTime: 20, era: 0,
     attack: { dmg: 8, range: 250, cooldown: 1.6 }, desc: 'Shoots at enemies that come close.',
   },
+  wall: {
+    name: 'Stone Wall', w: 1, h: 1, hp: 350, cost: { stone: 5 }, buildTime: 4, era: 0, wall: true, line: true,
+    desc: 'Blocks enemies. Click and drag to lay a whole line of wall.',
+  },
+  gate: {
+    name: 'Gate', w: 1, h: 1, hp: 450, cost: { stone: 25 }, buildTime: 10, era: 0, wall: true, gate: true,
+    desc: 'A door in your wall: your people walk through, enemies have to break it down.',
+  },
   wind_turbine: {
     name: 'Wind Turbine', w: 2, h: 2, hp: 150, cost: { wood: 80, stone: 30 }, buildTime: 15, era: 0,
     produces: { clean: 0.2 }, desc: 'Makes 0.2 clean energy per second. No pollution.',
@@ -81,11 +89,13 @@ export const BUILDING_TYPES = {
   },
 };
 
-// What a worker can build, in button order.
-export const WORKER_BUILDS = [
-  'house', 'farm', 'storage', 'barracks', 'tower', 'wind_turbine',
-  'trees', 'workshop', 'power_plant', 'solar', 'carbon_capture', 'restoration',
+// What a worker can build, in button order: an economy page and a military page.
+export const WORKER_PAGES = [
+  ['house', 'farm', 'storage', 'wind_turbine', 'trees', 'workshop',
+    'power_plant', 'solar', 'carbon_capture', 'restoration'],
+  ['barracks', 'tower', 'wall', 'gate'],
 ];
+export const WORKER_BUILDS = WORKER_PAGES.flat();
 
 // ---------- Research ----------
 // "energy" can be paid with fossil fuel or clean energy; "clean" must be clean energy.
@@ -131,6 +141,7 @@ export class Building {
     this.smokeTimer = Math.random();
     this.wonderTime = 0;
     this.capturing = false;
+    this.rally = null;        // tile where newly trained units gather
     this.cooldown = 1;
     this.isBuilding = true;
     this.selected = false;

@@ -44,10 +44,14 @@ class MinHeap {
 }
 
 // Returns an array of tiles [{x,y}, ...] from (but not including) the start to the goal,
-// or null if the goal can't be reached.
-export function findPath(map, sx, sy, gx, gy) {
-  if (!map.isWalkable(gx, gy)) {
-    const n = map.nearestWalkable(gx, gy);
+// or null if the goal can't be reached. `team` may pass through its own gates.
+// With `ignoreWalls`, walls and gates count as open ground (to find out which wall is in the way).
+export function findPath(map, sx, sy, gx, gy, team, ignoreWalls = false) {
+  const walk = ignoreWalls
+    ? (x, y) => map.isWalkable(x, y, team) || map.isWallTile(x, y)
+    : (x, y) => map.isWalkable(x, y, team);
+  if (!walk(gx, gy)) {
+    const n = map.nearestWalkable(gx, gy, 15, team);
     if (!n) return null;
     gx = n.x; gy = n.y;
   }
@@ -85,8 +89,8 @@ export function findPath(map, sx, sy, gx, gy) {
     const cx = cur % W, cy = (cur / W) | 0;
     for (const [dx, dy, cost] of DIRS) {
       const nx = cx + dx, ny = cy + dy;
-      if (!map.isWalkable(nx, ny)) continue;
-      if (dx && dy && (!map.isWalkable(cx + dx, cy) || !map.isWalkable(cx, cy + dy))) continue;
+      if (!walk(nx, ny)) continue;
+      if (dx && dy && (!walk(cx + dx, cy) || !walk(cx, cy + dy))) continue;
       const ni = ny * W + nx;
       if (closed[ni]) continue;
       const ng = g[cur] + cost;

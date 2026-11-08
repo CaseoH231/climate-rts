@@ -68,6 +68,7 @@ function tileRand(x, y) {
 }
 
 const NEIGHBOURS_8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]];
+const TEAM_CODE = { player: 1, enemy: 2 };
 
 export class GameMap {
   constructor(w, h, seed) {
@@ -77,6 +78,7 @@ export class GameMap {
     this.tiles = new Uint8Array(w * h);
     this.amount = new Float32Array(w * h);   // resource left in each tile
     this.blocked = new Uint8Array(w * h);    // 1 = a solid building stands here
+    this.gateTeam = new Uint8Array(w * h);   // gates: only their owner (1 player, 2 enemy) may walk through
     this.buildings = new Array(w * h).fill(null);
     this.elev = new Float32Array(w * h);     // land height — low land floods first when the sea rises
     this.seaLevel = 0.32;
@@ -199,10 +201,20 @@ export class GameMap {
     this.tiles[y * this.w + x] = t;
   }
 
-  isWalkable(x, y) {
+  // `team` lets a side walk through its own gates; without it, every gate counts as closed.
+  isWalkable(x, y, team) {
     if (!this.inBounds(x, y)) return false;
     const i = y * this.w + x;
-    return TERRAIN_INFO[this.tiles[i]].walkable && !this.blocked[i];
+    if (!TERRAIN_INFO[this.tiles[i]].walkable || this.blocked[i]) return false;
+    const g = this.gateTeam[i];
+    return !g || (team !== undefined && TEAM_CODE[team] === g);
+  }
+
+  // A wall or gate stands here (used to work out what an army has to smash through).
+  isWallTile(x, y) {
+    if (!this.inBounds(x, y)) return false;
+    const b = this.buildings[y * this.w + x];
+    return !!(b && b.def.wall && TERRAIN_INFO[this.tiles[y * this.w + x]].walkable);
   }
 
   worldToTile(wx, wy) {
@@ -316,7 +328,8 @@ export class GameMap {
       for (let i = b.tx; i < b.tx + b.w; i++) {
         const k = j * this.w + i;
         this.buildings[k] = b;
-        if (!b.def.walkable) this.blocked[k] = 1;
+        if (b.def.gate) this.gateTeam[k] = TEAM_CODE[b.team];
+        else if (!b.def.walkable) this.blocked[k] = 1;
       }
     }
   }
@@ -328,6 +341,7 @@ export class GameMap {
         if (this.buildings[k] === b) {
           this.buildings[k] = null;
           this.blocked[k] = 0;
+          this.gateTeam[k] = 0;
         }
       }
     }
@@ -352,15 +366,15 @@ export class GameMap {
   }
 
   // ---------- Searching ----------
-  nearestWalkable(x, y, maxR = 15) {
-    if (this.isWalkable(x, y)) return { x, y };
+  nearestWalkable(x, y, maxR = 15, team) {
+    if (this.isWalkable(x, y, team)) return { x, y };
     for (let r = 1; r <= maxR; r++) {
       let best = null;
       let bestD = Infinity;
       for (let dy = -r; dy <= r; dy++) {
         for (let dx = -r; dx <= r; dx++) {
           if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
-          if (!this.isWalkable(x + dx, y + dy)) continue;
+          if (!this.isWalkable(x + dx, y + dy, team)) continue;
           const d = dx * dx + dy * dy;
           if (d < bestD) { bestD = d; best = { x: x + dx, y: y + dy }; }
         }

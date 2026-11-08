@@ -75,7 +75,7 @@ export function serialize(w) {
     buildings: w.buildings.map((b) => ({
       type: b.type, team: b.team, tx: b.tx, ty: b.ty, progress: b.progress, hp: b.hp,
       queue: [...b.queue], trainTimer: b.trainTimer, research: b.research ? { ...b.research } : null,
-      food: b.food, grow: b.grow, wonderTime: b.wonderTime,
+      food: b.food, grow: b.grow, wonderTime: b.wonderTime, rally: b.rally,
     })),
     units: w.units.map((u) => ({
       type: u.type, team: u.team, x: u.px, y: u.py, hp: u.hp, carry: u.carry, carryType: u.carryType, order: orderOut(u.order),
@@ -90,6 +90,7 @@ export function serialize(w) {
       nextWave: w.ai.nextWave, waveSize: w.ai.waveSize, waveNum: w.ai.waveNum,
       assault: [...w.ai.assault].map((u) => uIndex.get(u)).filter((i) => i !== undefined),
     },
+    groups: (w.groups || []).map((g) => g.map((u) => uIndex.get(u)).filter((i) => i !== undefined)),
     camera: { x: cam.midPoint.x, y: cam.midPoint.y, zoom: cam.zoom },
     fog: w.fog ? w.fog.serialize() : null,
   };

@@ -17,12 +17,15 @@ The game is a Progressive Web App. Open it in Chrome or Edge (from Live Server o
 
 You get a desktop / Start-menu icon and it runs in its own window — even with no internet.
 
-## Put it online (Cloudflare Pages)
+## Put it online (Cloudflare)
 
-1. Commit and push everything (including `lib/phaser.min.js`).
-2. Cloudflare dashboard → **Workers & Pages** → **Create** → **Pages** → **Connect to Git** → pick this repository.
-3. Framework preset: **None**. Build command: *(leave empty)*. Build output directory: **/**
-4. **Save and Deploy.** Every push to GitHub updates the live site automatically.
+Live at **https://climate-rts.adrian11jonker.workers.dev** — every push to `main` rebuilds it automatically (watch it under Workers & Pages → climate-rts → Deployments).
+
+If pushes ever stop showing up:
+1. Cloudflare → **climate-rts → Settings → Builds** should show this repository connected to branch `main`.
+2. If it says the project is disconnected, check that the **Cloudflare Workers and Pages** GitHub app is allowed to see `climate-rts`:
+   https://github.com/apps/cloudflare-workers-and-pages/installations/new → Configure → add the repository.
+3. Then reconnect it in Cloudflare (Build command empty, deploy command `npx wrangler deploy`).
 
 The `_headers` file tells Cloudflare not to cache the game code too hard, so updates show up straight away.
 
@@ -104,11 +107,15 @@ Research takes time and is shown by a purple bar. Hover any button to see what i
 | Move | Right-click on the map (or on the minimap) |
 | Gather | Right-click trees, stone, berries or coal with workers selected |
 | Attack | Right-click an enemy unit or building |
-| Build | Select workers, press 1–9, 0, -, = (or click the grid), left-click to place (Shift to place several, right-click/Esc to cancel) |
+| Build | Select workers, press Q W E R T Y / Z X C V B N (or click the grid), left-click to place (Shift to place several, right-click/Esc to cancel). N switches between economy and military buildings |
+| Build a wall | Military buildings → Stone Wall, then click and drag a line |
+| Control groups | Ctrl+1–9 (or Alt+1–9) saves the selection, Shift+number adds to it, the number selects it, press twice to jump there |
+| Rally point | Select a Town Centre or Barracks and right-click the ground (or a resource / farm for workers) |
+| Stop | Q with units selected |
 | Help build / farm | Right-click an unfinished building or a farm with workers |
 | Train / research / advance | Select a Town Centre, Barracks or Workshop and use its buttons |
-| Find idle worker | . (full stop) |
-| Pan camera | WASD, arrow keys, or move the mouse to the screen edge |
+| Find idle worker | . (full stop) or the worker button above the command panel |
+| Pan camera | Arrow keys, or move the mouse to the screen edge |
 | Zoom | Mouse wheel |
 | Jump camera | Click/drag on the minimap |
 | Go home | H |
@@ -156,4 +163,6 @@ src/scenes/UIScene.js   resource bar, command panel, diamond minimap, climate pa
 - [x] Phase 7 – Menus, saving and loading
 - [x] Phase 8 – Art and sound
 - [x] Phase 9 – Hosting (Cloudflare Pages), installable app, itch.io
-- [ ] Phase 10 – Playtesting and balance (started: double-click select, fog of war, sharper art, walk animation, clouds and water glints)
+- [x] Phase 10 – Polish: double-click select, fog of war, sharper art, walk animation, clouds and water glints
+- [x] Phase 11 – Command & control: control groups, rally points, idle-worker button, walls and gates
+- [ ] Phase 12 – Playtesting and balance

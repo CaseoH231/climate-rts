@@ -1,7 +1,7 @@
 // In-game interface, in the style of classic isometric RTS games: wooden resource bar, stone command panel
 // with a command grid, info portrait and diamond minimap, climate panel, messages, in-game menu, end screen.
 import { TILE, MAP_W, MAP_H, TEAM_COLORS, CLIMATE } from '../config.js';
-import { BUILDING_TYPES, WORKER_BUILDS, UPGRADES, ERAS } from '../buildings.js';
+import { BUILDING_TYPES, WORKER_PAGES, UPGRADES, ERAS } from '../buildings.js';
 import { UNIT_TYPES } from '../unit.js';
 import { buildingKey, unitKey } from '../art.js';
 import { toIso, fromIso, ISO_W, ISO_H } from '../iso.js';
@@ -26,7 +26,8 @@ const MAX_TEMP_SHOWN = 5;
 const SERIF = FONT_SERIF;
 const SANS = FONT_SANS;
 const COL = { text: UI_COL.text, dim: UI_COL.dim, gold: UI_COL.gold, bad: UI_COL.bad, good: UI_COL.good };
-const HOTKEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '='];
+// Command buttons use the two left-hand letter rows (number keys are for control groups).
+const HOTKEYS = ['q', 'w', 'e', 'r', 't', 'y', 'z', 'x', 'c', 'v', 'b', 'n'];
 const RES_ORDER = ['food', 'wood', 'stone', 'fuel', 'clean'];
 const RES_NAME = { food: 'Food', wood: 'Wood', stone: 'Stone', fuel: 'Fossil fuel', clean: 'Clean energy', energy: 'Energy (any)' };
 
@@ -87,6 +88,21 @@ export default class UIScene extends Phaser.Scene {
     this.selDetail = this.add.text(0, 0, '', { fontFamily: SANS, fontSize: '13px', color: COL.text, lineSpacing: 4, stroke: '#000', strokeThickness: 2 });
     this.hpBar = this.add.graphics();
     this.buttons = [];
+    this.buildPage = 0;
+
+    // ---- Idle worker button (sits just above the command grid) ----
+    this.idleBtn = this.add.container(0, 0).setVisible(false);
+    const ib = this.add.graphics();
+    ib.fillStyle(0x2a241c, 1).fillRect(0, 0, 46, 46);
+    ib.lineStyle(2, UI_COL.bronze, 1).strokeRect(1, 1, 44, 44);
+    const iImg = this.add.image(23, 22, unitKey('worker', 'player')).setScale(0.55);
+    this.idleCount = this.add.text(42, 44, '', { fontFamily: SERIF, fontSize: '14px', color: COL.gold, stroke: '#000', strokeThickness: 3 }).setOrigin(1, 1);
+    const iHit = this.add.rectangle(0, 0, 46, 46, 0, 0).setOrigin(0).setInteractive({ useHandCursor: true });
+    iHit.on('pointerdown', (p) => { if (p.leftButtonDown()) { audio.play('click'); this.world.selectIdleWorker(); } });
+    iHit.on('pointerover', () => this.showTip({ name: 'Idle workers', cost: null, desc: 'Click (or press full stop) to select the next worker with nothing to do.' }, this.idleBtn.x, this.idleBtn.y));
+    iHit.on('pointerout', () => this.hideTip());
+    this.idleBtn.add([ib, iImg, this.idleCount, iHit]);
+    this.idleTimer = 0;
 
     // ---- Tooltip ----
     this.tip = this.add.container(0, 0).setVisible(false).setDepth(50);
@@ -133,8 +149,8 @@ export default class UIScene extends Phaser.Scene {
 
     // Hotkeys press the command buttons.
     this.input.keyboard.on('keydown', (e) => {
-      if (this.menu || w.gameOver) return;
-      const i = HOTKEYS.indexOf(e.key);
+      if (this.menu || w.gameOver || e.ctrlKey || e.altKey || e.metaKey) return;
+      const i = HOTKEYS.indexOf(e.key.toLowerCase());
       if (i >= 0 && this.buttons[i]) this.buttons[i].cmd.action();
     });
 
@@ -213,6 +229,8 @@ export default class UIScene extends Phaser.Scene {
     this.selDetail.setPosition(INFO_X + 108, py + 52);
     this.selDetail.setWordWrapWidth(Math.max(110, infoW - 120));
     this.hpBarPos = { x: INFO_X + 4, y: py + 104, w: 76 };
+    this.idleBtn.setPosition(GRID_X - 6, py - 54);
+    this.idleRect = new Phaser.Geom.Rectangle(GRID_X - 6, py - 54, 46, 46);
 
     this.layoutMessages();
     this.buildButtons();
@@ -222,7 +240,8 @@ export default class UIScene extends Phaser.Scene {
   isPointerOverUI(p) {
     if (this.menu) return true;
     const h = this.scale.height;
-    return p.y < TOP_H || p.y > h - PANEL_H || Phaser.Geom.Rectangle.Contains(this.climRect, p.x, p.y);
+    return p.y < TOP_H || p.y > h - PANEL_H || Phaser.Geom.Rectangle.Contains(this.climRect, p.x, p.y) ||
+      (this.idleBtn.visible && Phaser.Geom.Rectangle.Contains(this.idleRect, p.x, p.y));
   }
 
   inMinimap(p) {
@@ -278,6 +297,8 @@ export default class UIScene extends Phaser.Scene {
 
   // ---------- Selection & commands ----------
   onSelection(sel) {
+    const sameUnits = sel.units.length && sel.units.every((u) => this.sel.units.includes(u));
+    if (!sameUnits) this.buildPage = 0;
     this.sel = sel;
     this.buildButtons();
     const { units, building } = sel;
@@ -328,13 +349,25 @@ export default class UIScene extends Phaser.Scene {
       return cmds;
     }
     if (units.some((u) => u.type === 'worker')) {
-      for (const type of WORKER_BUILDS) {
+      for (const type of WORKER_PAGES[this.buildPage]) {
         const d = BUILDING_TYPES[type];
         cmds.push({
           thumb: buildingKey(type, 'player'), name: d.name, cost: d.cost, desc: d.desc,
           locked: d.era > era ? `Requires the ${ERAS[d.era].name}` : null, lockEra: d.era, action: () => w.startPlacing(type),
         });
       }
+      while (cmds.length < 11) cmds.push(null);
+      const toMilitary = this.buildPage === 0;
+      cmds.push({
+        thumb: buildingKey(toMilitary ? 'barracks' : 'house', 'player'), page: true,
+        name: toMilitary ? 'Military buildings' : 'Economy buildings',
+        desc: toMilitary ? 'Barracks, towers, walls and gates.' : 'Back to houses, farms, energy and the rest.',
+        action: () => { this.buildPage = toMilitary ? 1 : 0; this.buildButtons(); },
+      });
+      return cmds;
+    }
+    if (units.length) {
+      cmds.push({ thumb: 'up_stop', name: 'Stop', cost: null, desc: 'Stop what they are doing and stand still.', action: () => w.stopSelected() });
       return cmds;
     }
     if (!units.length) {
@@ -344,12 +377,13 @@ export default class UIScene extends Phaser.Scene {
   }
 
   buildButtons() {
-    for (const b of this.buttons) b.container.destroy();
+    for (const b of this.buttons) if (b) b.container.destroy();
     this.buttons = [];
     this.hideTip();
     const h = this.scale.height;
     const y0 = h - PANEL_H + 18;
     this.commandList().forEach((cmd, i) => {
+      if (!cmd) return;
       const col = i % 6;
       const row = Math.floor(i / 6);
       const x = GRID_X + col * CELL;
@@ -366,10 +400,15 @@ export default class UIScene extends Phaser.Scene {
       const tex = this.textures.get(cmd.thumb).getSourceImage();
       const s = Math.min(44 / tex.width, 44 / tex.height, 1.25);
       const img = this.add.image(BTN / 2, BTN / 2 + 1, cmd.thumb).setScale(s);
-      const key = this.add.text(3, 1, HOTKEYS[i] || '', { fontFamily: SANS, fontSize: '10px', color: COL.dim, stroke: '#000', strokeThickness: 2 });
+      const key = this.add.text(3, 1, (HOTKEYS[i] || '').toUpperCase(), { fontFamily: SANS, fontSize: '10px', color: COL.dim, stroke: '#000', strokeThickness: 2 });
       const stripe = this.add.rectangle(2, BTN - 5, BTN - 4, 3, 0x000000, 0).setOrigin(0);
       const shade = this.add.rectangle(0, 0, BTN, BTN, 0x000000, cmd.locked ? 0.55 : 0).setOrigin(0);
       c.add([g, img, shade, stripe, key]);
+      if (cmd.page) {
+        c.add(this.add.text(BTN - 3, BTN - 2, '»', {
+          fontFamily: SERIF, fontSize: '20px', color: COL.gold, stroke: '#000000', strokeThickness: 3,
+        }).setOrigin(1, 1));
+      }
       if (cmd.locked) {
         c.add(this.add.text(BTN / 2, BTN / 2, ERAS[cmd.lockEra].short, {
           fontFamily: SERIF, fontSize: '17px', color: COL.gold, stroke: '#000000', strokeThickness: 3,
@@ -380,7 +419,7 @@ export default class UIScene extends Phaser.Scene {
       hit.on('pointerover', () => { drawBg(true); this.showTip(cmd, x, y); });
       hit.on('pointerout', () => { drawBg(false); this.hideTip(); });
       hit.on('pointerdown', (p) => { if (p.leftButtonDown()) { audio.play('click'); cmd.action(); } });
-      this.buttons.push({ container: c, cmd, stripe });
+      this.buttons[i] = { container: c, cmd, stripe };
     });
   }
 
@@ -428,6 +467,9 @@ export default class UIScene extends Phaser.Scene {
           (b.queue.length > 1 ? `  (+${b.queue.length - 1} queued)` : ''));
       }
       if (b.waitingForPop) lines.push('Population limit reached — build a House.');
+      if (b.def.trains && b.complete && b.team === 'player' && !b.research && !b.queue.length) {
+        lines.push(b.rally ? 'Rally point set (right-click to move it).' : 'Right-click the ground to set a rally point.');
+      }
       if (b.type === 'farm') {
         lines.push(`Food left: ${Math.ceil(b.food)}${b.farmer ? '' : '  (no farmer — right-click it with a worker)'}`);
         if (w.climate.drought > 0) lines.push('Drought: crops yield half.');
@@ -444,11 +486,14 @@ export default class UIScene extends Phaser.Scene {
     }
     if (!units.length) {
       return ['Your people', 'Click or drag to select. Right-click to move, gather or attack.\n' +
+        'Ctrl/Alt+1–9: make a group, 1–9: select it (twice to jump there)\n' +
         'H: home   ·   Full stop: idle worker   ·   Esc: cancel'];
     }
     if (units.length === 1) {
       const u = units[0];
       const lines = [`Health ${Math.max(0, Math.ceil(u.hp))} / ${u.maxHp}`, `Currently ${u.statusText}`];
+      const grp = w.groupOf(u);
+      if (grp >= 0) lines[0] += `   ·   Group ${grp}`;
       if (u.carry >= 1) lines.push(`Carrying ${Math.floor(u.carry)} ${u.carryType === 'fuel' ? 'coal' : u.carryType}`);
       lines.push(u.def.desc);
       return [u.name, lines.join('\n')];
@@ -459,7 +504,8 @@ export default class UIScene extends Phaser.Scene {
       types[u.name] = (types[u.name] || 0) + 1;
       statuses[u.statusText] = (statuses[u.statusText] || 0) + 1;
     }
-    return [`${units.length} units`,
+    const grp = w.groups ? w.groups.findIndex((g) => g.length === units.length && units.every((u) => g.includes(u))) : -1;
+    return [`${units.length} units${grp >= 0 ? `  (group ${grp})` : ''}`,
       Object.entries(types).map(([n, c]) => `${c} ${n}${c > 1 ? 's' : ''}`).join(', ') + '\n' +
       Object.entries(statuses).map(([s, c]) => `${c} ${s}`).join(', ')];
   }
@@ -626,6 +672,14 @@ export default class UIScene extends Phaser.Scene {
     if (this.clockText.text !== clock) this.clockText.setText(clock);
 
     this.haze.setAlpha(Math.min(0.2, Math.max(0, w.climate.temp) * 0.045));
+
+    this.idleTimer -= delta;
+    if (this.idleTimer <= 0) {
+      this.idleTimer = 400;
+      const n = w.units.filter((u) => u.team === 'player' && u.type === 'worker' && u.isIdle).length;
+      this.idleBtn.setVisible(n > 0 && !this.menu && !w.gameOver);
+      this.idleCount.setText(String(n));
+    }
     this.drawClimate();
     this.updateMessages(delta);
 
@@ -645,6 +699,7 @@ export default class UIScene extends Phaser.Scene {
 
     // Button stripes: red = can't afford, purple = in progress.
     for (const b of this.buttons) {
+      if (!b) continue;
       let col = 0;
       let a = 0;
       if (b.cmd.busy) { col = 0x9c86c9; a = 1; }
@@ -672,6 +727,7 @@ export default class UIScene extends Phaser.Scene {
       if (!b.container.visible) continue;
       const i = toIso(b.cx, b.cy);
       g.fillStyle(TEAM_COLORS[b.team].main, b.complete ? 1 : 0.5);
+      if (b.def.wall) { g.fillRect(i.x / MM_K - 1, i.y / MM_K - 1, 2, 2); continue; }
       g.fillRect(i.x / MM_K - 2.5, i.y / MM_K - 2, 5, 4);
       g.lineStyle(1, 0x000000, 0.6).strokeRect(i.x / MM_K - 2.5, i.y / MM_K - 2, 5, 4);
     }

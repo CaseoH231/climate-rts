@@ -8,6 +8,7 @@ import { Building, BUILDING_TYPES, UPGRADES, ERAS } from '../buildings.js';
 import { generateArt, buildingKey, buildingTexInfo, ART_RES } from '../art.js';
 import { toIso, fromIso, ISO_W, ISO_H } from '../iso.js';
 import { Climate } from '../climate.js';
+import { findPath } from '../pathfinding.js';
 import { EnemyAI, DIFFICULTY } from '../ai.js';
 import { audio } from '../audio.js';
 import { Fog } from '../fog.js';
@@ -20,6 +21,7 @@ export default class GameScene extends Phaser.Scene {
   // data: { seed, difficulty } for a new game, or { load: <save data> } to continue a saved one.
   create(data = {}) {
     const save = data.load || null;
+    this.savedGroups = null;
     this.difficulty = save ? save.difficulty : data.difficulty || 'normal';
     const seed = save ? save.seed : data.seed ?? MAP_SEED;
 
@@ -106,12 +108,13 @@ export default class GameScene extends Phaser.Scene {
     this.drag = null;
     this.placing = null;
     this.selBox = this.add.graphics().setDepth(1e6);
+    this.rallyGfx = this.add.graphics().setDepth(1e6 - 3);
     this.ghost = this.add.graphics().setDepth(1e6 - 1);
     this.ghostImg = this.add.image(0, 0, buildingKey('house', 'player')).setOrigin(0).setScale(1 / ART_RES).setAlpha(0.6).setDepth(1e6 - 2).setVisible(false);
 
     // --- Input ---
     this.input.mouse.disableContextMenu();
-    this.keys = this.input.keyboard.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT,SHIFT,ESC,H,PERIOD');
+    this.keys = this.input.keyboard.addKeys('UP,DOWN,LEFT,RIGHT,SHIFT,ESC,H,PERIOD', false);
     this.keys.ESC.on('down', () => {
       if (this.paused || this.gameOver) return;
       if (this.placing) this.cancelPlacing();
@@ -121,6 +124,24 @@ export default class GameScene extends Phaser.Scene {
     this.input.keyboard.on('keydown-F10', () => { if (!this.gameOver) this.events.emit('openMenu'); });
     this.keys.H.on('down', () => cam.pan(this.home.x, this.home.y, 300, 'Sine.easeInOut'));
     this.keys.PERIOD.on('down', () => this.selectIdleWorker());
+
+    // Control groups: Ctrl/Alt + number saves the selection, Shift + number adds to it,
+    // the number on its own selects the group, pressing it twice jumps the camera there.
+    this.groups = Array.from({ length: 10 }, (_, i) => (this.savedGroups && this.savedGroups[i]) || []);
+    this.lastGroupKey = null;
+    this.input.keyboard.on('keydown', (e) => {
+      const m = /^Digit(\d)$/.exec(e.code);
+      if (!m || this.paused || this.gameOver) return;
+      const n = Number(m[1]);
+      if (e.ctrlKey || e.metaKey || e.altKey) {
+        e.preventDefault();
+        this.setGroup(n, false);
+      } else if (e.shiftKey) {
+        this.setGroup(n, true);
+      } else {
+        this.recallGroup(n);
+      }
+    });
 
     this.pointerInGame = false; // edge-scrolling only starts once the mouse has moved over the game
     this.input.on('pointermove', () => { this.pointerInGame = true; });
@@ -137,7 +158,12 @@ export default class GameScene extends Phaser.Scene {
       const iso = this.isoPoint(p);
       if (this.placing) {
         if (p.rightButtonDown()) this.cancelPlacing();
-        else if (p.leftButtonDown()) this.tryPlace(w);
+        else if (p.leftButtonDown()) {
+          if (BUILDING_TYPES[this.placing.type].line) {
+            this.placing.from = this.map.worldToTile(w.x, w.y);
+            this.updateGhost();
+          } else this.tryPlace(w);
+        }
         return;
       }
       if (p.rightButtonDown()) this.commandAt(w.x, w.y, iso);
@@ -154,6 +180,7 @@ export default class GameScene extends Phaser.Scene {
     });
 
     this.input.on('pointerup', (p) => {
+      if (this.placing && this.placing.from && p.button === 0) { this.placeLine(); return; }
       if (!this.drag || p.button !== 0) return;
       const iso = this.isoPoint(p);
       const additive = this.keys.SHIFT.isDown;
@@ -193,7 +220,7 @@ export default class GameScene extends Phaser.Scene {
     this.gameTime = save.gameTime;
     const bs = save.buildings.map((d) => {
       const b = this.addBuilding(d.type, d.tx, d.ty, d.progress >= 1, d.team);
-      Object.assign(b, { progress: d.progress, hp: d.hp, queue: d.queue, trainTimer: d.trainTimer, research: d.research, food: d.food, grow: d.grow, wonderTime: d.wonderTime });
+      Object.assign(b, { progress: d.progress, hp: d.hp, queue: d.queue, trainTimer: d.trainTimer, research: d.research, food: d.food, grow: d.grow, wonderTime: d.wonderTime, rally: d.rally || null });
       b.redraw();
       return b;
     });
@@ -231,6 +258,7 @@ export default class GameScene extends Phaser.Scene {
     this.ai = new EnemyAI(this, 'enemy', this.difficulty);
     Object.assign(this.ai, { nextWave: save.ai.nextWave, waveSize: save.ai.waveSize, waveNum: save.ai.waveNum });
     save.ai.assault.forEach((i) => us[i] && this.ai.assault.add(us[i]));
+    this.savedGroups = (save.groups || []).map((g) => g.map((i) => us[i]).filter(Boolean));
     const cam = this.cameras.main;
     cam.setZoom(save.camera.zoom);
     cam.centerOn(save.camera.x, save.camera.y);
@@ -560,7 +588,7 @@ export default class GameScene extends Phaser.Scene {
     let best = null;
     let bestD = radius;
     for (const b of this.buildings) {
-      if (b.team === team) continue;
+      if (b.team === team || b.def.wall) continue; // walls only get attacked when they're in the way
       const d = this.distanceTo(x, y, b);
       if (d < bestD) { bestD = d; best = b; }
     }
@@ -572,11 +600,26 @@ export default class GameScene extends Phaser.Scene {
     let best = null;
     let bestD = Infinity;
     for (const t of [...this.buildings, ...this.units]) {
-      if (t.team === team || t.dead) continue;
+      if (t.team === team || t.dead || (t.isBuilding && t.def.wall)) continue;
       const d = this.distanceTo(x, y, t);
       if (d < bestD) { bestD = d; best = t; }
     }
     return best;
+  }
+
+  // The first enemy wall or gate a unit would have to break through to reach its target.
+  wallInTheWay(u, target) {
+    const from = u.tile;
+    const goal = target.isBuilding ? { x: target.tx, y: target.ty } : target.tile;
+    const path = findPath(this.map, from.x, from.y, goal.x, goal.y, u.team, true);
+    if (!path) return null;
+    for (const n of path) {
+      if (this.map.isWalkable(n.x, n.y, u.team)) continue;
+      const b = this.map.buildingAt(n.x, n.y);
+      if (b && b.def.wall && b.team !== u.team) return b;
+      if (b === target) return null;
+    }
+    return null;
   }
 
   // Fire a projectile from grid point (x, y) at height z towards a target (drawn isometrically).
@@ -701,6 +744,7 @@ export default class GameScene extends Phaser.Scene {
 
   cancelPlacing() {
     this.placing = null;
+    this.ghost.setPosition(0, 0);
     this.ghost.clear();
     this.ghostImg.setVisible(false);
   }
@@ -714,8 +758,77 @@ export default class GameScene extends Phaser.Scene {
     return { tx, ty, valid, def };
   }
 
+  // Tiles on a straight line between two tiles (Bresenham) — used for walls.
+  // Diagonal steps still seal the wall, because units can't squeeze between two corner-touching blocks.
+  lineTiles(a, b) {
+    const out = [];
+    let { x, y } = a;
+    const dx = Math.abs(b.x - x);
+    const dy = -Math.abs(b.y - y);
+    const sx = Math.sign(b.x - x);
+    const sy = Math.sign(b.y - y);
+    let err = dx + dy;
+    for (;;) {
+      out.push({ x, y });
+      if ((x === b.x && y === b.y) || out.length >= 40) break;
+      const e2 = 2 * err;
+      if (e2 >= dy) { err += dy; x += sx; }
+      if (e2 <= dx) { err += dx; y += sy; }
+    }
+    return out;
+  }
+
+  wallLine() {
+    const w = this.worldPoint(this.input.activePointer);
+    const to = this.map.worldToTile(w.x, w.y);
+    const tiles = this.lineTiles(this.placing.from, to);
+    return tiles.map((t) => ({
+      ...t,
+      valid: this.map.canPlace(t.x, t.y, 1, 1) && !this.unitsInRect(t.x, t.y, 1, 1),
+    }));
+  }
+
+  placeLine() {
+    const type = this.placing.type;
+    const def = BUILDING_TYPES[type];
+    const tiles = this.wallLine().filter((t) => t.valid);
+    this.placing.from = null;
+    let placed = 0;
+    let first = null;
+    for (const t of tiles) {
+      if (!this.canAfford(def.cost)) break;
+      const b = this.placeBuilding(type, t.x, t.y, 'player');
+      first = first || b;
+      placed++;
+    }
+    if (!placed) {
+      this.fail(tiles.length ? `Need ${this.missingText(def.cost)} more for a ${def.name}` : "Can't build there");
+      this.updateGhost();
+      return;
+    }
+    if (placed < tiles.length) this.fail(`Ran out of stone after ${placed} wall sections`);
+    audio.play('build');
+    for (const u of this.selectedWorkers()) u.orderBuild(first);
+    this.showMarker(first.cx, first.cy, 0x7cfc00);
+    if (!this.keys.SHIFT.isDown) this.cancelPlacing();
+    else this.updateGhost();
+  }
+
   updateGhost() {
     if (!this.placing) return;
+    if (this.placing.from) {
+      // dragging out a wall: one diamond per section
+      const g = this.ghost;
+      g.clear().setPosition(0, 0);
+      this.ghostImg.setVisible(false);
+      for (const t of this.wallLine()) {
+        const o = toIso(t.x * TILE, t.y * TILE);
+        const pts = [{ x: o.x, y: o.y }, { x: o.x + TILE, y: o.y + TILE / 2 }, { x: o.x, y: o.y + TILE }, { x: o.x - TILE, y: o.y + TILE / 2 }];
+        g.fillStyle(t.valid ? 0x7fbf5a : 0xc0453a, 0.45).fillPoints(pts, true);
+        g.lineStyle(1, t.valid ? 0xb8e08a : 0xe07a6e, 0.9).strokePoints(pts, true);
+      }
+      return;
+    }
     const w = this.worldPoint(this.input.activePointer);
     const { tx, ty, valid, def } = this.placementAt(w);
     const g = this.ghost;
@@ -799,7 +912,74 @@ export default class GameScene extends Phaser.Scene {
     const spots = this.map.standSpots(b.tx, b.ty, b.w, b.h, side);
     const free = spots.find((s) => !this.units.some((u) => u.tile.x === s.x && u.tile.y === s.y)) || spots[0];
     if (!free) return;
-    this.units.push(new Unit(this, this.map, free.x, free.y, type, b.team));
+    const u = new Unit(this, this.map, free.x, free.y, type, b.team);
+    this.units.push(u);
+    if (b.rally) this.sendToRally(u, b.rally);
+  }
+
+  // New units head for their building's rally point; workers get straight to work if it's on a job.
+  sendToRally(u, r) {
+    if (u.type === 'worker') {
+      const at = this.map.buildingAt(r.x, r.y);
+      if (at && at.team === u.team && !at.complete) { u.orderBuild(at); return; }
+      if (at && at.team === u.team && at.type === 'farm' && !(at.farmer && !at.farmer.dead && at.farmer.order && at.farmer.order.farm === at)) {
+        u.orderFarm(at);
+        return;
+      }
+      if (this.map.resourceAt(r.x, r.y)) { u.orderGather(r); return; }
+    }
+    const spots = this.map.tilesAround(r.x, r.y, 9);
+    if (spots.length) u.moveTo(spots[Math.floor(Math.random() * spots.length)]);
+  }
+
+  // Flag and dotted line showing where the selected building sends its new units.
+  drawRally() {
+    const g = this.rallyGfx;
+    g.clear();
+    const b = this.selectedBuilding;
+    if (!b || !b.rally) return;
+    const c = this.map.tileCenter(b.rally.x, b.rally.y);
+    const a = toIso(b.cx, b.cy);
+    const f = toIso(c.x, c.y);
+    const n = Math.max(1, Math.floor(Phaser.Math.Distance.Between(a.x, a.y, f.x, f.y) / 10));
+    g.fillStyle(0xf0e6c0, 0.8);
+    for (let i = 1; i < n; i++) g.fillCircle(a.x + ((f.x - a.x) * i) / n, a.y + ((f.y - a.y) * i) / n, 1.4);
+    g.fillStyle(0x000000, 0.3).fillEllipse(f.x + 2, f.y, 12, 5);
+    g.fillStyle(0x3a2a1a, 1).fillRect(f.x - 1, f.y - 26, 2, 26);
+    g.fillStyle(TEAM_COLORS.player.main, 1).fillTriangle(f.x + 1, f.y - 26, f.x + 15, f.y - 21, f.x + 1, f.y - 16);
+    g.lineStyle(1, 0x000000, 0.5).strokeTriangle(f.x + 1, f.y - 26, f.x + 15, f.y - 21, f.x + 1, f.y - 16);
+  }
+
+  stopSelected() {
+    for (const u of this.selected) u.stop();
+  }
+
+  // ---------- Control groups ----------
+  setGroup(n, add) {
+    const units = [...this.selected];
+    if (!units.length) return;
+    const g = add ? [...new Set([...this.groups[n].filter((u) => !u.dead), ...units])] : units;
+    this.groups[n] = g;
+    this.toast(`Group ${n}: ${g.length} unit${g.length > 1 ? 's' : ''}`);
+  }
+
+  recallGroup(n) {
+    const g = (this.groups[n] = this.groups[n].filter((u) => !u.dead));
+    if (!g.length) return;
+    const now = this.time.now;
+    const twice = this.lastGroupKey && this.lastGroupKey.n === n && now - this.lastGroupKey.t < 400;
+    this.lastGroupKey = { n, t: now };
+    this.selectWhere((u) => g.includes(u), false);
+    if (twice) {
+      const x = g.reduce((s, u) => s + u.isoX, 0) / g.length;
+      const y = g.reduce((s, u) => s + u.isoY, 0) / g.length;
+      this.cameras.main.pan(x, y, 250, 'Sine.easeInOut');
+    }
+  }
+
+  // Units in group n (for the interface).
+  groupOf(u) {
+    return this.groups.findIndex((g) => g.includes(u));
   }
 
   // ---------- Selection ----------
@@ -886,6 +1066,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   emitSelection() {
+    this.drawRally();
     this.events.emit('selection', { units: [...this.selected], building: this.selectedBuilding });
   }
 
@@ -901,6 +1082,15 @@ export default class GameScene extends Phaser.Scene {
   // ---------- Right-click orders ----------
   // Right-click at grid point (wx, wy). `iso` is the isometric click point when it came from the mouse.
   commandAt(wx, wy, iso) {
+    const sb = this.selectedBuilding;
+    if (!this.selected.size && sb && sb.team === 'player' && sb.def.trains) {
+      const rt = this.map.worldToTile(wx, wy);
+      sb.rally = { x: rt.x, y: rt.y };
+      audio.play('confirm');
+      this.showMarker(wx, wy, 0xf0e6c0);
+      this.drawRally();
+      return;
+    }
     if (!this.selected.size) return;
     const t = this.map.worldToTile(wx, wy);
     const b = iso ? this.buildingAtIso(iso.x, iso.y) : this.map.buildingAt(t.x, t.y);
@@ -979,10 +1169,10 @@ export default class GameScene extends Phaser.Scene {
     const speed = (700 * delta) / 1000 / cam.zoom;
     let dx = 0;
     let dy = 0;
-    if (k.A.isDown || k.LEFT.isDown) dx -= 1;
-    if (k.D.isDown || k.RIGHT.isDown) dx += 1;
-    if (k.W.isDown || k.UP.isDown) dy -= 1;
-    if (k.S.isDown || k.DOWN.isDown) dy += 1;
+    if (k.LEFT.isDown) dx -= 1;
+    if (k.RIGHT.isDown) dx += 1;
+    if (k.UP.isDown) dy -= 1;
+    if (k.DOWN.isDown) dy += 1;
 
     // Scroll when the mouse is at the edge of the screen.
     const p = this.input.activePointer;

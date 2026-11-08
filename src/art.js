@@ -363,6 +363,32 @@ function bannerL(ctx, x, y, z, team) {
   quad(ctx, P(x, y, z), [1, 0.5], [0, 1], 12, 22, (c) => banner(c, 0, 0, 18, team));
 }
 
+// One tile of wall: a stone block with a walkway on top and merlons on the corners.
+// `door` optionally draws on the front faces (for gates).
+function wallBlock(ctx, team, seed, door, Z = 26) {
+  const face = (s) => (c, w, h) => { stoneWall(c, 0, 0, w, h, s, [122, 116, 106]); if (door) door(c, w, h); };
+  wallL(ctx, 0, 32, 32, Z, face(seed), 0);
+  wallR(ctx, 0, 32, 32, Z, face(seed + 1), 0.24);
+  // team-coloured band just below the top
+  wallL(ctx, 0, 32, 32, 2, (c, w) => { c.fillStyle = TEAM_RGB[team].main; c.fillRect(0, 0, w, 2); }, 0, Z - 5);
+  wallR(ctx, 0, 32, 32, 2, (c, w) => { c.fillStyle = TEAM_RGB[team].dark; c.fillRect(0, 0, w, 2); }, 0, Z - 5);
+  // walkway
+  diamond(ctx, 0, 0, 32, 32, Z);
+  ctx.fillStyle = '#8f897e';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+  ctx.lineWidth = 0.75;
+  ctx.stroke();
+  // merlons, back to front
+  for (const [x, y] of [[0, 0], [13, 0], [0, 13], [26, 0], [0, 26], [26, 13], [13, 26], [26, 26]]) {
+    if (x === 13 && y === 13) continue;
+    house(ctx, { x0: x, y0: y, x1: x + 6, y1: y + 6, z: 6, zb: Z, wallLeft: stoneFace(seed + x + y, [138, 132, 120]) });
+    diamond(ctx, x, y, x + 6, y + 6, Z + 6);
+    ctx.fillStyle = '#a49e92';
+    ctx.fill();
+  }
+}
+
 export const BUILDING_POINTS = {
   wind_turbine: { hub: P(32, 32, 88) },
   power_plant: { smoke: [P(80, 18, 104), P(84, 44, 90)] },
@@ -483,6 +509,39 @@ export const BUILDING_ART = {
     wallL(ctx, 26, 38, 46, 14, (c) => door(c, 0, 0, 12, 14, true), 0);
     flag(ctx, top.top[0] + 6, top.top[1] - 30, team);
     return base;
+  },
+
+  // A one-tile block of curtain wall; neighbouring blocks join up into a continuous wall.
+  wall(ctx, team) {
+    isoShadow(ctx, 0, 0, 32, 32, 22);
+    wallBlock(ctx, team, 81);
+  },
+
+  // A gatehouse: taller than the wall, a big timber door in each face and a pennant on top.
+  gate(ctx, team) {
+    isoShadow(ctx, 0, 0, 32, 32, 34);
+    const Z = 38;
+    wallBlock(ctx, team, 91, (c, w, h) => {
+      // stone arch with a heavy timber door and iron bands
+      c.fillStyle = '#5e594f';
+      c.beginPath();
+      c.moveTo(3, h); c.lineTo(3, 15); c.quadraticCurveTo(w / 2, -1, w - 3, 15); c.lineTo(w - 3, h); c.closePath();
+      c.fill();
+      c.fillStyle = '#20180f';
+      c.beginPath();
+      c.moveTo(6, h); c.lineTo(6, 17); c.quadraticCurveTo(w / 2, 3, w - 6, 17); c.lineTo(w - 6, h); c.closePath();
+      c.fill();
+      plankWall(c, 8, 16, w - 16, h - 16, 92, [118, 84, 50]);
+      c.fillStyle = '#2e2e2e';
+      for (const y of [20, h / 2 + 4, h - 6]) c.fillRect(8, y, w - 16, 2);
+      c.fillStyle = 'rgba(0,0,0,0.5)';
+      c.fillRect(w / 2 - 0.5, 16, 1, h - 16);
+      c.fillStyle = '#d4bd6e';
+      c.fillRect(w / 2 - 3, h / 2 + 8, 2, 2);
+      c.fillRect(w / 2 + 1, h / 2 + 8, 2, 2);
+    }, Z);
+    const t = P(16, 16, Z);
+    flag(ctx, t[0] - 1, t[1] - 22, team);
   },
 
   wind_turbine(ctx, team) {
@@ -960,6 +1019,22 @@ export const ICON_ART = {
 
 // Bigger 40×40 icons for research buttons.
 const UPGRADE_ICON = {
+  // Stop: a red octagon with a white bar
+  stop(ctx) {
+    ctx.fillStyle = '#7d1f18';
+    ctx.beginPath();
+    for (let i = 0; i < 8; i++) {
+      const a = Math.PI / 8 + (i * Math.PI) / 4;
+      ctx.lineTo(20 + Math.cos(a) * 15, 20 + Math.sin(a) * 15);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#e8dcc0';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = '#f2ead6';
+    ctx.fillRect(11, 17, 18, 6);
+  },
   era(ctx) {
     ctx.fillStyle = '#c8a960';
     poly(ctx, [[20, 4], [33, 18], [25, 18], [25, 34], [15, 34], [15, 18], [7, 18]]);

@@ -112,8 +112,8 @@ export class Unit {
   // Move to the nearest safe tile (used when land floods or a forest grows on top of us).
   rescue() {
     const t = this.tile;
-    if (this.map.isWalkable(t.x, t.y)) return;
-    const safe = this.map.nearestWalkable(t.x, t.y, 20);
+    if (this.map.isWalkable(t.x, t.y, this.team)) return;
+    const safe = this.map.nearestWalkable(t.x, t.y, 20, this.team);
     this.stop();
     if (safe) {
       const c = this.map.tileCenter(safe.x, safe.y);
@@ -146,7 +146,7 @@ export class Unit {
   // ---------- Walking ----------
   walkTo(goal) {
     const t = this.tile;
-    const p = findPath(this.map, t.x, t.y, goal.x, goal.y);
+    const p = findPath(this.map, t.x, t.y, goal.x, goal.y, this.team);
     if (p === null) return false;
     this.dest = goal;
     this.path = p.map((n) => this.map.tileCenter(n.x, n.y));
@@ -291,7 +291,7 @@ export class Unit {
     if (!this.path.length) return;
     const target = this.path[0];
     const nt = this.map.worldToTile(target.x, target.y);
-    if (!this.map.isWalkable(nt.x, nt.y) && this.dest) {
+    if (!this.map.isWalkable(nt.x, nt.y, this.team) && this.dest) {
       // Something was built in the way — find a new route.
       if (!this.walkTo(this.dest)) this.path = [];
       return;
@@ -352,6 +352,8 @@ export class Unit {
     const o = this.order;
     let t = o.target;
     if (!t || t.dead) {
+      // Finished breaking through a wall — carry on to what we were really after.
+      if (o.after && !o.after.dead) { o.target = o.after; o.after = null; o.repath = 0; return; }
       // Target gone — soldiers look for the next enemy nearby.
       const next = this.isMilitary ? world.findEnemyNear(this.x, this.y, this.def.sight, this.team) : null;
       if (next) { o.target = next; o.repath = 0; return; }
@@ -375,7 +377,13 @@ export class Unit {
         const ok = t.isBuilding
           ? this.walkToAny(this.map.standSpots(t.tx, t.ty, t.w, t.h, this.tile))
           : this.walkTo(t.tile);
-        if (!ok) { this.stop(); return; }
+        if (!ok) {
+          // No way round: break through the wall or gate that's in the way.
+          const wall = this.isMilitary && !t.def?.wall ? world.wallInTheWay(this, t) : null;
+          if (wall) { o.after = t; o.target = wall; o.repath = 0; return; }
+          this.stop();
+          return;
+        }
       }
       this.stepPath(dt);
       return;
