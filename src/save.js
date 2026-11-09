@@ -86,7 +86,7 @@ export function serialize(w) {
       type: u.type, team: u.team, x: u.px, y: u.py, hp: u.hp, carry: u.carry, carryType: u.carryType, order: orderOut(u.order),
     })),
     climate: {
-      co2: c.co2, temp: c.temp, drought: c.drought, seaStage: c.seaStage, warnedStage: c.warnedStage,
+      co2: c.co2, temp: c.temp, drought: c.drought, heatwave: c.heatwave, seaStage: c.seaStage, warnedStage: c.warnedStage,
       fireBudget: c.fireBudget, disasterTimer: c.disasterTimer, emittedTotal: c.emittedTotal,
       fires: [...c.fires.values()].map((f) => ({ x: f.x, y: f.y, t: f.t })),
       ash: [...c.ash.values()].map((a) => ({ x: a.x, y: a.y, t: a.t })),
@@ -96,6 +96,7 @@ export function serialize(w) {
       assault: [...w.ai.assault].map((u) => uIndex.get(u)).filter((i) => i !== undefined),
     },
     stats: w.stats ? w.stats.serialize() : null,
+    wildlife: w.wildlife ? w.wildlife.serialize() : [],
     groups: (w.groups || []).map((g) => g.map((u) => uIndex.get(u)).filter((i) => i !== undefined)),
     camera: { x: cam.midPoint.x, y: cam.midPoint.y, zoom: cam.zoom },
     fog: w.fog ? w.fog.serialize() : null,

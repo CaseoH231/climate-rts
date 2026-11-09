@@ -19,6 +19,7 @@ export const TERRAIN = {
   BERRIES: 4,
   COAL: 5,
   ASH: 6,   // burnt ground after a wildfire — turns back into grass over time
+  MEAT: 7,  // a hunted deer, ready to butcher for food
 };
 
 const GRASS_COLORS = [0x6aa84f, 0x70ae54, 0x649f49];
@@ -31,6 +32,7 @@ export const TERRAIN_INFO = {
   [TERRAIN.BERRIES]: { name: 'Berry bushes', walkable: false, colors: GRASS_COLORS, minimap: 0xc2185b },
   [TERRAIN.COAL]:    { name: 'Coal',         walkable: false, colors: GRASS_COLORS, minimap: 0x1a1a1a },
   [TERRAIN.ASH]:     { name: 'Burnt ground', walkable: true,  colors: [0x4a4038, 0x51463c, 0x463c34], minimap: 0x5d4e37 },
+  [TERRAIN.MEAT]:    { name: 'Hunted deer',  walkable: false, colors: GRASS_COLORS, minimap: 0x8d5a3a },
 };
 
 // Which resource each terrain gives, and how much is in one tile.
@@ -39,8 +41,11 @@ export const TERRAIN_RESOURCE = {
   [TERRAIN.STONE]: 'stone',
   [TERRAIN.BERRIES]: 'food',
   [TERRAIN.COAL]: 'fuel',
+  [TERRAIN.MEAT]: 'food',
 };
 export const RESOURCE_AMOUNT = { wood: 100, stone: 150, food: 125, fuel: 200 };
+// Some terrains hold a different amount than their resource's default.
+export const TERRAIN_AMOUNT = { [TERRAIN.MEAT]: 200 };
 
 // Climate tuning. Bigger numbers = faster/harsher climate change.
 export const CLIMATE = {

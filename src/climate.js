@@ -15,6 +15,7 @@ export class Climate {
     this.fireBudget = 0;      // how many more tiles the current wildfires may spread to
     this.ash = new Map();     // burnt tiles waiting to regrow
     this.drought = 0;         // seconds of drought left
+    this.heatwave = 0;        // seconds of heatwave left (everyone works slower)
     this.seaStage = 0;
     this.warnedStage = -1;
     this.secondTimer = 0;
@@ -53,6 +54,11 @@ export class Climate {
       }
     }
 
+    if (this.heatwave > 0) {
+      this.heatwave = Math.max(0, this.heatwave - s);
+      if (this.heatwave === 0) this.world.toast('🌤️ The heatwave has broken', '#9fc5e8');
+    }
+
     this.disasterTimer += s;
     if (this.disasterTimer >= CLIMATE.disasterCheck) {
       this.disasterTimer = 0;
@@ -81,6 +87,7 @@ export class Climate {
     if (r() < Math.min(0.5, 0.02 + 0.08 * T)) this.startWildfire();
     if (T > 1 && this.drought <= 0 && r() < 0.07 * T) this.startDrought();
     if (T > 1.5 && r() < 0.05 * (T - 1)) this.startStorm();
+    if (T > 1.3 && this.heatwave <= 0 && r() < 0.05 * T) this.startHeatwave();
   }
 
   // ----- Wildfires -----
@@ -203,6 +210,14 @@ export class Climate {
   startDrought() {
     this.drought = 60 + 20 * this.temp;
     this.world.toast('☀️ Drought! Farms and berry bushes give half as much food', '#ffb74d');
+  }
+
+  // ----- Heatwave -----
+  startHeatwave() {
+    this.heatwave = 40 + 12 * this.temp;
+    const shielded = this.world.teams && this.world.teams.player.upgrades.has('cool_roofs');
+    this.world.toast(shielded ? '🌡️ Heatwave! Your Cool Roofs keep your workers going.'
+      : '🌡️ Heatwave! Everyone works 30% slower until it breaks (research Cool Roofs)', '#ffb74d');
   }
 
   // ----- Storms -----

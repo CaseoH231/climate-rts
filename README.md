@@ -100,12 +100,22 @@ Research takes time and is shown by a purple bar. Hover any button to see what i
 
 | Unit | Strong against | Weak against |
 |---|---|---|
-| Soldier | Riflemen, buildings | Archers, armoured cars |
-| Archer | Soldiers, workers | Armoured cars, riflemen |
-| Rifleman (Industrial) | Armoured cars | Soldiers |
+| Soldier | Riflemen, scouts, cannons, buildings | Archers, armoured cars |
+| Archer | Soldiers, workers | Scouts, armoured cars, riflemen |
+| Scout Rider | Archers, workers, cannons | Soldiers |
+| Rifleman (Industrial) | Armoured cars, electric tanks | Soldiers |
+| Field Cannon (Industrial) | Buildings and walls (from long range) | Everything that reaches it |
+| Field Medic (Industrial) | — heals nearby units | Anything (can't fight) |
 | Armoured Car (Transition) | Archers, soldiers, buildings | Riflemen |
+| Electric Tank (Green) | Almost everything | Riflemen |
 
 The enemy watches your army and trains whatever beats it (rarely on Easy, often on Hard).
+
+## Hunting and fishing
+
+- **Deer** roam in herds (one near each base). Right-click one with workers: they chase it, bring it down, then butcher it — the fastest food in the game, but deer bolt if you get close.
+- **Fishing Docks** must touch the shore and catch food on their own, no workers needed.
+- **Hydro Dams** also need water and are the best clean power before geothermal.
 
 ## Controls
 
@@ -186,4 +196,8 @@ src/scenes/UIScene.js   resource bar, command panel, diamond minimap, climate pa
 - [x] Phase 12 – Battle & balance: unit counters, attack-move, game speed, end-of-game stats and charts, AI that counters your army
 - [x] Phase 13 – Town life: Market trading, town bell and shelter, four map types (Continental, Lakes, Highlands, Great River)
 - [x] Phase 14 – The big polish: climate colour grading, burning buildings and ruins, combat effects, birds, rain and dust storms, worker counts, unit portraits, clickable training queue, custom cursors, Continue button, generative music
-- [ ] Phase 15 – Playtesting feedback
+- [x] Phase 15 – New frontiers: Scout Rider, Field Medic, Field Cannon, Electric Tank; Fishing Dock, Hydro Dam, Geothermal Plant; deer herds and hunting; Wheelbarrow, Fish Farming, Field Medicine and Cool Roofs research; heatwaves
+- [ ] Phase 16 – Multiplayer groundwork: make the game deterministic (seeded random numbers everywhere, fixed simulation ticks) and turn every player action into a "command" that can be sent over a network. Replays come almost for free and prove it works: if a replay plays out identically, two computers will too
+- [ ] Phase 17 – Online 1v1: a lobby with a short invite code, a free Cloudflare Worker + Durable Object relaying commands between players (same Cloudflare account as the site), lockstep networking (both games run the same commands on the same tick), desync detection, reconnecting, chat and ping display
+- [ ] Phase 18 – Bigger matches: 2v2 and free-for-all with up to 4 players, co-op against the AI, spectating and saved replays
+- [ ] Phase 19 – Playtesting feedback

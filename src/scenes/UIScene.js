@@ -5,7 +5,7 @@ import { BUILDING_TYPES, WORKER_PAGES, UPGRADES, ERAS } from '../buildings.js';
 import { UNIT_TYPES } from '../unit.js';
 import { buildingKey, unitKey } from '../art.js';
 import { toIso, fromIso, ISO_W, ISO_H } from '../iso.js';
-import { panel, button, inset, bevelBorder, volumeRows, FONT_SERIF, FONT_SANS, UI_COL } from '../ui.js';
+import { panel, button, inset, bevelBorder, volumeRows, scrollText, FONT_SERIF, FONT_SANS, UI_COL } from '../ui.js';
 import { audio } from '../audio.js';
 import { listSaves, readSave, writeSave } from '../save.js';
 import { DIFFICULTY } from '../ai.js';
@@ -495,8 +495,8 @@ export default class UIScene extends Phaser.Scene {
       const toMilitary = this.buildPage === 0;
       cmds.push({
         thumb: buildingKey(toMilitary ? 'barracks' : 'house', 'player'), page: true,
-        name: toMilitary ? 'Military buildings' : 'Economy buildings',
-        desc: toMilitary ? 'Barracks, towers, walls and gates.' : 'Back to houses, farms, energy and the rest.',
+        name: toMilitary ? 'Military & science' : 'Economy & energy',
+        desc: toMilitary ? 'Barracks, towers, walls, gates, the Workshop, Carbon Capture and the Restoration Project.' : 'Back to houses, farms, food and energy.',
         action: () => { this.buildPage = toMilitary ? 1 : 0; this.buildButtons(); },
       });
       return cmds;
@@ -707,6 +707,7 @@ export default class UIScene extends Phaser.Scene {
     const ev = [];
     if (c.fires.size) ev.push(`Wildfire: ${c.fires.size} tiles burning`);
     if (c.drought > 0) ev.push(`Drought ${Math.ceil(c.drought)}s`);
+    if (c.heatwave > 0) ev.push(`Heatwave ${Math.ceil(c.heatwave)}s`);
     if (c.seaStage) ev.push(`Sea risen ×${c.seaStage}`);
     const wonder = this.world.buildings.find((b) => b.def.wonder && b.complete);
     if (wonder) ev.push(`${wonder.team === 'player' ? 'Green Victory' : 'Enemy wonder'} in ${Math.max(0, Math.ceil(180 - wonder.wonderTime))}s`);
@@ -770,9 +771,9 @@ export default class UIScene extends Phaser.Scene {
     items.push(panel(this, px, py, PW, PH, 81));
     items.push(this.add.text(sw / 2, py + 22, title, { fontFamily: SERIF, fontSize: '24px', color: COL.gold, stroke: '#000', strokeThickness: 4 }).setOrigin(0.5, 0).setDepth(82));
     if (view === 'help') {
-      items.push(this.add.text(px + 24, py + 64, HOW_TO_PLAY, {
-        fontFamily: SANS, fontSize: '13px', color: COL.text, lineSpacing: 4, wordWrap: { width: PW - 48 }, stroke: '#000', strokeThickness: 2,
-      }).setDepth(82));
+      items.push(scrollText(this, px + 24, py + 64, PW - 48, helpH - 10, HOW_TO_PLAY, {
+        fontFamily: SANS, fontSize: '13px', color: COL.text, lineSpacing: 4, stroke: '#000', strokeThickness: 2,
+      }, 82));
       items.push(button(this, px + (PW - 200) / 2, py + PH - 60, 200, 38, 'Back', () => this.openMenu('main'), { depth: 82 }));
     }
     if (view === 'settings') items.push(...volumeRows(this, px + 30, py + 70, PW - 60, 82));
@@ -944,7 +945,9 @@ export default class UIScene extends Phaser.Scene {
     const sp = `×${w.speed}`;
     if (this.speedText.text !== sp) this.speedText.setText(sp);
 
-    this.haze.setAlpha(Math.min(0.2, Math.max(0, w.climate.temp) * 0.045));
+    // heat haze, stronger and shimmering during a heatwave
+    const hw = w.climate.heatwave > 0 ? 0.07 + Math.sin(time / 350) * 0.025 : 0;
+    this.haze.setAlpha(Math.min(0.26, Math.max(0, w.climate.temp) * 0.045 + hw));
     const raining = w.rainTime > 0 && !w.paused && !w.gameOver;
     if (raining !== this.rain.emitting) { if (raining) this.rain.start(); else this.rain.stop(); }
     const dusty = w.climate.drought > 0 && !raining && !w.paused && !w.gameOver;
@@ -1025,6 +1028,10 @@ export default class UIScene extends Phaser.Scene {
       if (!u.container.visible) continue;
       g.fillStyle(u.selected ? 0xffffff : u.team === 'player' ? 0x7aa8ff : 0xff6a5a, 1);
       g.fillRect(u.isoX / MM_K - 1, u.isoY / MM_K - 1, 2, 2);
+    }
+    if (w.wildlife) {
+      g.fillStyle(0xc9a070, 1);
+      for (const d of w.wildlife.deer) if (d.sprite.visible) g.fillRect(d.sprite.x / MM_K - 1, d.sprite.y / MM_K - 1, 2, 2);
     }
     g.fillStyle(0xff5a14, 1);
     for (const f of w.climate.fires.values()) {

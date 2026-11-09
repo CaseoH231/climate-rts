@@ -27,9 +27,12 @@ export const DIFFICULTY = {
 // What beats what (best answer first, falling back if that unit isn't available yet).
 const COUNTERS = {
   soldier: ['archer'],
-  archer: ['armoured_car', 'rifleman', 'soldier'],
+  archer: ['armoured_car', 'scout', 'rifleman', 'soldier'],
   rifleman: ['soldier'],
   armoured_car: ['rifleman', 'soldier'],
+  scout: ['soldier'],
+  cannon: ['scout', 'soldier'],
+  e_tank: ['rifleman'],
 };
 
 export class EnemyAI {
@@ -128,7 +131,12 @@ export class EnemyAI {
     for (const b of mine) {
       if (b.type !== 'barracks' || !b.complete || b.queue.length >= 2) continue;
       let type = Math.random() < 0.55 ? 'soldier' : era >= 1 ? 'rifleman' : 'archer';
+      const r = Math.random();
+      if (era === 0 && r < 0.12) type = 'scout';
+      if (era >= 1 && r < 0.1) type = 'cannon';
+      else if (era >= 1 && r < 0.17) type = 'medic';
       if (era >= 2 && Math.random() < 0.3) type = 'armoured_car';
+      if (era >= 3 && Math.random() < 0.35) type = 'e_tank';
       if (Math.random() < this.cfg.counterChance) type = this.counterPick(era) || type;
       const reserve = (workers.length < 12 ? 60 : 0) + (this.saving ? this.saving.food || 0 : 0);
       if (this.res.food - reserve >= (UNIT_TYPES[type].cost.food || 0)) w.trainAt(b, type);

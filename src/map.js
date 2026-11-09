@@ -1,5 +1,5 @@
 // Map generation, terrain/resource lookups and drawing.
-import { TILE, TERRAIN, TERRAIN_INFO, TERRAIN_RESOURCE, RESOURCE_AMOUNT, PLAYER_START, ENEMY_START } from './config.js';
+import { TILE, TERRAIN, TERRAIN_INFO, TERRAIN_RESOURCE, RESOURCE_AMOUNT, TERRAIN_AMOUNT, PLAYER_START, ENEMY_START } from './config.js';
 import { toIso, fromIso } from './iso.js';
 
 // Small seeded random number generator, so the same seed always makes the same map.
@@ -152,8 +152,20 @@ export class GameMap {
     // Fill resource tiles with their starting amounts.
     for (let i = 0; i < this.tiles.length; i++) {
       const res = TERRAIN_RESOURCE[this.tiles[i]];
-      this.amount[i] = res ? RESOURCE_AMOUNT[res] : 0;
+      this.amount[i] = res ? TERRAIN_AMOUNT[this.tiles[i]] || RESOURCE_AMOUNT[res] : 0;
     }
+  }
+
+  // How many water tiles touch the edge of a footprint (for docks and dams).
+  waterAround(tx, ty, w, h) {
+    let n = 0;
+    for (let y = ty - 1; y <= ty + h; y++) {
+      for (let x = tx - 1; x <= tx + w; x++) {
+        const edge = x === tx - 1 || x === tx + w || y === ty - 1 || y === ty + h;
+        if (edge && this.inBounds(x, y) && this.tiles[y * this.w + x] === TERRAIN.WATER) n++;
+      }
+    }
+    return n;
   }
 
   // A winding river across the map, between the two bases, with three shallow fords.
@@ -299,7 +311,7 @@ export class GameMap {
     const i = y * this.w + x;
     this.tiles[i] = t;
     const res = TERRAIN_RESOURCE[t];
-    this.amount[i] = res ? RESOURCE_AMOUNT[res] : 0;
+    this.amount[i] = res ? TERRAIN_AMOUNT[t] || RESOURCE_AMOUNT[res] : 0;
     if (notify && this.onTileChanged) this.onTileChanged(x, y);
   }
 
@@ -688,6 +700,21 @@ export class GameMap {
         ctx.fillStyle = coal ? 'rgba(220,220,210,0.55)' : 'rgba(255,250,235,0.35)';
         ctx.fillRect(p.x - size * 0.3, p.y - size * 0.8, coal ? 1 : 2, 1);
       }
+    } else if (t === TERRAIN.MEAT) {
+      // a deer lying on its side
+      const c = at(16, 18);
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath(); ctx.ellipse(c.x + 2, c.y + 2, 12, 4, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#6b4a2e'; ctx.lineWidth = 1.6; ctx.lineCap = 'round';
+      for (const k of [-6, -3, 4, 7]) { ctx.beginPath(); ctx.moveTo(c.x + k, c.y + 1); ctx.lineTo(c.x + k + 2, c.y + 6); ctx.stroke(); }
+      const gr = ctx.createLinearGradient(c.x, c.y - 6, c.x, c.y + 3);
+      gr.addColorStop(0, '#b88454'); gr.addColorStop(1, '#76502c');
+      ctx.fillStyle = gr;
+      ctx.beginPath(); ctx.ellipse(c.x, c.y - 1, 10, 4.5, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#f0e6d4'; ctx.beginPath(); ctx.ellipse(c.x - 2, c.y + 1, 5, 1.5, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#9a6a3e'; ctx.beginPath(); ctx.ellipse(c.x + 11, c.y - 2, 3.5, 2.2, 0.4, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#5a4026'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(c.x + 12, c.y - 4); ctx.lineTo(c.x + 15, c.y - 8); ctx.moveTo(c.x + 13.5, c.y - 6); ctx.lineTo(c.x + 16, c.y - 6); ctx.stroke();
     } else if (t === TERRAIN.BERRIES) {
       for (let i = 0; i < 2; i++) {
         const p = at(8 + r() * 16, 8 + r() * 16);

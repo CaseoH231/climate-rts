@@ -88,3 +88,41 @@ export function volumeRows(scene, x, y, width, depth) {
   });
   return items;
 }
+
+// A block of text in a fixed-size window that scrolls with the mouse wheel (or by dragging the bar).
+// Returns a game object you can destroy() to remove everything.
+export function scrollText(scene, x, y, w, h, text, style, depth) {
+  const box = scene.add.container(0, 0).setDepth(depth);
+  const t = scene.add.text(x, y, text, { ...style, wordWrap: { width: w - 16 } }).setDepth(depth);
+  const maskG = scene.make.graphics({ add: false }).setScrollFactor(0);
+  maskG.fillStyle(0xffffff).fillRect(x, y, w, h);
+  t.setMask(maskG.createGeometryMask());
+  const bar = scene.add.graphics().setDepth(depth);
+  const max = Math.max(0, t.height - h);
+  let off = 0;
+  const draw = () => {
+    t.setY(y - off);
+    bar.clear();
+    if (max <= 0) return;
+    const th = Math.max(24, (h * h) / t.height);
+    const ty = y + (h - th) * (off / max);
+    bar.fillStyle(0x000000, 0.35).fillRect(x + w - 6, y, 5, h);
+    bar.fillStyle(0xc9a227, 0.85).fillRect(x + w - 6, ty, 5, th);
+  };
+  const onWheel = (p, objs, dx, dy) => {
+    if (p.x < x || p.x > x + w || p.y < y || p.y > y + h) return;
+    off = Math.max(0, Math.min(max, off + dy * 0.6));
+    draw();
+  };
+  scene.input.on('wheel', onWheel);
+  draw();
+  if (max > 0) {
+    const hint = scene.add.text(x + w - 12, y + h + 4, 'scroll for more ▾', {
+      fontFamily: FONT_SANS, fontSize: '11px', color: UI_COL.dim, stroke: '#000', strokeThickness: 2,
+    }).setOrigin(1, 0).setDepth(depth);
+    box.add(hint);
+  }
+  box.add([t, bar]);
+  box.once('destroy', () => { scene.input.off('wheel', onWheel); maskG.destroy(); });
+  return box;
+}

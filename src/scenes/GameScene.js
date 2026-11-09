@@ -12,6 +12,7 @@ import { findPath } from '../pathfinding.js';
 import { Stats } from '../stats.js';
 import { Effects } from '../effects.js';
 import { cursors } from '../cursors.js';
+import { Wildlife } from '../wildlife.js';
 import { GAME_SPEEDS, MARKET_BASE } from '../config.js';
 
 const MARKET_FEE = 1.3;   // you always get back less than you put in
@@ -112,6 +113,8 @@ export default class GameScene extends Phaser.Scene {
 
     // --- Living world: cloud shadows drifting over the land, glints on the water ---
     this.fx = new Effects(this);
+    this.wildlife = new Wildlife(this, this.map, save ? save.wildlife || [] : null);
+    this.events.once('shutdown', () => this.wildlife.destroy());
     this.cursorKind = null;
     this.time.delayedCall(0, () => this.setCursor('arrow'));
     this.cursorTimer = 0;
@@ -314,7 +317,7 @@ export default class GameScene extends Phaser.Scene {
     });
     this.climate = new Climate(this);
     const c = save.climate;
-    Object.assign(this.climate, { co2: c.co2, temp: c.temp, drought: c.drought, seaStage: c.seaStage, warnedStage: c.warnedStage, fireBudget: c.fireBudget, disasterTimer: c.disasterTimer, emittedTotal: c.emittedTotal });
+    Object.assign(this.climate, { co2: c.co2, temp: c.temp, drought: c.drought, heatwave: c.heatwave || 0, seaStage: c.seaStage, warnedStage: c.warnedStage, fireBudget: c.fireBudget, disasterTimer: c.disasterTimer, emittedTotal: c.emittedTotal });
     for (const f of c.fires) this.climate.fires.set(f.y * this.map.w + f.x, { ...f });
     for (const a of c.ash) this.climate.ash.set(a.y * this.map.w + a.x, { ...a });
     this.ai = new EnemyAI(this, 'enemy', this.difficulty);
@@ -396,8 +399,8 @@ export default class GameScene extends Phaser.Scene {
     this.events.emit('tileChanged', x, y);
   }
 
-  smoke(x, y) {
-    this.fx.smoke(x, y);
+  smoke(x, y, color) {
+    this.fx.smoke(x, y, color);
   }
 
   unitsInRect(tx, ty, w, h) {
@@ -465,7 +468,10 @@ export default class GameScene extends Phaser.Scene {
   }
 
   productionMultiplier(res, team) {
-    return res === 'clean' && this.teams[team].upgrades.has('smart_grid') ? 1.5 : 1;
+    const ups = this.teams[team].upgrades;
+    if (res === 'clean' && ups.has('smart_grid')) return 1.5;
+    if (res === 'food' && ups.has('fish_farming')) return 1.6;
+    return 1;
   }
 
   attackMultiplier(team) {
@@ -485,6 +491,7 @@ export default class GameScene extends Phaser.Scene {
     if ((res === 'stone' || res === 'fuel') && ups.has('mining_carts')) m *= 1.3;
     if (isFarm && ups.has('plough')) m *= 1.3;
     if (res === 'food' && this.climate.drought > 0) m *= 0.5;
+    if (this.climate.heatwave > 0 && !ups.has('cool_roofs')) m *= 0.7;
     return m;
   }
 
@@ -901,6 +908,7 @@ export default class GameScene extends Phaser.Scene {
     if (enemy || (b && b.team !== 'player' && b.container.visible)) { this.setCursor('sword'); return; }
     const workers = units.some((u) => u.type === 'worker');
     if (workers && b && b.team === 'player' && (!b.complete || b.hp < b.maxHp)) { this.setCursor('hammer'); return; }
+    if (workers && !b && this.wildlife.at(i.x, i.y)) { this.setCursor('pick'); return; }
     if (workers && !b) {
       const g = fromIso(i.x, i.y);
       const t = this.map.worldToTile(g.x, g.y);
@@ -1066,6 +1074,7 @@ export default class GameScene extends Phaser.Scene {
     const ty = Math.round(w.y / TILE - def.h / 2);
     let valid = this.map.canPlace(tx, ty, def.w, def.h);
     if (valid && !def.walkable) valid = !this.unitsInRect(tx, ty, def.w, def.h);
+    if (valid && def.needsWater) valid = this.map.waterAround(tx, ty, def.w, def.h) >= def.needsWater;
     return { tx, ty, valid, def };
   }
 
@@ -1158,7 +1167,7 @@ export default class GameScene extends Phaser.Scene {
 
   tryPlace(w) {
     const { tx, ty, valid, def } = this.placementAt(w);
-    if (!valid) { this.fail("Can't build there"); return; }
+    if (!valid) { this.fail(def.needsWater ? `A ${def.name} has to be built right on the shore` : "Can't build there"); return; }
     if (!this.canAfford(def.cost)) {
       this.fail(`Need ${this.missingText(def.cost)} more for a ${def.name}`);
       this.cancelPlacing();
@@ -1422,6 +1431,15 @@ export default class GameScene extends Phaser.Scene {
     const workers = units.filter((u) => u.type === 'worker');
     let movers = units.filter((u) => u.type !== 'worker');
 
+    // Hunt a deer.
+    const deer = iso && workers.length ? this.wildlife.at(iso.x, iso.y) : null;
+    if (deer) {
+      workers.forEach((w) => w.orderHunt(deer));
+      this.showMarker(wx, wy, 0x7cfc00);
+      if (movers.length) this.moveGroup(movers, wx, wy);
+      return;
+    }
+
     if (workers.length && b && !b.complete) {
       workers.forEach((w) => w.orderBuild(b));
       this.showMarker(wx, wy, 0x7cfc00);
@@ -1524,7 +1542,7 @@ export default class GameScene extends Phaser.Scene {
     }
     audio.updateAmbience(delta / 1000, { temp: this.climate.temp, firesOnScreen: this.firesOnScreen, paused: this.paused || !!this.gameOver });
 
-    this.fx.updateGrade(this.climate.temp, this.climate.drought);
+    this.fx.updateGrade(this.climate.temp, this.climate.drought + this.climate.heatwave);
     this.moodTimer -= delta;
     if (this.moodTimer <= 0) {
       this.moodTimer = 2000;
@@ -1537,6 +1555,7 @@ export default class GameScene extends Phaser.Scene {
     this.rainTime = Math.max(0, this.rainTime - delta / 1000);
     const view = this.cameras.main.worldView;
     this.fx.updateDamage(delta, this.buildings, view);
+    this.wildlife.render(time, this.fog);
     this.fx.updateBirds(delta, view, this.climate.temp);
     this.ambientEffects(delta);
     // Cap frame time so a lag spike doesn't teleport units; faster speeds run extra ticks.
@@ -1583,6 +1602,7 @@ export default class GameScene extends Phaser.Scene {
     for (const b of [...this.buildings]) b.update(dt, this);
     this.updateTraining(dt);
     this.updateMarket(dt);
+    this.wildlife.update(dt, this);
     this.climate.update(dt);
     this.ai.update(dt);
     if (this.fog) this.fog.update(dt);

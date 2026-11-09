@@ -4,7 +4,7 @@ import { GameMap, MAP_TYPES } from '../map.js';
 import { BUILDING_TYPES, ERAS } from '../buildings.js';
 import { generateArt, buildingKey, unitKey, buildingTexInfo, BUILDING_POINTS, ART_RES } from '../art.js';
 import { toIso, ISO_W, ISO_H } from '../iso.js';
-import { panel, button, volumeRows, FONT_SERIF, FONT_SANS, UI_COL } from '../ui.js';
+import { panel, button, volumeRows, scrollText, FONT_SERIF, FONT_SANS, UI_COL } from '../ui.js';
 import { audio } from '../audio.js';
 import { listSaves, readSave } from '../save.js';
 import { DIFFICULTY } from '../ai.js';
@@ -13,7 +13,7 @@ import { Effects } from '../effects.js';
 import { makeCanvas } from '../art.js';
 import { cursors } from '../cursors.js';
 
-export const GAME_VERSION = 'v8';
+export const GAME_VERSION = 'v9';
 
 // The game's crest: a globe, half green and half smog, ringed in bronze with a laurel.
 function drawCrest(ctx) {
@@ -267,11 +267,11 @@ export default class MenuScene extends Phaser.Scene {
       });
       btn(top + 66 + saves.length * 54 + 6, 'Back', () => this.show('main'), { w: 200 });
     } else if (view === 'help') {
-      const PH = 420;
-      this.addUI(panel(this, (w - 560) / 2, top - 20, 560, PH, D));
-      this.addUI(this.add.text((w - 560) / 2 + 26, top + 6, HOW_TO_PLAY, {
-        fontFamily: FONT_SANS, fontSize: '14px', color: UI_COL.text, lineSpacing: 5, wordWrap: { width: 508 }, stroke: '#000', strokeThickness: 2,
-      }).setDepth(D + 1));
+      const PH = Math.min(440, h - top - 10);
+      this.addUI(panel(this, (w - 600) / 2, top - 20, 600, PH, D));
+      this.addUI(scrollText(this, (w - 600) / 2 + 24, top + 4, 552, PH - 102, HOW_TO_PLAY, {
+        fontFamily: FONT_SANS, fontSize: '14px', color: UI_COL.text, lineSpacing: 5, stroke: '#000', strokeThickness: 2,
+      }, D + 1));
       btn(top - 20 + PH - 62, 'Back', () => this.show('main'), { w: 200 });
     }
   }

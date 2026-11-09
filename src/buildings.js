@@ -24,7 +24,7 @@ export const BUILDING_TYPES = {
   town_centre: {
     name: 'Town Centre', w: 3, h: 3, hp: 1200, cost: {}, buildTime: 60, era: 0,
     attack: { dmg: 6, range: 230, cooldown: 2 }, garrison: 15,
-    pop: 10, dropOff: true, trains: ['worker'], research: ['steel_axes', 'mining_carts', 'plough'], advancesEra: true,
+    pop: 10, dropOff: true, trains: ['worker'], research: ['steel_axes', 'mining_carts', 'plough', 'wheelbarrow', 'fish_farming'], advancesEra: true,
     desc: 'Trains workers, advances your era and researches basic upgrades. Drop off any resource here.',
   },
   house: {
@@ -41,7 +41,7 @@ export const BUILDING_TYPES = {
   },
   barracks: {
     name: 'Barracks', w: 3, h: 3, hp: 500, cost: { wood: 125, stone: 50 }, buildTime: 22, era: 0,
-    trains: ['soldier', 'archer', 'rifleman', 'armoured_car'], desc: 'Trains your army.',
+    trains: ['soldier', 'archer', 'scout', 'rifleman', 'medic', 'cannon', 'armoured_car', 'e_tank'], desc: 'Trains your army.',
   },
   tower: {
     name: 'Watch Tower', w: 2, h: 2, hp: 500, cost: { wood: 60, stone: 100 }, buildTime: 20, era: 0,
@@ -70,13 +70,27 @@ export const BUILDING_TYPES = {
   },
   workshop: {
     name: 'Workshop', w: 3, h: 3, hp: 600, cost: { wood: 175, stone: 75 }, buildTime: 30, era: 1,
-    research: ['chainsaws', 'iron_weapons', 'electric_tools', 'smart_grid', 'reforestation', 'climate_shields'],
+    research: ['chainsaws', 'iron_weapons', 'field_medicine', 'electric_tools', 'smart_grid', 'reforestation', 'cool_roofs', 'climate_shields'],
     desc: 'Researches advanced technology.',
   },
   power_plant: {
     name: 'Coal Power Plant', w: 3, h: 3, hp: 600, cost: { wood: 150, stone: 100 }, buildTime: 30, era: 1,
-    produces: { fuel: 0.6 }, smoke: true,
+    produces: { fuel: 0.6 }, smoke: 'coal',
     desc: 'Burns coal for 0.6 energy per second — and pumps out lots of CO₂.',
+  },
+  fishing_dock: {
+    name: 'Fishing Dock', w: 2, h: 2, hp: 250, cost: { wood: 100 }, buildTime: 16, era: 0, needsWater: 3,
+    produces: { food: 0.25 }, desc: 'Must be built on the shore. Catches 0.25 food per second, no workers needed.',
+  },
+  hydro_dam: {
+    name: 'Hydro Dam', w: 2, h: 2, hp: 600, cost: { wood: 100, stone: 200 }, buildTime: 30, era: 2, needsWater: 4,
+    produces: { clean: 0.55 }, smoke: 'spray',
+    desc: 'Must be built against water. Makes 0.55 clean energy per second — the best early clean power.',
+  },
+  geothermal: {
+    name: 'Geothermal Plant', w: 3, h: 3, hp: 800, cost: { wood: 200, stone: 300, clean: 100 }, buildTime: 45, era: 3,
+    produces: { clean: 0.9 }, smoke: 'steam',
+    desc: 'Taps the heat of the earth for 0.9 clean energy per second. The steam is just water.',
   },
   solar: {
     name: 'Solar Farm', w: 2, h: 2, hp: 150, cost: { wood: 60, stone: 80 }, buildTime: 18, era: 2,
@@ -96,9 +110,9 @@ export const BUILDING_TYPES = {
 
 // What a worker can build, in button order: an economy page and a military page.
 export const WORKER_PAGES = [
-  ['house', 'farm', 'storage', 'market', 'wind_turbine', 'trees',
-    'workshop', 'power_plant', 'solar', 'carbon_capture', 'restoration'],
-  ['barracks', 'tower', 'wall', 'gate'],
+  ['house', 'farm', 'storage', 'fishing_dock', 'market', 'trees',
+    'wind_turbine', 'power_plant', 'hydro_dam', 'solar', 'geothermal'],
+  ['barracks', 'tower', 'wall', 'gate', 'workshop', 'carbon_capture', 'restoration'],
 ];
 export const WORKER_BUILDS = WORKER_PAGES.flat();
 
@@ -113,6 +127,10 @@ export const UPGRADES = {
   electric_tools:  { name: 'Electric Tools', era: 2, time: 40, cost: { clean: 150, food: 200 }, desc: '+20% gathering of everything.' },
   smart_grid:      { name: 'Smart Grid', era: 2, time: 40, cost: { clean: 200, stone: 150 }, desc: 'Wind turbines and solar farms make 50% more.' },
   reforestation:   { name: 'Reforestation', era: 2, time: 40, cost: { food: 300, wood: 200 }, desc: 'Forests soak up twice as much CO₂.' },
+  wheelbarrow:     { name: 'Wheelbarrow', era: 0, time: 25, cost: { wood: 100, food: 50 }, desc: 'Workers carry 50% more each trip.' },
+  fish_farming:    { name: 'Fish Farming', era: 1, time: 30, cost: { food: 150, wood: 100 }, desc: 'Fishing Docks catch 60% more.' },
+  field_medicine:  { name: 'Field Medicine', era: 1, time: 30, cost: { food: 150, energy: 80 }, desc: 'Medics heal twice as fast.' },
+  cool_roofs:      { name: 'Cool Roofs', era: 2, time: 35, cost: { stone: 150, clean: 120 }, desc: 'Heatwaves no longer slow your workers down.' },
   climate_shields: { name: 'Climate Shields', era: 3, time: 50, cost: { clean: 400, stone: 300 }, desc: 'Disasters do half damage to your buildings.' },
 };
 
@@ -317,12 +335,15 @@ export class Building {
       }
     }
 
-    // Coal power plant smoke.
-    if (this.def.smoke) {
+    // Smoke from coal power plants, steam from geothermal, spray from dams.
+    if (this.def.smoke && this.complete) {
       this.smokeTimer -= s;
       if (this.smokeTimer <= 0) {
-        this.smokeTimer = 0.35;
-        for (const [sx, sy] of BUILDING_POINTS.power_plant.smoke) world.smoke(this.container.x + sx, this.container.y + sy);
+        this.smokeTimer = this.def.smoke === 'coal' ? 0.35 : 0.5;
+        const col = { coal: undefined, steam: 0xeef2f4, spray: 0xd8eef8 }[this.def.smoke];
+        if (this.container.visible) {
+          for (const [sx, sy] of BUILDING_POINTS[this.type].smoke) world.smoke(this.container.x + sx, this.container.y + sy, col);
+        }
       }
     }
 

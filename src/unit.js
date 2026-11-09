@@ -2,6 +2,7 @@
 import { findPath } from './pathfinding.js';
 import { unitKey, ART_RES } from './art.js';
 import { toIso } from './iso.js';
+import { TERRAIN } from './config.js';
 
 // attack = damage per hit, range in pixels, cooldown in seconds between hits,
 // sight = how far idle units notice enemies, vsBuilding = damage multiplier against buildings.
@@ -13,20 +14,34 @@ export const UNIT_TYPES = {
              desc: 'Gathers resources and constructs buildings.' },
   soldier: { name: 'Soldier', era: 0, speed: 85, hp: 60, cost: { food: 60, wood: 20 }, trainTime: 10,
              attack: 8, range: 26, cooldown: 1.1, sight: 210, vsBuilding: 0.6,
-             bonus: { rifleman: 1.5 },
+             bonus: { rifleman: 1.5, scout: 1.6, cannon: 1.5 },
              desc: 'Tough close-range fighter. Strong against riflemen and buildings; archers can wear it down.' },
   archer:  { name: 'Archer',  era: 0, speed: 80, hp: 40, cost: { food: 40, wood: 45 }, trainTime: 11,
              attack: 6, range: 150, cooldown: 1.3, sight: 230, vsBuilding: 0.25,
-             bonus: { soldier: 2, worker: 1.25, armoured_car: 0.4 },
+             bonus: { soldier: 2, worker: 1.25, armoured_car: 0.4, e_tank: 0.3 },
              desc: 'Shoots from range. Strong against soldiers, useless against armour, fragile up close.' },
+  scout:   { name: 'Scout Rider', era: 0, speed: 135, hp: 50, cost: { food: 80 }, trainTime: 10, mounted: true,
+             attack: 6, range: 28, cooldown: 1.0, sight: 330, vsBuilding: 0.15,
+             bonus: { archer: 1.75, worker: 1.5, cannon: 2.5, medic: 1.5 },
+             desc: 'Fast rider that sees far. Great for exploring and raiding workers, archers and cannons. Weak to soldiers.' },
+  medic:   { name: 'Field Medic', era: 1, speed: 80, hp: 45, cost: { food: 60, energy: 30 }, trainTime: 12,
+             attack: 0, range: 0, cooldown: 1, sight: 200, vsBuilding: 0, heals: 3,
+             desc: 'Heals hurt soldiers nearby (3 health per second). Does not fight.' },
+  cannon:  { name: 'Field Cannon', era: 1, speed: 48, hp: 120, cost: { wood: 150, stone: 80, energy: 60 }, trainTime: 22, vehicle: true,
+             attack: 40, range: 230, cooldown: 4.2, sight: 240, vsBuilding: 2.5, vsUnits: 0.35,
+             desc: 'Slow siege gun that smashes buildings and walls from long range. Nearly useless against units.' },
   rifleman: { name: 'Rifleman', era: 1, speed: 80, hp: 55, cost: { food: 60, wood: 20, energy: 20 }, trainTime: 13,
              attack: 11, range: 170, cooldown: 1.8, sight: 240, vsBuilding: 0.35,
-             bonus: { armoured_car: 2, soldier: 1.2 },
+             bonus: { armoured_car: 2, e_tank: 1.7, soldier: 1.2 },
              desc: 'Long-range gunner. Strong against armoured cars. Needs energy to equip.' },
   armoured_car: { name: 'Armoured Car', era: 2, speed: 95, hp: 220, cost: { wood: 80, stone: 60, energy: 80 }, trainTime: 20,
              attack: 14, range: 120, cooldown: 1.4, sight: 240, vsBuilding: 1.0, vehicle: true,
              bonus: { archer: 1.5, soldier: 1.3 },
              desc: 'Fast, tough and great against buildings, soldiers and archers. Weak to riflemen. Runs on energy.' },
+  e_tank: { name: 'Electric Tank', era: 3, speed: 82, hp: 380, cost: { wood: 100, stone: 120, clean: 160 }, trainTime: 26, vehicle: true,
+             attack: 24, range: 150, cooldown: 1.6, sight: 260, vsBuilding: 1.4,
+             bonus: { archer: 1.5, soldier: 1.4, scout: 1.4, armoured_car: 1.3 },
+             desc: 'Silent solar-charged tank. The strongest unit in the game — riflemen are its only real counter. Needs clean energy.' },
 };
 
 // Colour of the "+10" that floats up when a worker drops off a load.
@@ -35,7 +50,7 @@ const RES_TEXT_COLOR = { food: '#f0d77a', wood: '#d9b07a', stone: '#d8d4cc', fue
 // How much damage `attacker` does to `target` per hit, before upgrades.
 export function hitDamage(def, target) {
   if (target.isBuilding) return def.attack * def.vsBuilding;
-  return def.attack * ((def.bonus && def.bonus[target.type]) || 1);
+  return def.attack * ((def.bonus && def.bonus[target.type]) || def.vsUnits || 1);
 }
 
 const GATHER_RATE = { wood: 0.9, stone: 0.7, food: 0.8, fuel: 1.1 }; // per second (coal is quick to mine!)
@@ -78,10 +93,10 @@ export class Unit {
     this.container = scene.add.container(iso.x, iso.y);
     this.walkPhase = Math.random() * 6;
 
-    const big = def.vehicle;
+    const big = def.vehicle || def.mounted;
     const shadow = scene.add.ellipse(0, 1, big ? 34 : 18, big ? 12 : 8, 0x000000, 0.32);
     this.ring = scene.add.ellipse(0, 1, big ? 42 : 26, big ? 16 : 12).setStrokeStyle(1.5, 0xe0d8b0, 0.9).setVisible(false);
-    this.sprite = scene.add.image(0, 0, unitKey(type, team)).setOrigin(0.5, big ? 0.72 : 0.86).setScale(1 / ART_RES);
+    this.sprite = scene.add.image(0, 0, unitKey(type, team)).setOrigin(0.5, def.mounted ? 0.9 : big ? 0.72 : 0.86).setScale(1 / ART_RES);
     this.frame = 0;
     this.tool = null;
     const body = [this.sprite];
@@ -120,6 +135,7 @@ export class Unit {
     if (o.kind === 'attack') return 'fighting';
     if (o.kind === 'amove') return 'advancing';
     if (o.kind === 'garrison') return 'running for shelter';
+    if (o.kind === 'hunt') return 'hunting';
     if (o.kind === 'build') return `building ${o.building.def.name}`;
     if (o.phase === 'return') return `carrying ${o.res === 'fuel' ? 'coal' : o.res}`;
     return o.farm ? 'farming' : GATHER_WORD[o.res];
@@ -155,8 +171,18 @@ export class Unit {
 
   orderAttack(target) {
     if (!target || target.dead || target.team === this.team) return;
+    if (this.def.heals) { // medics tag along instead of fighting
+      this.moveTo(target.isBuilding ? { x: target.tx, y: target.ty } : target.tile);
+      return;
+    }
     this.stop();
     this.order = { kind: 'attack', target, repath: 0 };
+  }
+
+  // Chase a deer; when caught it turns into food that we then gather.
+  orderHunt(deer) {
+    this.stop();
+    this.order = { kind: 'hunt', deer, repath: 0 };
   }
 
   // Run to a building and shelter inside it. `prev` is the job to go back to afterwards.
@@ -348,10 +374,32 @@ export class Unit {
   update(dt, world) {
     if (this.dead) return;
     this.cooldown = Math.max(0, this.cooldown - dt / 1000);
+    if (this.def.heals) this.updateHealing(dt, world);
 
     if (this.order && this.order.kind === 'attack') {
       this.updateAttack(dt, world);
       return;
+    }
+    if (this.order && this.order.kind === 'hunt') {
+      const o = this.order;
+      const d = o.deer;
+      if (d.dead) {
+        if (d.meat && this.map.resourceAt(d.meat.x, d.meat.y)) this.orderGather(d.meat);
+        else this.stop();
+        return;
+      }
+      if (Math.hypot(d.x - this.x, d.y - this.y) < 100) { // close enough to throw a spear
+        const t = world.wildlife.kill(d, world);
+        d.meat = t;
+        if (t) this.orderGather(t); else this.stop();
+        return;
+      }
+      o.repath -= dt;
+      if (o.repath <= 0) {
+        o.repath = 500;
+        const t = { x: Math.floor(d.x / 32), y: Math.floor(d.y / 32) };
+        if (!this.walkTo(t)) { this.stop(); return; }
+      }
     }
     if (this.order && this.order.kind === 'amove') {
       const o = this.order;
@@ -378,7 +426,7 @@ export class Unit {
     const o = this.order;
     if (!o) {
       // Idle soldiers and archers watch for enemies.
-      if (this.isMilitary) {
+      if (this.isMilitary && !this.def.heals) {
         this.scanTimer -= dt;
         if (this.scanTimer <= 0) {
           this.scanTimer = 500;
@@ -467,6 +515,33 @@ export class Unit {
     }
   }
 
+  // Medics patch up the most hurt friendly unit close by, and walk over to hurt friends when idle.
+  updateHealing(dt, world) {
+    this.healTimer = (this.healTimer || 0) - dt;
+    if (this.healTimer > 0) return;
+    this.healTimer = 1000;
+    let best = null;
+    let worst = 1;
+    let far = null;
+    let farD = Infinity;
+    for (const u of world.units) {
+      if (u.team !== this.team || u === this || u.dead || u.hp >= u.maxHp || u.def.vehicle) continue;
+      const d = Math.hypot(u.x - this.x, u.y - this.y);
+      const frac = u.hp / u.maxHp;
+      if (d < 80 && frac < worst) { worst = frac; best = u; }
+      else if (d < this.def.sight && d < farD) { farD = d; far = u; }
+    }
+    if (best) {
+      const amount = this.def.heals * (world.teams[this.team].upgrades.has('field_medicine') ? 2 : 1);
+      best.hp = Math.min(best.maxHp, best.hp + amount);
+      best.updateHpBar();
+      if (this.team === 'player' && world.fx && best.container.visible) world.fx.floatText(best.isoX, best.isoY - 26, `+${amount}`, '#8fd18a');
+    } else if (far && !this.order && !this.path.length) {
+      const t = far.tile;
+      this.walkTo({ x: t.x, y: t.y });
+    }
+  }
+
   updateGarrison(dt, world) {
     const o = this.order;
     const b = o.building;
@@ -525,7 +600,8 @@ export class Unit {
       if (!o.farm) { const c = this.map.tileCenter(o.tx, o.ty); this.face(c.x, c.y); }
       this.animateWork(dt);
       this.workSound(dt, world, o.res === 'wood' ? 'chop' : o.res === 'food' ? 'forage' : 'mine');
-      const want = (GATHER_RATE[o.res] * world.gatherMultiplier(o.res, !!o.farm, this.team) * dt) / 1000;
+      const meat = !o.farm && this.map.get(o.tx, o.ty) === TERRAIN.MEAT; // butchering is quick work
+      const want = (GATHER_RATE[o.res] * (meat ? 1.8 : 1) * world.gatherMultiplier(o.res, !!o.farm, this.team) * dt) / 1000;
       let got;
       if (o.farm) {
         got = Math.min(want, o.farm.food);
@@ -540,7 +616,8 @@ export class Unit {
       this.updateCarryIcon();
 
       const exhausted = o.farm ? o.farm.dead : this.map.resourceAt(o.tx, o.ty) !== o.res;
-      if (this.carry >= CARRY_MAX || exhausted) {
+      const cap = CARRY_MAX * (world.teams[this.team].upgrades.has('wheelbarrow') ? 1.5 : 1);
+      if (this.carry >= cap || exhausted) {
         if (exhausted) {
           if (o.farm) {
             o.noMore = true;
@@ -549,7 +626,7 @@ export class Unit {
             if (next) { o.tx = next.x; o.ty = next.y; } else o.noMore = true;
           }
         }
-        if (this.carry >= CARRY_MAX || o.noMore) this.returnCargo(world);
+        if (this.carry >= cap || o.noMore) this.returnCargo(world);
         else this.goToResource();
       }
       return;

@@ -430,6 +430,8 @@ function wallBlock(ctx, team, seed, door, Z = 26) {
 export const BUILDING_POINTS = {
   wind_turbine: { hub: P(32, 32, 88) },
   power_plant: { smoke: [P(80, 18, 104), P(84, 44, 90)] },
+  geothermal: { smoke: [P(26, 26, 62), P(66, 30, 52)] },
+  hydro_dam: { smoke: [P(34, 60, 2), P(52, 60, 2)] },
 };
 
 export const BUILDING_ART = {
@@ -547,6 +549,117 @@ export const BUILDING_ART = {
     wallL(ctx, 26, 38, 46, 14, (c) => door(c, 0, 0, 12, 14, true), 0);
     flag(ctx, top.top[0] + 6, top.top[1] - 30, team);
     return base;
+  },
+
+  // Fishing dock: a plank jetty with a net shed, drying racks and a rowing boat.
+  fishing_dock(ctx, team) {
+    isoShadow(ctx, 4, 4, 60, 60, 18);
+    diamond(ctx, 2, 2, 62, 62, 3);
+    ctx.fillStyle = '#8a6a44';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(40,26,14,0.45)';
+    ctx.lineWidth = 0.8;
+    for (let x = 8; x < 62; x += 6) { const a = P(x, 2, 3); const b = P(x, 62, 3); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); }
+    // front posts into the water
+    ctx.fillStyle = '#4a3220';
+    for (const [x, y] of [[62, 62], [62, 34], [34, 62]]) { const q = P(x, y, 3); ctx.fillRect(q[0] - 1.5, q[1], 3, 7); }
+    house(ctx, {
+      x0: 6, y0: 6, x1: 30, y1: 28, z: 16, ridge: 'x', rh: 10, ov: 2, seed: 21,
+      roof: ['#7a5a3a', '#3e2a18'],
+      wallLeft: (c, w, h) => { plankWall(c, 0, 0, w, h, 23); door(c, w / 2 - 5, h - 12, 10, 12, false); },
+      wallRight: (c, w, h) => { plankWall(c, 0, 0, w, h, 24); c.fillStyle = TEAM_RGB[team].main; c.fillRect(0, 2, w, 2); },
+    });
+    // net drying rack
+    const a = P(40, 10, 0), b = P(40, 30, 0);
+    ctx.strokeStyle = '#3e2a18'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(a[0], a[1] - 16); ctx.moveTo(b[0], b[1]); ctx.lineTo(b[0], b[1] - 16); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(a[0], a[1] - 16); ctx.lineTo(b[0], b[1] - 16); ctx.stroke();
+    ctx.strokeStyle = 'rgba(210,200,170,0.75)'; ctx.lineWidth = 0.6;
+    for (let k = 0; k <= 6; k++) {
+      const t = k / 6;
+      const x = a[0] + (b[0] - a[0]) * t;
+      const y = a[1] - 16 + (b[1] - a[1]) * t;
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y + 11); ctx.stroke();
+    }
+    for (let k = 0; k < 4; k++) { ctx.beginPath(); ctx.moveTo(a[0], a[1] - 14 + k * 3.5); ctx.lineTo(b[0], b[1] - 14 + k * 3.5); ctx.stroke(); }
+    // fish basket and barrel
+    const f = P(48, 46, 3);
+    ctx.fillStyle = '#8a6a3a'; ctx.beginPath(); ctx.ellipse(f[0], f[1], 6, 3, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#c8d2d8';
+    for (let k = 0; k < 4; k++) { ctx.beginPath(); ctx.ellipse(f[0] - 3 + k * 2, f[1] - 1.5, 2.2, 0.9, 0.3, 0, Math.PI * 2); ctx.fill(); }
+    const br = P(20, 44, 3);
+    barrel(ctx, br[0] - 3, br[1] - 9);
+    // rowing boat tied up at the front
+    const bt = P(56, 58, 0);
+    ctx.fillStyle = '#5a3c22';
+    ctx.beginPath(); ctx.ellipse(bt[0] + 10, bt[1] + 6, 11, 4, -0.45, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#8a6440';
+    ctx.beginPath(); ctx.ellipse(bt[0] + 10, bt[1] + 5, 9, 2.6, -0.45, 0, Math.PI * 2); ctx.fill();
+  },
+
+  // Hydro dam: a concrete wall with water pouring through, a turbine house and a pylon.
+  hydro_dam(ctx, team) {
+    isoShadow(ctx, 2, 2, 62, 62, 26);
+    const concrete = (seed) => (c, w, h) => {
+      c.fillStyle = vgrad(c, 0, h, ['#b9b5aa', '#9a968a', '#7e7a70']);
+      c.fillRect(0, 0, w, h);
+      c.fillStyle = 'rgba(0,0,0,0.12)';
+      for (let x = 6; x < w; x += 9) c.fillRect(x, 0, 1, h);
+      // two spillways with white water
+      for (const sx of [w * 0.28, w * 0.62]) {
+        const g = vgrad(c, 4, h, ['#d8eef8', '#7fb6d8', '#e8f6ff']);
+        c.fillStyle = g; c.fillRect(sx, 6, 7, h - 6);
+        c.fillStyle = 'rgba(255,255,255,0.7)';
+        for (let y = 8; y < h; y += 4) c.fillRect(sx + ((y * 7 + seed) % 5), y, 1.5, 2);
+      }
+      c.fillStyle = TEAM_RGB[team].main; c.fillRect(0, 1, w, 2);
+    };
+    house(ctx, { x0: 2, y0: 8, x1: 62, y1: 56, z: 22, wallLeft: concrete(3), wallRight: concrete(7) });
+    diamond(ctx, 2, 8, 62, 56, 22);
+    ctx.fillStyle = '#a8a498'; ctx.fill();
+    // turbine house on top
+    house(ctx, {
+      x0: 10, y0: 16, x1: 34, y1: 36, z: 12, zb: 22, ridge: 'x', rh: 6, ov: 1, seed: 44,
+      roof: ['#4f6a7a', '#2a3a44'],
+      wallLeft: (c, w, h) => { c.fillStyle = '#d0ccc0'; c.fillRect(0, 0, w, h); c.fillStyle = '#2a3440'; for (let x = 4; x < w - 3; x += 7) c.fillRect(x, 3, 4, 5); },
+    });
+    // pylon
+    const p0 = P(50, 26, 22);
+    ctx.strokeStyle = '#4a4e52'; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(p0[0] - 4, p0[1]); ctx.lineTo(p0[0], p0[1] - 26); ctx.lineTo(p0[0] + 4, p0[1]);
+    ctx.moveTo(p0[0] - 7, p0[1] - 18); ctx.lineTo(p0[0] + 7, p0[1] - 18); ctx.moveTo(p0[0] - 5, p0[1] - 23); ctx.lineTo(p0[0] + 5, p0[1] - 23); ctx.stroke();
+  },
+
+  // Geothermal plant: steaming cooling towers over a hot spring, with pipes.
+  geothermal(ctx, team) {
+    isoShadow(ctx, 6, 6, 90, 90, 40);
+    diamond(ctx, 2, 2, 94, 94);
+    ctx.fillStyle = '#8c7e66'; ctx.fill();
+    // hot pool
+    const pool = P(70, 72);
+    ctx.fillStyle = rgrad(ctx, pool[0], pool[1], 2, 18, ['#bfeef0', '#5fb8c4', '#3d8a96']);
+    ctx.beginPath(); ctx.ellipse(pool[0], pool[1], 18, 8, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#d8c9a0'; ctx.lineWidth = 2; ctx.stroke();
+    // control building
+    house(ctx, {
+      x0: 46, y0: 52, x1: 86, y1: 84, z: 16, ridge: 'y', rh: 6, ov: 1, seed: 91,
+      roof: ['#6c7378', '#3a4044'],
+      wallLeft: (c, w, h) => { c.fillStyle = '#dcd8cc'; c.fillRect(0, 0, w, h); c.fillStyle = TEAM_RGB[team].main; c.fillRect(0, 2, w, 2); door(c, w / 2 - 5, h - 11, 10, 11, false); },
+      wallRight: (c, w, h) => { c.fillStyle = '#c8c4b8'; c.fillRect(0, 0, w, h); c.fillStyle = '#2a3440'; for (let x = 5; x < w - 4; x += 8) c.fillRect(x, 4, 4, 5); },
+    });
+    // cooling towers (curved concrete)
+    for (const [x, y, z, r] of [[26, 26, 62, 15], [66, 30, 52, 12]]) {
+      cylinder(ctx, x, y, r, 0, z, (c, cx, cy, w, h) => {
+        c.fillStyle = hgrad(c, cx, cx + w, ['#efebe2', '#cfcac0', '#9c978e']);
+        c.fillRect(cx, cy, w, h);
+        c.fillStyle = 'rgba(0,0,0,0.08)'; c.fillRect(cx, cy + h * 0.3, w, 2);
+        c.fillStyle = TEAM_RGB[team].main; c.fillRect(cx, cy + 6, w, 2);
+      }, '#5a5650');
+    }
+    // pipes
+    ctx.strokeStyle = '#8a9096'; ctx.lineWidth = 3;
+    const a = P(40, 40, 6), b = P(58, 60, 6), c2 = P(66, 46, 6);
+    ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.moveTo(c2[0], c2[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
   },
 
   // Market square: a trading hall at the back and three striped stalls on a paved square.
@@ -916,6 +1029,21 @@ export const UNIT_ART = {
       ctx.fillRect(10, 13, 3, 9);
     },
   }),
+  medic: (ctx, team) => figure(ctx, team, {
+    body: '#d8d2c2',
+    head: (ctx) => {
+      ctx.fillStyle = '#e8e2d2';
+      ctx.beginPath(); ctx.arc(16, 8.5, 4.8, Math.PI, 0); ctx.fill();
+      ctx.fillStyle = '#3f8f4a'; ctx.fillRect(15, 4.5, 2, 4); ctx.fillRect(14, 5.5, 4, 2);
+    },
+    item: (ctx, c) => {
+      ctx.fillStyle = '#3f8f4a'; // green cross on the tunic
+      ctx.fillRect(15, 17, 2.5, 7); ctx.fillRect(12.8, 19.3, 7, 2.5);
+      ctx.fillStyle = c.main; ctx.fillRect(9, 15, 14, 1.5);
+      ctx.fillStyle = '#6b4a2c'; ctx.fillRect(23, 20, 6, 6); // satchel
+      ctx.fillStyle = '#8a6440'; ctx.fillRect(23, 20, 6, 1.5);
+    },
+  }),
   rifleman: (ctx, team) => figure(ctx, team, {
     head: (ctx, c) => {
       ctx.fillStyle = c.dark;
@@ -942,6 +1070,108 @@ export const UNIT_ART = {
     },
   }),
 };
+
+// Scout: a rider on a horse, 44×40 canvas, hooves at y≈37. LEG_STEP animates a gallop.
+function scoutRider(ctx, team) {
+  const c = TEAM_RGB[team];
+  const s = LEG_STEP;
+  ctx.fillStyle = 'rgba(0,0,0,0.28)';
+  ctx.beginPath(); ctx.ellipse(22, 36, 15, 3.5, 0, 0, Math.PI * 2); ctx.fill();
+  // legs (far pair darker)
+  const leg = (x, sw, col) => {
+    ctx.strokeStyle = col; ctx.lineWidth = 2.6; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(x, 25); ctx.lineTo(x + sw, 31); ctx.lineTo(x + sw * 0.6, 36); ctx.stroke();
+  };
+  leg(13, -2 * s, '#4a3020'); leg(29, 2 * s, '#4a3020');
+  leg(15, 2 * s, '#6b4528'); leg(31, -2 * s, '#6b4528');
+  // body
+  ctx.fillStyle = hgrad(ctx, 10, 34, ['#9a6a40', '#7a4f2c', '#5a3820']);
+  ctx.beginPath(); ctx.ellipse(22, 23, 11, 5.5, 0, 0, Math.PI * 2); ctx.fill();
+  // neck and head
+  ctx.fillStyle = '#7a4f2c';
+  poly(ctx, [[30, 21], [36, 11], [39, 12], [35, 23]]); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(39, 13, 4.2, 2.4, 0.5, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#2a1a10'; // mane and tail
+  poly(ctx, [[30, 20], [35, 10], [33, 10], [28, 20]]); ctx.fill();
+  ctx.strokeStyle = '#2a1a10'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(11, 21); ctx.quadraticCurveTo(6, 24, 7, 30 + s); ctx.stroke();
+  // saddle cloth in team colour
+  ctx.fillStyle = c.main; ctx.fillRect(17, 18, 10, 7);
+  ctx.fillStyle = c.dark; ctx.fillRect(17, 24, 10, 1.5);
+  // rider
+  ctx.fillStyle = hgrad(ctx, 17, 27, [c.light, c.main, c.dark]);
+  poly(ctx, [[18, 8], [26, 8], [26, 19], [18, 19]]); ctx.fill();
+  ctx.fillStyle = '#3a3128'; ctx.fillRect(19, 18, 6, 6);
+  ctx.fillStyle = rgrad(ctx, 22, 4, 1, 4, ['#d9b391', '#c49a78', '#8f6b52']);
+  ctx.beginPath(); ctx.arc(22, 5, 3.6, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#5a4630'; ctx.beginPath(); ctx.arc(22, 4, 4, Math.PI, 0); ctx.fill();
+  // lance
+  ctx.strokeStyle = '#6b4a2c'; ctx.lineWidth = 1.6;
+  ctx.beginPath(); ctx.moveTo(14, 20); ctx.lineTo(38, 2); ctx.stroke();
+  ctx.fillStyle = '#c9cdd1'; poly(ctx, [[38, 2], [42, 0], [39, 4]]); ctx.fill();
+}
+
+// Field cannon on two wheels, 44×40.
+function cannon(ctx, team) {
+  const c = TEAM_RGB[team];
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.beginPath(); ctx.ellipse(22, 34, 18, 4.5, 0, 0, Math.PI * 2); ctx.fill();
+  // trail
+  ctx.fillStyle = '#5a3c22'; poly(ctx, [[4, 31], [8, 28], [24, 26], [24, 30]]); ctx.fill();
+  // barrel
+  ctx.fillStyle = vgrad(ctx, 12, 24, ['#6a6e72', '#2e3134', '#1c1e20']);
+  poly(ctx, [[12, 24], [38, 13], [40, 17], [14, 28]]); ctx.fill();
+  ctx.fillStyle = '#1a1a1a'; ctx.beginPath(); ctx.ellipse(39, 15, 1.8, 2.4, -0.4, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = c.main; ctx.fillRect(17, 22, 5, 3);
+  // wheel
+  ctx.strokeStyle = '#3a2614'; ctx.lineWidth = 2.4;
+  ctx.beginPath(); ctx.arc(22, 27, 7, 0, Math.PI * 2); ctx.stroke();
+  ctx.lineWidth = 1.2;
+  for (let i = 0; i < 6; i++) { const a = (i / 6) * Math.PI * 2; ctx.beginPath(); ctx.moveTo(22, 27); ctx.lineTo(22 + Math.cos(a) * 7, 27 + Math.sin(a) * 7); ctx.stroke(); }
+  ctx.fillStyle = '#2a1c10'; ctx.beginPath(); ctx.arc(22, 27, 1.8, 0, Math.PI * 2); ctx.fill();
+}
+
+// Electric tank: low, sleek, solar panels on the hull, 44×40.
+function electricTank(ctx, team) {
+  const c = TEAM_RGB[team];
+  ctx.fillStyle = 'rgba(0,0,0,0.32)';
+  ctx.beginPath(); ctx.ellipse(23, 34, 20, 5, 0, 0, Math.PI * 2); ctx.fill();
+  // tracks
+  ctx.fillStyle = '#1c1d1e'; ctx.beginPath(); ctx.roundRect(4, 26, 37, 8, 4); ctx.fill();
+  ctx.fillStyle = '#3a3c3e'; for (let x = 7; x < 40; x += 5) ctx.fillRect(x, 28, 2.5, 4);
+  // hull
+  ctx.fillStyle = vgrad(ctx, 16, 28, ['#9fa8a2', '#6f7a74', '#4c5650']);
+  poly(ctx, [[3, 25], [8, 17], [38, 17], [43, 25]]); ctx.fill();
+  ctx.fillStyle = c.main; ctx.fillRect(6, 23, 35, 2.5);
+  // solar panel on the hull
+  ctx.fillStyle = vgrad(ctx, 17, 22, ['#3b6aa0', '#1d3554']);
+  poly(ctx, [[10, 21], [13, 18], [26, 18], [24, 21]]); ctx.fill();
+  ctx.strokeStyle = 'rgba(170,200,230,0.5)'; ctx.lineWidth = 0.5;
+  for (let x = 13; x < 25; x += 3) { ctx.beginPath(); ctx.moveTo(x, 18); ctx.lineTo(x - 2, 21); ctx.stroke(); }
+  // turret and barrel
+  ctx.fillStyle = rgrad(ctx, 30, 13, 1, 8, ['#a8b2ac', '#5d6862']);
+  ctx.beginPath(); ctx.ellipse(31, 15, 7, 4.5, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#2e3432'; ctx.fillRect(36, 13, 8, 2.5);
+  ctx.fillStyle = '#7fe0ff'; ctx.fillRect(28, 13, 3, 1.5); // glowing sensor
+}
+
+// Deer, 32×24, two walking frames.
+export function deerArt(ctx, frame) {
+  const s = frame ? 1 : -1;
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  ctx.beginPath(); ctx.ellipse(16, 21, 10, 2.5, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#6b4a2e'; ctx.lineWidth = 1.6; ctx.lineCap = 'round';
+  for (const [x, d] of [[9, s], [12, -s], [20, -s], [23, s]]) { ctx.beginPath(); ctx.moveTo(x, 14); ctx.lineTo(x + d * 1.5, 21); ctx.stroke(); }
+  ctx.fillStyle = hgrad(ctx, 7, 25, ['#b88454', '#9a6a3e', '#76502c']);
+  ctx.beginPath(); ctx.ellipse(16, 13, 9, 4, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#f0e6d4'; ctx.beginPath(); ctx.ellipse(8, 12, 1.8, 1.6, 0, 0, Math.PI * 2); ctx.fill(); // white tail
+  ctx.fillStyle = '#9a6a3e';
+  poly(ctx, [[22, 12], [26, 5], [28, 6], [25, 13]]); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(28, 6, 3, 1.8, 0.3, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#5a4026'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(27, 4); ctx.lineTo(25, 0); ctx.moveTo(26, 2); ctx.lineTo(24, 2); ctx.moveTo(28, 4); ctx.lineTo(30, 0); ctx.moveTo(29.5, 1.5); ctx.lineTo(31.5, 1.5); ctx.stroke();
+  ctx.fillStyle = '#1a1410'; ctx.fillRect(29, 5.5, 1, 1);
+}
 
 // Armoured car: 44×40 canvas, centred at (22, 26).
 function armouredCar(ctx, team) {
@@ -1088,6 +1318,33 @@ export const ICON_ART = {
 
 // Bigger 40×40 icons for research buttons.
 const UPGRADE_ICON = {
+  wheelbarrow(ctx) {
+    ctx.strokeStyle = '#5a3c22'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(14, 22); ctx.lineTo(34, 30); ctx.moveTo(26, 22); ctx.lineTo(36, 26); ctx.stroke();
+    ctx.fillStyle = '#8a6440'; poly(ctx, [[6, 14], [28, 14], [26, 24], [10, 24]]); ctx.fill();
+    ctx.fillStyle = '#a9a59b'; for (const [x, y] of [[12, 12], [18, 11], [23, 12]]) { ctx.beginPath(); ctx.arc(x, y, 3.5, 0, Math.PI * 2); ctx.fill(); }
+    ctx.strokeStyle = '#2a1c10'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(12, 29, 5, 0, Math.PI * 2); ctx.stroke();
+  },
+  fish_farming(ctx) {
+    ctx.fillStyle = '#3d74a8'; ctx.fillRect(2, 24, 36, 12);
+    ctx.fillStyle = '#c8d2d8';
+    for (const [x, y] of [[13, 18], [26, 26]]) {
+      ctx.beginPath(); ctx.ellipse(x, y, 7, 3.5, 0, 0, Math.PI * 2); ctx.fill();
+      poly(ctx, [[x - 6, y], [x - 11, y - 4], [x - 11, y + 4]]); ctx.fill();
+    }
+    ctx.fillStyle = '#1a1a1a'; ctx.fillRect(17, 17, 1.5, 1.5); ctx.fillRect(30, 25, 1.5, 1.5);
+  },
+  field_medicine(ctx) {
+    ctx.fillStyle = '#e8e2d2'; ctx.beginPath(); ctx.roundRect(6, 10, 28, 22, 4); ctx.fill();
+    ctx.fillStyle = '#6b4a2c'; ctx.fillRect(14, 6, 12, 5);
+    ctx.fillStyle = '#3f8f4a'; ctx.fillRect(17, 14, 6, 14); ctx.fillRect(13, 18, 14, 6);
+  },
+  cool_roofs(ctx) {
+    ctx.fillStyle = '#f2c94c'; ctx.beginPath(); ctx.arc(30, 9, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#c8c4b8'; poly(ctx, [[4, 32], [4, 20], [20, 10], [36, 20], [36, 32]]); ctx.fill();
+    ctx.fillStyle = '#f4f8fb'; poly(ctx, [[2, 21], [20, 8], [38, 21], [36, 23], [20, 12], [4, 23]]); ctx.fill();
+    ctx.fillStyle = '#5a3c22'; ctx.fillRect(16, 23, 8, 9);
+  },
   // Town bell
   bell(ctx) {
     ctx.fillStyle = '#3e2a18';
@@ -1299,8 +1556,17 @@ export function generateArt(scene, buildingTypes) {
       LEG_STEP = 0;
     }
     makeCanvas(scene, unitKey('armoured_car', team), 44, 40, (ctx) => armouredCar(ctx, team), ART_RES);
+    makeCanvas(scene, unitKey('cannon', team), 44, 40, (ctx) => cannon(ctx, team), ART_RES);
+    makeCanvas(scene, unitKey('e_tank', team), 44, 40, (ctx) => electricTank(ctx, team), ART_RES);
+    [0, 1, 2].forEach((frame) => {
+      LEG_STEP = frame === 1 ? 1 : frame === 2 ? -1 : 0;
+      makeCanvas(scene, unitKey('scout', team, frame), 44, 40, (ctx) => scoutRider(ctx, team), ART_RES);
+    });
+    LEG_STEP = 0;
   }
   for (const [name, draw] of Object.entries(ICON_ART)) makeCanvas(scene, `i_${name}`, 20, 20, draw, ART_RES);
+  makeCanvas(scene, 'deer0', 32, 24, (ctx) => deerArt(ctx, 0), ART_RES);
+  makeCanvas(scene, 'deer1', 32, 24, (ctx) => deerArt(ctx, 1), ART_RES);
   for (const [name, draw] of Object.entries(UPGRADE_ICON)) makeCanvas(scene, `up_${name}`, 40, 40, draw, ART_RES);
   // soft cloud shadow and a water glint
   makeCanvas(scene, 'cloud', 512, 256, (ctx) => {
