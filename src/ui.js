@@ -74,9 +74,9 @@ export function button(scene, x, y, w, h, label, onClick, opts = {}) {
 // Three volume controls (master / effects / ambience) with − and + buttons. Returns the objects created.
 export function volumeRows(scene, x, y, width, depth) {
   const items = [];
-  const rows = [['master', 'Master volume'], ['sfx', 'Sound effects'], ['ambience', 'Ambience']];
+  const rows = [['master', 'Master volume'], ['music', 'Music'], ['sfx', 'Sound effects'], ['ambience', 'Ambience']];
   rows.forEach(([key, label], i) => {
-    const yy = y + i * 52;
+    const yy = y + i * 48;
     const txt = scene.add.text(x, yy + 10, '', {
       fontFamily: FONT_SERIF, fontSize: '17px', color: UI_COL.text, stroke: '#000', strokeThickness: 3,
     }).setDepth(depth);

@@ -29,6 +29,9 @@ export const UNIT_TYPES = {
              desc: 'Fast, tough and great against buildings, soldiers and archers. Weak to riflemen. Runs on energy.' },
 };
 
+// Colour of the "+10" that floats up when a worker drops off a load.
+const RES_TEXT_COLOR = { food: '#f0d77a', wood: '#d9b07a', stone: '#d8d4cc', fuel: '#b8b0a8' };
+
 // How much damage `attacker` does to `target` per hit, before upgrades.
 export function hitDamage(def, target) {
   if (target.isBuilding) return def.attack * def.vsBuilding;
@@ -563,6 +566,9 @@ export class Unit {
       }
       o.retriedReturn = false;
       world.addResource(o.res, Math.round(this.carry), this.team);
+      if (this.team === 'player' && world.fx && this.container.visible) {
+        world.fx.floatText(this.isoX, this.isoY - 30, `+${Math.round(this.carry)}`, RES_TEXT_COLOR[o.res]);
+      }
       this.carry = 0;
       this.updateCarryIcon();
       if (o.noMore) { this.stop(); return; }

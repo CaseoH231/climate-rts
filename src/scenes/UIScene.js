@@ -55,7 +55,20 @@ export default class UIScene extends Phaser.Scene {
     const w = this.world;
 
     // Atmosphere: heat haze grows with temperature, vignette darkens the edges.
-    this.haze = this.add.rectangle(0, 0, 10, 10, 0xb0603a, 0).setOrigin(0);
+    // (fill fully opaque; the object's alpha does the fading)
+    this.haze = this.add.rectangle(0, 0, 10, 10, 0xb0603a, 1).setOrigin(0).setAlpha(0);
+    // Weather: storm rain (with a darker sky) and dust blowing in a drought.
+    this.gloom = this.add.rectangle(0, 0, 10, 10, 0x1c2430, 1).setOrigin(0).setAlpha(0);
+    this.rain = this.add.particles(0, 0, 'fx_drop', {
+      x: { min: -100, max: 2800 }, y: -20, quantity: 7, frequency: 16, lifespan: 1100,
+      speedY: { min: 760, max: 940 }, speedX: { min: -190, max: -150 }, rotate: 11,
+      alpha: { start: 0.55, end: 0.25 }, scaleY: { min: 0.8, max: 1.3 }, emitting: false,
+    });
+    this.dust = this.add.particles(0, 0, 'fx_puff', {
+      x: { min: -60, max: 2600 }, y: { min: 0, max: 1500 }, quantity: 1, frequency: 90, lifespan: 4200,
+      speedX: { min: 35, max: 90 }, speedY: { min: -12, max: 8 }, scale: { start: 0.4, end: 2.2 },
+      alpha: { start: 0.16, end: 0 }, tint: 0xc9a77a, emitting: false,
+    });
     this.vignette = this.add.image(0, 0, 'vignette').setOrigin(0).setAlpha(0.8);
 
     // ---- Top bar (wood) ----
@@ -63,10 +76,20 @@ export default class UIScene extends Phaser.Scene {
     this.topTrim = this.add.graphics();
     this.topBoxes = this.add.graphics();
     this.resItems = {};
+    this.gatherers = {};
     RES_ORDER.forEach((res, i) => {
       const x = 10 + i * 104;
       this.add.image(x + 6, 7, `i_${res}`).setOrigin(0).setScale(0.5);
       this.resItems[res] = this.add.text(x + 30, 8, '0', { fontFamily: SERIF, fontSize: '15px', color: COL.text });
+      // how many workers are on this resource (small, on the right of the box)
+      if (['food', 'wood', 'stone', 'fuel'].includes(res)) {
+        const icon = this.add.image(x + 74, 17, unitKey('worker', 'player')).setScale(0.22).setAlpha(0.9);
+        const t = this.add.text(x + 91, 10, '', { fontFamily: SANS, fontSize: '12px', color: COL.dim, stroke: '#000', strokeThickness: 2 }).setOrigin(1, 0);
+        this.gatherers[res] = { icon, t };
+        const hit = this.add.rectangle(x + 64, 4, 32, 24, 0, 0).setOrigin(0).setInteractive();
+        hit.on('pointerover', () => this.showTip({ name: `Workers on ${RES_NAME[res].toLowerCase()}`, cost: null, desc: 'How many of your workers are gathering this right now.' }, x, 40, true));
+        hit.on('pointerout', () => this.hideTip());
+      }
     });
     this.add.image(10 + 5 * 104 + 6, 7, 'i_pop').setOrigin(0).setScale(0.5);
     this.popText = this.add.text(10 + 5 * 104 + 30, 8, '', { fontFamily: SERIF, fontSize: '15px', color: COL.text });
@@ -98,6 +121,10 @@ export default class UIScene extends Phaser.Scene {
     this.portrait = this.add.image(0, 0, 'i_pop').setVisible(false);
     this.selTitle = this.add.text(0, 0, '', { fontFamily: SERIF, fontSize: '19px', color: COL.gold, stroke: '#000', strokeThickness: 3 });
     this.selDetail = this.add.text(0, 0, '', { fontFamily: SANS, fontSize: '13px', color: COL.text, lineSpacing: 4, stroke: '#000', strokeThickness: 2 });
+    // Row of small portraits: the units you've selected, or a building's training queue.
+    this.strip = this.add.container(0, 0);
+    this.stripSig = '';
+    this.stripTimer = 0;
     this.hpBar = this.add.graphics();
     this.buttons = [];
     this.buildPage = 0;
@@ -193,6 +220,7 @@ export default class UIScene extends Phaser.Scene {
     const w = this.scale.width;
     const h = this.scale.height;
     this.haze.setSize(w, h);
+    this.gloom.setSize(w, h);
     this.vignette.setDisplaySize(w, h);
 
     this.topBar.setSize(w, TOP_H);
@@ -241,6 +269,9 @@ export default class UIScene extends Phaser.Scene {
     this.selTitle.setPosition(INFO_X + 108, py + 22);
     this.selDetail.setPosition(INFO_X + 108, py + 52);
     this.selDetail.setWordWrapWidth(Math.max(110, infoW - 120));
+    this.strip.setPosition(INFO_X + 108, py + 124);
+    this.stripW = Math.max(110, infoW - 120);
+    this.stripSig = '';
     this.hpBarPos = { x: INFO_X + 4, y: py + 104, w: 76 };
     this.idleBtn.setPosition(GRID_X - 6, py - 54);
     this.idleRect = new Phaser.Geom.Rectangle(GRID_X - 6, py - 54, 46, 46);
@@ -306,6 +337,87 @@ export default class UIScene extends Phaser.Scene {
       changed = true;
     }
     if (changed) this.layoutMessages();
+  }
+
+  // ---------- Portrait strip ----------
+  updateStrip(delta) {
+    const w = this.world;
+    const { units, building: b } = this.sel;
+    let mode = null;
+    let sig = '';
+    if (!b && units.length > 1) {
+      mode = 'units';
+      sig = 'u' + units.length + units.map((u) => u.type[0]).join('');
+    } else if (b && b.team === 'player' && b.queue.length) {
+      mode = 'queue';
+      sig = 'q' + b.queue.join(',');
+    }
+    if (sig !== this.stripSig) {
+      this.stripSig = sig;
+      this.strip.removeAll(true);
+      this.stripItems = [];
+      if (mode === 'units') this.buildUnitStrip(units);
+      else if (mode === 'queue') this.buildQueueStrip(b);
+    }
+    // live bars
+    this.stripTimer -= delta;
+    if (this.stripTimer > 0 || !this.stripItems) return;
+    this.stripTimer = 150;
+    for (const it of this.stripItems) {
+      const frac = it.unit ? Math.max(0, it.unit.hp / it.unit.maxHp) : it.first ? b && b.trainProgress : 0;
+      it.bar.clear();
+      if (it.unit) {
+        const col = frac > 0.6 ? 0x8fb04a : frac > 0.3 ? 0xd7b53c : 0xc0453a;
+        it.bar.fillStyle(0x000000, 0.7).fillRect(0, 31, 28, 4).fillStyle(col, 1).fillRect(1, 32, 26 * frac, 2);
+      } else if (it.first && b) {
+        it.bar.fillStyle(0x000000, 0.7).fillRect(0, 31, 28, 4).fillStyle(0x7fa6d6, 1).fillRect(1, 32, 26 * (b.trainProgress || 0), 2);
+      }
+    }
+  }
+
+  stripCell(i, texKey, onClick, tip) {
+    const c = this.add.container(i * 31, 0);
+    const bg = this.add.graphics();
+    bg.fillStyle(0x15120e, 0.9).fillRect(0, 0, 28, 30);
+    bg.lineStyle(1, UI_COL.bronzeDark, 1).strokeRect(0.5, 0.5, 27, 29);
+    const tex = this.textures.get(texKey).getSourceImage();
+    const img = this.add.image(14, 16, texKey).setScale(Math.min(24 / tex.width, 26 / tex.height, 0.6));
+    const bar = this.add.graphics();
+    const hit = this.add.rectangle(0, 0, 28, 30, 0, 0).setOrigin(0).setInteractive({ useHandCursor: true });
+    hit.on('pointerdown', (p) => { if (p.leftButtonDown()) onClick(p); });
+    hit.on('pointerover', () => { bg.lineStyle(1, 0xe3c46f, 1).strokeRect(0.5, 0.5, 27, 29); if (tip) this.showTip(tip, this.strip.x + i * 31); });
+    hit.on('pointerout', () => { bg.lineStyle(1, UI_COL.bronzeDark, 1).strokeRect(0.5, 0.5, 27, 29); this.hideTip(); });
+    c.add([bg, img, bar, hit]);
+    this.strip.add(c);
+    return { c, bar };
+  }
+
+  buildUnitStrip(units) {
+    const w = this.world;
+    const max = Math.max(1, Math.floor((this.stripW + 3) / 31));
+    const shown = units.length > max ? units.slice(0, max - 1) : units;
+    shown.forEach((u, i) => {
+      const { bar } = this.stripCell(i, unitKey(u.type, u.team), (p) => {
+        audio.play('click');
+        if (p.event.shiftKey) w.deselectUnit(u);
+        else w.selectWhere((x) => x === u, false);
+      }, null);
+      this.stripItems.push({ unit: u, bar });
+    });
+    if (shown.length < units.length) {
+      this.strip.add(this.add.text(shown.length * 31 + 4, 7, `+${units.length - shown.length}`, {
+        fontFamily: SERIF, fontSize: '15px', color: COL.gold, stroke: '#000', strokeThickness: 3,
+      }));
+    }
+  }
+
+  buildQueueStrip(b) {
+    const w = this.world;
+    b.queue.forEach((type, i) => {
+      const { bar } = this.stripCell(i, unitKey(type, 'player'), () => w.cancelTrain(b, i),
+        { name: `Cancel ${UNIT_TYPES[type].name}`, cost: null, desc: 'Click to take it out of the queue and get the cost back.' });
+      this.stripItems.push({ first: i === 0, bar });
+    });
   }
 
   // ---------- Selection & commands ----------
@@ -651,7 +763,7 @@ export default class UIScene extends Phaser.Scene {
       rows.push(['Back', () => this.openMenu('main')]);
     }
     const helpH = view === 'help' ? 330 : 0;
-    const settingsH = view === 'settings' ? 170 : 0;
+    const settingsH = view === 'settings' ? 200 : 0;
     const PH = 80 + rows.length * 50 + helpH + settingsH + (view === 'help' ? 60 : 0);
     const px = (sw - PW) / 2;
     const py = (sh - PH) / 2;
@@ -833,10 +945,27 @@ export default class UIScene extends Phaser.Scene {
     if (this.speedText.text !== sp) this.speedText.setText(sp);
 
     this.haze.setAlpha(Math.min(0.2, Math.max(0, w.climate.temp) * 0.045));
+    const raining = w.rainTime > 0 && !w.paused && !w.gameOver;
+    if (raining !== this.rain.emitting) { if (raining) this.rain.start(); else this.rain.stop(); }
+    const dusty = w.climate.drought > 0 && !raining && !w.paused && !w.gameOver;
+    if (dusty !== this.dust.emitting) { if (dusty) this.dust.start(); else this.dust.stop(); }
+    const gl = raining ? Math.min(0.28, w.rainTime * 0.06) : 0;
+    this.gloom.setAlpha(this.gloom.alpha + (gl - this.gloom.alpha) * Math.min(1, delta / 400));
 
+    this.updateStrip(delta);
     this.idleTimer -= delta;
     if (this.idleTimer <= 0) {
       this.idleTimer = 400;
+      const count = { food: 0, wood: 0, stone: 0, fuel: 0 };
+      for (const u of w.units) {
+        if (u.team !== 'player' || u.type !== 'worker' || !u.order || u.order.kind !== 'gather') continue;
+        if (u.order.res in count) count[u.order.res]++;
+      }
+      for (const [r, g] of Object.entries(this.gatherers)) {
+        const txt = count[r] ? String(count[r]) : '';
+        if (g.t.text !== txt) g.t.setText(txt);
+        g.icon.setVisible(count[r] > 0);
+      }
       const n = w.units.filter((u) => u.team === 'player' && u.type === 'worker' && u.isIdle).length;
       this.idleBtn.setVisible(n > 0 && !this.menu && !w.gameOver);
       this.idleCount.setText(String(n));

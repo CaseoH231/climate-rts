@@ -47,7 +47,10 @@ export class Climate {
 
     if (this.drought > 0) {
       this.drought = Math.max(0, this.drought - s);
-      if (this.drought === 0) this.world.toast('🌧️ The rain is back — the drought is over', '#9fc5e8');
+      if (this.drought === 0) {
+        this.world.toast('🌧️ The rain is back — the drought is over', '#9fc5e8');
+        this.world.rainTime = Math.max(this.world.rainTime || 0, 8);
+      }
     }
 
     this.disasterTimer += s;

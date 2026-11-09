@@ -126,6 +126,9 @@ The enemy watches your army and trains whatever beats it (rarely on Easy, often 
 | Attack-move | A (or W) with soldiers selected, then left-click the map: they march there and fight everything on the way |
 | Town bell | Select the Town Centre (or a tower) → bell button (Y): workers shelter inside, extra arrows. Press again for all clear |
 | Market | Select a Market: top row buys 100 of a resource, bottom row picks what you pay with |
+| Look at the last attack | Space |
+| Pick one unit from a group | Click its portrait in the info panel (Shift-click removes it) |
+| Cancel training | Click the unit in the building's queue (you get the cost back) |
 | Game speed | + and − keys, or click the ×1 in the top bar (right-click to slow down) |
 | Help build / farm | Right-click an unfinished building or a farm with workers |
 | Train / research / advance | Select a Town Centre, Barracks or Workshop and use its buttons |
@@ -182,4 +185,5 @@ src/scenes/UIScene.js   resource bar, command panel, diamond minimap, climate pa
 - [x] Phase 11 – Command & control: control groups, rally points, idle-worker button, walls and gates
 - [x] Phase 12 – Battle & balance: unit counters, attack-move, game speed, end-of-game stats and charts, AI that counters your army
 - [x] Phase 13 – Town life: Market trading, town bell and shelter, four map types (Continental, Lakes, Highlands, Great River)
-- [ ] Phase 14 – Playtesting feedback
+- [x] Phase 14 – The big polish: climate colour grading, burning buildings and ruins, combat effects, birds, rain and dust storms, worker counts, unit portraits, clickable training queue, custom cursors, Continue button, generative music
+- [ ] Phase 15 – Playtesting feedback

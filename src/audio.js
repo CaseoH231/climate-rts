@@ -10,11 +10,19 @@ const MIN_GAP = {
   wave: 3, whoosh: 2, collapse: 0.4, victory: 3, defeat: 3,
 };
 
+// Music moods. Scales are semitone offsets; chords are triads of scale degrees.
+const MOODS = {
+  calm: { root: 50, scale: [0, 2, 3, 5, 7, 9, 10], prog: [[0, 2, 4], [5, 0, 2], [3, 5, 0], [4, 6, 1]], bpm: 74, bright: 2400, density: 0.42 },
+  industry: { root: 45, scale: [0, 2, 3, 5, 7, 8, 10], prog: [[0, 2, 4], [5, 0, 2], [2, 4, 6], [6, 1, 3]], bpm: 68, bright: 1700, density: 0.36 },
+  hope: { root: 48, scale: [0, 2, 4, 5, 7, 9, 11], prog: [[0, 2, 4], [4, 6, 1], [5, 0, 2], [3, 5, 0]], bpm: 80, bright: 2800, density: 0.45 },
+  tense: { root: 46, scale: [0, 1, 3, 5, 7, 8, 10], prog: [[0, 2, 4], [1, 3, 5], [0, 2, 4], [6, 1, 3]], bpm: 62, bright: 1250, density: 0.3 },
+};
+
 class AudioEngine {
   constructor() {
     this.ctx = null;
     this.last = {};
-    this.settings = { master: 0.8, sfx: 0.9, ambience: 0.6 };
+    this.settings = { master: 0.8, sfx: 0.9, ambience: 0.6, music: 0.5 };
     try {
       const s = JSON.parse(window.localStorage.getItem(SETTINGS_KEY));
       if (s) Object.assign(this.settings, s);
@@ -37,6 +45,8 @@ class AudioEngine {
     this.sfxBus.connect(this.master);
     this.ambBus = ctx.createGain();
     this.ambBus.connect(this.master);
+    this.musicBus = ctx.createGain();
+    this.musicBus.connect(this.master);
     // a little shared reverb so things sit in a space
     this.reverb = ctx.createConvolver();
     this.reverb.buffer = this.makeImpulse(1.6);
@@ -69,6 +79,7 @@ class AudioEngine {
     this.master.gain.setTargetAtTime(this.settings.master, t, 0.05);
     this.sfxBus.gain.setTargetAtTime(this.settings.sfx, t, 0.05);
     this.ambBus.gain.setTargetAtTime(this.settings.ambience, t, 0.05);
+    this.musicBus.gain.setTargetAtTime(this.settings.music * 0.9, t, 0.05);
   }
 
   // ---------- building blocks ----------
@@ -249,6 +260,138 @@ class AudioEngine {
   }
 
   // ---------- ambience ----------
+  // ---------- music ----------
+  // A gentle generative soundtrack: slow chord pads, a low bass and a wandering plucked melody.
+  // The mood follows the game (calm, industrial, hopeful) and turns tense as the planet heats up.
+  startMusic(mood = 'calm') {
+    if (!this.ready) return;
+    if (this.musicTimer) { this.setMood(mood); return; }
+    this.music = { step: 0, next: this.ctx.currentTime + 0.3, note: 7, mood: MOODS[mood] ? mood : 'calm', pending: null };
+    this.musicTimer = setInterval(() => this.scheduleMusic(), 120);
+  }
+
+  stopMusic() {
+    if (this.musicTimer) clearInterval(this.musicTimer);
+    this.musicTimer = null;
+  }
+
+  setMood(mood) {
+    if (!MOODS[mood]) return;
+    if (this.music) this.music.pending = mood;
+  }
+
+  scheduleMusic() {
+    if (!this.ready || this.ctx.state !== 'running' || !this.music) return;
+    const m = this.music;
+    // don't pile up notes if the tab was asleep
+    if (m.next < this.ctx.currentTime - 0.5) m.next = this.ctx.currentTime + 0.1;
+    while (m.next < this.ctx.currentTime + 0.5) {
+      const mood = MOODS[m.mood];
+      const eighth = 60 / mood.bpm / 2;
+      const bar = Math.floor(m.step / 8);
+      const pos = m.step % 8;
+      if (pos === 0 && m.pending && m.pending !== m.mood) { m.mood = m.pending; m.pending = null; continue; }
+      this.musicStep(m.next, bar, pos, MOODS[m.mood], eighth);
+      m.next += eighth;
+      m.step++;
+    }
+  }
+
+  musicStep(t, bar, pos, mood, eighth) {
+    const phrase = bar % 16;
+    const chord = mood.prog[Math.floor(bar / 2) % mood.prog.length];
+    const midi = (deg, oct = 0) => mood.root + mood.scale[((deg % 7) + 7) % 7] + 12 * (Math.floor(deg / 7) + oct);
+    const hz = (n) => 440 * Math.pow(2, (n - 69) / 12);
+    if (pos === 0 && bar % 2 === 0) {
+      // pad: two bars long, very soft
+      const dur = eighth * 16;
+      for (const d of chord) this.padNote(t, hz(midi(d, 1)), dur, mood.bright);
+      if (phrase < 14) this.bassNote(t, hz(midi(chord[0], 0)), dur * 0.9);
+    }
+    // the melody comes and goes in phrases
+    const melodyOn = phrase >= 2 && phrase < 12;
+    if (melodyOn && Math.random() < (pos % 2 === 0 ? mood.density : mood.density * 0.35)) {
+      const m = this.music;
+      m.note += Math.floor(Math.random() * 5) - 2;
+      if (m.note < 4) m.note += 3;
+      if (m.note > 13) m.note -= 3;
+      // lean towards chord tones on strong beats
+      if (pos === 0 || pos === 4) {
+        const near = chord.map((c) => c + 7).sort((a, b) => Math.abs(a - m.note) - Math.abs(b - m.note))[0];
+        m.note = near;
+      }
+      this.pluckNote(t, hz(midi(m.note, 1)), eighth * (pos % 2 === 0 ? 3 : 1.5), mood.bright);
+    }
+  }
+
+  padNote(t, f, dur, bright) {
+    const ctx = this.ctx;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.035, t + 1.4);
+    g.gain.setValueAtTime(0.035, t + dur - 0.6);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 1.4);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = bright * 0.5;
+    lp.connect(g);
+    g.connect(this.musicBus);
+    g.connect(this.reverbSend);
+    for (const [type, det] of [['triangle', -6], ['sine', 5]]) {
+      const o = ctx.createOscillator();
+      o.type = type;
+      o.frequency.value = f;
+      o.detune.value = det;
+      o.connect(lp);
+      o.start(t);
+      o.stop(t + dur + 1.5);
+    }
+  }
+
+  bassNote(t, f, dur) {
+    const ctx = this.ctx;
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.value = f;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.06, t + 0.08);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(this.musicBus);
+    o.start(t);
+    o.stop(t + dur + 0.1);
+  }
+
+  // A soft plucked string (lute / harp-ish).
+  pluckNote(t, f, dur, bright) {
+    const ctx = this.ctx;
+    const o = ctx.createOscillator();
+    o.type = 'triangle';
+    o.frequency.value = f;
+    const o2 = ctx.createOscillator();
+    o2.type = 'sine';
+    o2.frequency.value = f * 2;
+    const g2 = ctx.createGain();
+    g2.gain.value = 0.25;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(bright, t);
+    lp.frequency.exponentialRampToValueAtTime(bright * 0.35, t + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.07, t + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + Math.max(0.4, dur * 1.6));
+    o.connect(lp);
+    o2.connect(g2).connect(lp);
+    lp.connect(g);
+    g.connect(this.musicBus);
+    g.connect(this.reverbSend);
+    o.start(t);
+    o2.start(t);
+    o.stop(t + dur * 1.6 + 0.5);
+    o2.stop(t + dur * 1.6 + 0.5);
+  }
+
   startAmbience() {
     if (!this.ready || this.amb) return;
     const ctx = this.ctx;

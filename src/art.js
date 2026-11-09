@@ -1267,7 +1267,7 @@ function vignette(ctx, s) {
 // Art is drawn at ART_RES× size and shown at 1/ART_RES scale, so it stays crisp when you zoom in.
 export const ART_RES = 2;
 
-function makeCanvas(scene, key, w, h, draw, res = 1) {
+export function makeCanvas(scene, key, w, h, draw, res = 1) {
   if (scene.textures.exists(key)) return; // already made (e.g. when starting a second game)
   const tex = scene.textures.createCanvas(key, Math.ceil(w * res), Math.ceil(h * res));
   const ctx = tex.getContext();

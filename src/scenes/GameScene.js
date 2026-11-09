@@ -10,6 +10,8 @@ import { toIso, fromIso, ISO_W, ISO_H } from '../iso.js';
 import { Climate } from '../climate.js';
 import { findPath } from '../pathfinding.js';
 import { Stats } from '../stats.js';
+import { Effects } from '../effects.js';
+import { cursors } from '../cursors.js';
 import { GAME_SPEEDS, MARKET_BASE } from '../config.js';
 
 const MARKET_FEE = 1.3;   // you always get back less than you put in
@@ -38,6 +40,8 @@ export default class GameScene extends Phaser.Scene {
     generateArt(this, BUILDING_TYPES);
     audio.init(this.sound.context);
     audio.startAmbience();
+    audio.startMusic('calm');
+    this.moodTimer = 0;
     this.fireCheck = 0;
     this.firesOnScreen = 0;
 
@@ -107,6 +111,13 @@ export default class GameScene extends Phaser.Scene {
     this.fog.applyVisibility();
 
     // --- Living world: cloud shadows drifting over the land, glints on the water ---
+    this.fx = new Effects(this);
+    this.cursorKind = null;
+    this.time.delayedCall(0, () => this.setCursor('arrow'));
+    this.cursorTimer = 0;
+    this.lastAlertPos = null;
+    this.rainTime = 0;
+    this.events.once('shutdown', () => this.fx.destroy());
     this.clouds = [];
     for (let i = 0; i < 5; i++) {
       const c = this.add.image(Math.random() * ISO_W, Math.random() * ISO_H, 'cloud')
@@ -137,6 +148,7 @@ export default class GameScene extends Phaser.Scene {
     });
     this.input.keyboard.on('keydown', (e) => {
       if (this.gameOver) return;
+      if (e.code === 'Space' && !this.paused) { e.preventDefault(); this.jumpToAlert(); return; }
       if (e.key === '+' || e.key === '=' || e.code === 'NumpadAdd') this.changeSpeed(1);
       else if (e.key === '-' || e.key === '_' || e.code === 'NumpadSubtract') this.changeSpeed(-1);
     });
@@ -385,11 +397,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   smoke(x, y) {
-    const p = this.add.circle(x + (Math.random() - 0.5) * 4, y, 4, 0x5f5c58, 0.28).setDepth(8e5);
-    this.tweens.add({
-      targets: p, y: y - 70 - Math.random() * 30, x: p.x + 20 + Math.random() * 25, scale: 3.5, alpha: 0,
-      duration: 3200, onComplete: () => p.destroy(),
-    });
+    this.fx.smoke(x, y);
   }
 
   unitsInRect(tx, ty, w, h) {
@@ -571,6 +579,7 @@ export default class GameScene extends Phaser.Scene {
   removeBuilding(b) {
     if (b.dead) return;
     if (b.garrison.length) this.ejectAll(b); // everyone inside runs out
+    if (b.hp <= 0 && (b.complete || b.progress > 0.25) && b.type !== 'trees') this.fx.ruins(b);
     b.dead = true;
     b.destroy();
     this.buildings = this.buildings.filter((x) => x !== b);
@@ -691,6 +700,9 @@ export default class GameScene extends Phaser.Scene {
     const flight = Math.max(80, dist * 2.2); // ms of game time
     this.projectiles.push({ t: flight, target, dmg, attacker });
     if (!this.renderShots) return;
+    if (attacker && (attacker.type === 'rifleman' || attacker.type === 'armoured_car') && (!attacker.container || attacker.container.visible)) {
+      this.fx.muzzle(from.x, from.y, attacker.type === 'armoured_car');
+    }
     const arrow = this.add.rectangle(from.x, from.y, 10, 1.5, 0xe8e2cf).setRotation(Math.atan2(to.y - from.y, to.x - from.x)).setDepth(9e5);
     this.tweens.add({
       targets: arrow, x: to.x, y: to.y, duration: flight / this.speed,
@@ -708,7 +720,15 @@ export default class GameScene extends Phaser.Scene {
     }
     if (!landed.length) return;
     this.projectiles = this.projectiles.filter((p) => p.t > 0);
-    for (const p of landed) if (!p.target.dead) this.dealDamage(p.target, p.dmg, p.attacker);
+    for (const p of landed) {
+      if (p.target.dead) continue;
+      if (this.renderShots && p.target.container && p.target.container.visible) {
+        const t = p.target;
+        if (t.isBuilding) { const i = toIso(t.cx, t.cy); this.fx.impact(i.x + (Math.random() - 0.5) * 30, i.y - 10, true); }
+        else this.fx.impact(t.isoX, t.isoY - 6, false);
+      }
+      this.dealDamage(p.target, p.dmg, p.attacker);
+    }
   }
 
   // ---------- Town bell & shelter ----------
@@ -851,13 +871,71 @@ export default class GameScene extends Phaser.Scene {
     if (![...this.selected].some((u) => u.isMilitary)) return;
     if (this.placing) this.cancelPlacing();
     this.targeting = 'amove';
-    this.input.setDefaultCursor('crosshair');
+    this.setCursor('sword');
     this.toast('Attack-move: click where to go. They fight anything on the way.');
   }
 
   cancelTargeting() {
     this.targeting = null;
-    this.input.setDefaultCursor('default');
+    this.setCursor('arrow');
+  }
+
+  // ---------- Mouse cursor: shows what a right-click would do ----------
+  setCursor(kind) {
+    if (kind === this.cursorKind) return;
+    this.cursorKind = kind;
+    this.input.setDefaultCursor(cursors()[kind]);
+  }
+
+  updateCursor(delta) {
+    this.cursorTimer -= delta;
+    if (this.cursorTimer > 0) return;
+    this.cursorTimer = 90;
+    if (this.targeting) { this.setCursor('sword'); return; }
+    const p = this.input.activePointer;
+    if (this.placing || this.drag || !this.selected.size || this.overUI(p)) { this.setCursor('arrow'); return; }
+    const i = this.isoPoint(p);
+    const units = [...this.selected];
+    const enemy = this.enemyUnitAt(i.x, i.y);
+    const b = this.buildingAtIso(i.x, i.y);
+    if (enemy || (b && b.team !== 'player' && b.container.visible)) { this.setCursor('sword'); return; }
+    const workers = units.some((u) => u.type === 'worker');
+    if (workers && b && b.team === 'player' && (!b.complete || b.hp < b.maxHp)) { this.setCursor('hammer'); return; }
+    if (workers && !b) {
+      const g = fromIso(i.x, i.y);
+      const t = this.map.worldToTile(g.x, g.y);
+      if (this.map.resourceAt(t.x, t.y) && (!this.fog || this.fog.isExplored(t.x, t.y))) { this.setCursor('pick'); return; }
+    }
+    this.setCursor('arrow');
+  }
+
+  // Jump the camera to where the last attack happened (Space).
+  jumpToAlert() {
+    if (!this.lastAlertPos) return;
+    const c = this.map.tileCenter(this.lastAlertPos.x, this.lastAlertPos.y);
+    const i = toIso(c.x, c.y);
+    this.cameras.main.pan(i.x, i.y, 300, 'Sine.easeInOut');
+  }
+
+  // Remove one unit from the current selection.
+  deselectUnit(u) {
+    if (!this.selected.delete(u)) return;
+    u.setSelected(false);
+    this.emitSelection();
+  }
+
+  // Cancel a queued unit and give its cost back.
+  cancelTrain(b, i) {
+    if (!b || b.dead || i < 0 || i >= b.queue.length) return;
+    const type = b.queue[i];
+    for (const [k, v] of Object.entries(UNIT_TYPES[type].cost)) {
+      if (k === 'energy') this.teams[b.team].resources.clean += v; // refund as clean energy
+      else this.teams[b.team].resources[k] += v;
+    }
+    b.queue.splice(i, 1);
+    if (i === 0) { b.trainTimer = 0; b.waitingForPop = false; }
+    b.redraw();
+    audio.play('click');
   }
 
   attackMoveTo(wx, wy) {
@@ -879,6 +957,7 @@ export default class GameScene extends Phaser.Scene {
     }
     target.hp -= dmg;
     target.updateHpBar();
+    if (this.renderShots && target.container.visible) this.fx.hitFlash(target);
     if (target.hp <= 0) {
       this.killUnit(target, attacker.team);
       return;
@@ -896,8 +975,7 @@ export default class GameScene extends Phaser.Scene {
     u.stop();
     u.dead = true;
     this.sfx('death', u.x, u.y);
-    const puff = this.add.ellipse(u.isoX, u.isoY - 6, 20, 14, 0x555555, 0.55).setDepth(u.isoY);
-    this.tweens.add({ targets: puff, alpha: 0, scale: 1.8, duration: 500, onComplete: () => puff.destroy() });
+    if (u.container.visible) this.fx.death(u);
     u.container.destroy();
     this.units = this.units.filter((x) => x !== u);
     if (this.selected.delete(u)) this.emitSelection();
@@ -906,10 +984,11 @@ export default class GameScene extends Phaser.Scene {
   alertAttack(target) {
     if (this.gameTime - this.lastAttackAlert < 15) return;
     this.lastAttackAlert = this.gameTime;
-    this.toast('You are under attack!', '#d9a39b');
+    this.toast('You are under attack!  (Space to look)', '#d9a39b');
     audio.play('horn');
     const x = target.isBuilding ? target.cx : target.x;
     const y = target.isBuilding ? target.cy : target.y;
+    this.lastAlertPos = { x: Math.floor(x / TILE), y: Math.floor(y / TILE) };
     this.events.emit('alert', Math.floor(x / TILE), Math.floor(y / TILE));
   }
 
@@ -942,6 +1021,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   stormEffect(x, y, r) {
+    this.rainTime = Math.max(this.rainTime, 14);
     const i = toIso(x, y);
     const c = this.add.ellipse(i.x, i.y, r * 2.8, r * 1.4, 0x2a3440, 0.4).setDepth(9e5);
     this.tweens.add({ targets: c, alpha: 0, scale: 1.3, duration: 1200, onComplete: () => c.destroy() });
@@ -1444,7 +1524,20 @@ export default class GameScene extends Phaser.Scene {
     }
     audio.updateAmbience(delta / 1000, { temp: this.climate.temp, firesOnScreen: this.firesOnScreen, paused: this.paused || !!this.gameOver });
 
+    this.fx.updateGrade(this.climate.temp, this.climate.drought);
+    this.moodTimer -= delta;
+    if (this.moodTimer <= 0) {
+      this.moodTimer = 2000;
+      const era = this.eraOf('player');
+      audio.setMood(this.climate.temp > 2.5 ? 'tense' : era === 0 ? 'calm' : era === 1 ? 'industry' : 'hope');
+    }
+    if (!this.paused && !this.gameOver) this.updateCursor(delta);
+    else this.setCursor('arrow');
     if (this.gameOver || this.paused) return;
+    this.rainTime = Math.max(0, this.rainTime - delta / 1000);
+    const view = this.cameras.main.worldView;
+    this.fx.updateDamage(delta, this.buildings, view);
+    this.fx.updateBirds(delta, view, this.climate.temp);
     this.ambientEffects(delta);
     // Cap frame time so a lag spike doesn't teleport units; faster speeds run extra ticks.
     let left = Math.min(delta, 100) * this.speed;

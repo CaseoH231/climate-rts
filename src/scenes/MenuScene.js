@@ -9,6 +9,61 @@ import { audio } from '../audio.js';
 import { listSaves, readSave } from '../save.js';
 import { DIFFICULTY } from '../ai.js';
 import { HOW_TO_PLAY } from '../help.js';
+import { Effects } from '../effects.js';
+import { makeCanvas } from '../art.js';
+import { cursors } from '../cursors.js';
+
+export const GAME_VERSION = 'v8';
+
+// The game's crest: a globe, half green and half smog, ringed in bronze with a laurel.
+function drawCrest(ctx) {
+  const cx = 40;
+  const cy = 40;
+  // laurel
+  ctx.fillStyle = '#5f7f3a';
+  for (const side of [-1, 1]) {
+    for (let i = 0; i < 7; i++) {
+      const a = Math.PI / 2 + side * (0.5 + i * 0.32);
+      const x = cx + Math.cos(a) * 33;
+      const y = cy + Math.sin(a) * 33;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(a + side * 1.2);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 6, 2.6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+  // bronze ring
+  const ring = ctx.createLinearGradient(0, 8, 0, 72);
+  ring.addColorStop(0, '#f3d98c');
+  ring.addColorStop(1, '#8a5d22');
+  ctx.fillStyle = ring;
+  ctx.beginPath(); ctx.arc(cx, cy, 27, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#2a1a08'; ctx.lineWidth = 2; ctx.stroke();
+  // globe
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx, cy, 22, 0, Math.PI * 2); ctx.clip();
+  ctx.fillStyle = '#3d74a8'; ctx.fillRect(0, 0, 80, 80);
+  ctx.fillStyle = '#5d9a46';
+  ctx.beginPath(); ctx.ellipse(31, 34, 9, 12, 0.4, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(48, 48, 8, 6, -0.3, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(46, 27, 5, 4, 0, 0, Math.PI * 2); ctx.fill();
+  // the right half sits under smog
+  const smog = ctx.createLinearGradient(cx, 0, cx + 22, 0);
+  smog.addColorStop(0, 'rgba(120,90,60,0)');
+  smog.addColorStop(0.25, 'rgba(120,90,60,0.65)');
+  smog.addColorStop(1, 'rgba(70,55,45,0.85)');
+  ctx.fillStyle = smog; ctx.fillRect(cx, 0, 40, 80);
+  ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.ellipse(cx, cy, 10, 22, 0, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx - 22, cy); ctx.lineTo(cx + 22, cy); ctx.stroke();
+  ctx.restore();
+  // shine
+  ctx.fillStyle = 'rgba(255,255,255,0.18)';
+  ctx.beginPath(); ctx.ellipse(32, 30, 9, 5, -0.6, 0, Math.PI * 2); ctx.fill();
+}
 
 export const GAME_TITLE = 'Age of Emissions';
 
@@ -23,6 +78,9 @@ export default class MenuScene extends Phaser.Scene {
     generateArt(this, BUILDING_TYPES);
     audio.init(this.sound.context);
     audio.startAmbience();
+    audio.startMusic('calm');
+    this.input.setDefaultCursor(cursors().arrow);
+    makeCanvas(this, 'crest', 80, 80, drawCrest, 2);
     this.options = { difficulty: 'normal', map: 'continental', fog: true };
 
     // --- Background: paint a corner of a map and put a little town on it ---
@@ -71,6 +129,13 @@ export default class MenuScene extends Phaser.Scene {
     this.subtitle = this.add.text(0, 0, 'A strategy game of empires, energy and a warming world', {
       fontFamily: FONT_SERIF, fontSize: '19px', fontStyle: 'italic', color: '#efe6cc', stroke: '#000', strokeThickness: 4,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(1e6 + 1);
+    this.crests = [0, 1].map(() => this.add.image(0, 0, 'crest').setScale(0.5).setScrollFactor(0).setDepth(1e6 + 1));
+    this.version = this.add.text(0, 0, `${GAME_VERSION}`, {
+      fontFamily: FONT_SANS, fontSize: '12px', color: '#b8ae94', stroke: '#000', strokeThickness: 3,
+    }).setOrigin(1, 1).setScrollFactor(0).setDepth(1e6 + 1);
+    this.fx = new Effects(this);
+    this.fx.birdTimer = 2500;
+    this.events.once('shutdown', () => this.fx.destroy());
 
     this.scale.on('resize', this.relayout, this);
     const onInstall = () => { if (this.view === 'main') this.show('main'); };
@@ -89,6 +154,10 @@ export default class MenuScene extends Phaser.Scene {
     this.vig.setDisplaySize(w, h);
     this.title.setPosition(w / 2, h * 0.16);
     this.subtitle.setPosition(w / 2, h * 0.16 + 52);
+    const half = this.title.width / 2 + 52;
+    this.crests[0].setPosition(w / 2 - half, h * 0.16);
+    this.crests[1].setPosition(w / 2 + half, h * 0.16);
+    this.version.setPosition(w - 10, h - 8);
     this.show(this.view);
   }
 
@@ -116,14 +185,23 @@ export default class MenuScene extends Phaser.Scene {
 
     if (view === 'main') {
       const canInstall = !!window.installPrompt;
-      this.addUI(panel(this, (w - PW) / 2, top, PW, canInstall ? 370 : 310, D));
-      btn(top + 30, 'New Game', () => this.show('new'));
-      const any = listSaves().some((s) => !s.empty);
-      btn(top + 90, 'Load Game', () => this.show('load')).setEnabled(any);
-      btn(top + 150, 'How to Play', () => this.show('help'));
-      btn(top + 210, 'Settings', () => this.show('settings'));
+      const saves = listSaves().filter((s) => !s.empty).sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
+      const any = saves.length > 0;
+      const k = any ? 60 : 0; // room for "Continue"
+      this.addUI(panel(this, (w - PW) / 2, top, PW, (canInstall ? 370 : 310) + k, D));
+      if (any) {
+        const latest = saves[0];
+        btn(top + 30, `Continue  ·  ${fmtTime(latest.gameTime || 0)}, ${ERAS[latest.era || 0].name}`, () => {
+          const data = readSave(latest.slot);
+          if (data) this.scene.start('GameScene', { load: data });
+        }, { size: '16px' });
+      }
+      btn(top + 30 + k, 'New Game', () => this.show('new'));
+      btn(top + 90 + k, 'Load Game', () => this.show('load')).setEnabled(any);
+      btn(top + 150 + k, 'How to Play', () => this.show('help'));
+      btn(top + 210 + k, 'Settings', () => this.show('settings'));
       if (canInstall) {
-        btn(top + 270, 'Install Game', async () => {
+        btn(top + 270 + k, 'Install Game', async () => {
           const prompt = window.installPrompt;
           if (!prompt) return;
           prompt.prompt();
@@ -133,10 +211,10 @@ export default class MenuScene extends Phaser.Scene {
         });
       }
     } else if (view === 'settings') {
-      this.addUI(panel(this, (w - PW) / 2, top, PW, 290, D));
+      this.addUI(panel(this, (w - PW) / 2, top, PW, 330, D));
       this.addUI(this.add.text(w / 2, top + 22, 'Settings', { fontFamily: FONT_SERIF, fontSize: '22px', color: UI_COL.gold, stroke: '#000', strokeThickness: 4 }).setOrigin(0.5, 0).setDepth(D + 1));
       for (const o of volumeRows(this, (w - PW) / 2 + 30, top + 66, PW - 60, D + 1)) this.addUI(o);
-      btn(top + 226, 'Back', () => this.show('main'), { w: 200 });
+      btn(top + 268, 'Back', () => this.show('main'), { w: 200 });
     } else if (view === 'new') {
       this.addUI(panel(this, (w - PW) / 2, top, PW, 438, D));
       this.addUI(this.add.text(w / 2, top + 22, 'Difficulty', { fontFamily: FONT_SERIF, fontSize: '18px', color: UI_COL.text, stroke: '#000', strokeThickness: 3 }).setOrigin(0.5, 0).setDepth(D + 1));
@@ -205,6 +283,7 @@ export default class MenuScene extends Phaser.Scene {
 
   update(time, delta) {
     audio.updateAmbience(delta / 1000, { temp: 0 });
+    this.fx.updateBirds(delta, this.cameras.main.worldView, 0);
     // Gentle camera drift, turning turbine and pottering villagers.
     const cam = this.cameras.main;
     cam.scrollX = this.camBase.x + Math.sin(time / 9000) * 60;
