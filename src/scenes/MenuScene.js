@@ -1,6 +1,6 @@
 // Title screen: a living landscape in the background, with New Game, Load Game and How to Play.
 import { TILE, MAP_W, MAP_H, PLAYER_START } from '../config.js';
-import { GameMap } from '../map.js';
+import { GameMap, MAP_TYPES } from '../map.js';
 import { BUILDING_TYPES, ERAS } from '../buildings.js';
 import { generateArt, buildingKey, unitKey, buildingTexInfo, BUILDING_POINTS, ART_RES } from '../art.js';
 import { toIso, ISO_W, ISO_H } from '../iso.js';
@@ -23,7 +23,7 @@ export default class MenuScene extends Phaser.Scene {
     generateArt(this, BUILDING_TYPES);
     audio.init(this.sound.context);
     audio.startAmbience();
-    this.options = { difficulty: 'normal', map: 'random', fog: true };
+    this.options = { difficulty: 'normal', map: 'continental', fog: true };
 
     // --- Background: paint a corner of a map and put a little town on it ---
     if (!this.textures.exists('menu_terrain')) {
@@ -110,7 +110,7 @@ export default class MenuScene extends Phaser.Scene {
     const w = this.scale.width;
     const h = this.scale.height;
     const PW = 440;
-    const top = h * 0.16 + 100;
+    let top = h * 0.16 + 100;
     const D = 1e6 + 2;
     const btn = (y, label, fn, opts = {}) => this.addUI(button(this, (w - (opts.w || 320)) / 2, y, opts.w || 320, 44, label, fn, { depth: D + 1, size: opts.size }));
 
@@ -138,7 +138,7 @@ export default class MenuScene extends Phaser.Scene {
       for (const o of volumeRows(this, (w - PW) / 2 + 30, top + 66, PW - 60, D + 1)) this.addUI(o);
       btn(top + 226, 'Back', () => this.show('main'), { w: 200 });
     } else if (view === 'new') {
-      this.addUI(panel(this, (w - PW) / 2, top, PW, 400, D));
+      this.addUI(panel(this, (w - PW) / 2, top, PW, 438, D));
       this.addUI(this.add.text(w / 2, top + 22, 'Difficulty', { fontFamily: FONT_SERIF, fontSize: '18px', color: UI_COL.text, stroke: '#000', strokeThickness: 3 }).setOrigin(0.5, 0).setDepth(D + 1));
       const diffBtns = Object.entries(DIFFICULTY).map(([k, d], i) => {
         const b = this.addUI(button(this, (w - PW) / 2 + 30 + i * 130, top + 52, 120, 38, d.name, () => {
@@ -149,14 +149,21 @@ export default class MenuScene extends Phaser.Scene {
         return [k, b];
       });
       this.addUI(this.add.text(w / 2, top + 108, 'Map', { fontFamily: FONT_SERIF, fontSize: '18px', color: UI_COL.text, stroke: '#000', strokeThickness: 3 }).setOrigin(0.5, 0).setDepth(D + 1));
-      const mapBtns = [['random', 'Random map'], ['classic', 'Classic map']].map(([k, label], i) => {
-        const b = this.addUI(button(this, (w - PW) / 2 + 30 + i * 195, top + 138, 185, 38, label, () => {
+      if (!MAP_TYPES[this.options.map]) this.options.map = 'continental';
+      const mapDesc = this.addUI(this.add.text(w / 2, top + 182, '', {
+        fontFamily: FONT_SANS, fontSize: '13px', fontStyle: 'italic', color: UI_COL.dim, stroke: '#000', strokeThickness: 2,
+      }).setOrigin(0.5, 0).setDepth(D + 1));
+      const mapBtns = Object.entries(MAP_TYPES).map(([k, t], i) => {
+        const b = this.addUI(button(this, (w - PW) / 2 + 22 + i * 100, top + 138, 96, 38, t.name, () => {
           this.options.map = k;
           mapBtns.forEach(([kk, bb]) => bb.setSelected(kk === k));
-        }, { depth: D + 1, size: '16px' }));
+          mapDesc.setText(t.desc);
+        }, { depth: D + 1, size: '13px' }));
         b.setSelected(k === this.options.map);
         return [k, b];
       });
+      mapDesc.setText(MAP_TYPES[this.options.map].desc);
+      top += 38;
       this.addUI(this.add.text(w / 2, top + 188, 'Fog of war', { fontFamily: FONT_SERIF, fontSize: '18px', color: UI_COL.text, stroke: '#000', strokeThickness: 3 }).setOrigin(0.5, 0).setDepth(D + 1));
       const fogBtns = [[true, 'On'], [false, 'Off']].map(([k, label], i) => {
         const b = this.addUI(button(this, (w - PW) / 2 + 30 + i * 195, top + 218, 185, 38, label, () => {
@@ -192,8 +199,8 @@ export default class MenuScene extends Phaser.Scene {
   }
 
   startGame() {
-    const seed = this.options.map === 'random' ? Math.floor(Math.random() * 1e9) : undefined;
-    this.scene.start('GameScene', { seed, difficulty: this.options.difficulty, fog: this.options.fog });
+    const seed = Math.floor(Math.random() * 1e9);
+    this.scene.start('GameScene', { seed, mapType: this.options.map, difficulty: this.options.difficulty, fog: this.options.fog });
   }
 
   update(time, delta) {

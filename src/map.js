@@ -67,28 +67,38 @@ function tileRand(x, y) {
   };
 }
 
+// Kinds of map you can pick for a new game.
+export const MAP_TYPES = {
+  continental: { name: 'Continental', desc: 'Rolling land with a few lakes and coasts.', sea: 0.32, cell: 12, forest: 0.67, stone: 0.84, coal: 0.86 },
+  lakes: { name: 'Lakes', desc: 'Lots of small lakes to work around. Rising seas bite hard.', sea: 0.41, cell: 7, forest: 0.68, stone: 0.83, coal: 0.85 },
+  highlands: { name: 'Highlands', desc: 'High, dry land rich in stone and coal. Hardly any water.', sea: 0.15, cell: 14, forest: 0.62, stone: 0.79, coal: 0.82 },
+  river: { name: 'Great River', desc: 'A wide river splits the map. Armies must cross at three fords.', sea: 0.2, cell: 12, forest: 0.66, stone: 0.84, coal: 0.86, river: true },
+};
+
 const NEIGHBOURS_8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]];
 const TEAM_CODE = { player: 1, enemy: 2 };
 
 export class GameMap {
-  constructor(w, h, seed) {
+  constructor(w, h, seed, type = 'continental') {
     this.w = w;
     this.h = h;
     this.seed = seed;
+    this.type = MAP_TYPES[type] ? type : 'continental';
     this.tiles = new Uint8Array(w * h);
     this.amount = new Float32Array(w * h);   // resource left in each tile
     this.blocked = new Uint8Array(w * h);    // 1 = a solid building stands here
     this.gateTeam = new Uint8Array(w * h);   // gates: only their owner (1 player, 2 enemy) may walk through
     this.buildings = new Array(w * h).fill(null);
     this.elev = new Float32Array(w * h);     // land height — low land floods first when the sea rises
-    this.seaLevel = 0.32;
+    this.seaLevel = MAP_TYPES[this.type].sea;
     this.onTileChanged = null;               // called when a tile changes (used up, burnt, flooded…)
     this.generate();
   }
 
   generate() {
     const rng = mulberry32(this.seed);
-    const base = valueNoise(rng, this.w, this.h, 12);
+    const T = MAP_TYPES[this.type];
+    const base = valueNoise(rng, this.w, this.h, T.cell);
     const detail = valueNoise(rng, this.w, this.h, 5);
     const forest = valueNoise(rng, this.w, this.h, 6);
     const stone = valueNoise(rng, this.w, this.h, 4);
@@ -100,12 +110,13 @@ export class GameMap {
         this.elev[y * this.w + x] = n;
         let t = TERRAIN.GRASS;
         if (n < this.seaLevel) t = TERRAIN.WATER;
-        else if (forest(x, y) > 0.67) t = TERRAIN.FOREST;
-        else if (stone(x, y) > 0.84) t = TERRAIN.STONE;
-        else if (coal(x, y) > 0.86) t = TERRAIN.COAL;
+        else if (forest(x, y) > T.forest) t = TERRAIN.FOREST;
+        else if (stone(x, y) > T.stone) t = TERRAIN.STONE;
+        else if (coal(x, y) > T.coal) t = TERRAIN.COAL;
         this.set(x, y, t);
       }
     }
+    if (T.river) this.carveRiver(rng);
 
     // Scatter some berry bushes around the map.
     for (let i = 0; i < 10; i++) {
@@ -142,6 +153,36 @@ export class GameMap {
     for (let i = 0; i < this.tiles.length; i++) {
       const res = TERRAIN_RESOURCE[this.tiles[i]];
       this.amount[i] = res ? RESOURCE_AMOUNT[res] : 0;
+    }
+  }
+
+  // A winding river across the map, between the two bases, with three shallow fords.
+  carveRiver(rng) {
+    const mid = (PLAYER_START.x + PLAYER_START.y + ENEMY_START.x + ENEMY_START.y) / 2; // x + y along the river
+    const ph1 = rng() * 6.28;
+    const ph2 = rng() * 6.28;
+    const wobble = (a) => 3.5 * Math.sin(a * 0.16 + ph1) + 1.5 * Math.sin(a * 0.41 + ph2);
+    const fords = [-24, 0, 24];
+    for (let y = 0; y < this.h; y++) {
+      for (let x = 0; x < this.w; x++) {
+        const along = (x - y) / Math.SQRT2;
+        const across = (x + y - mid) / Math.SQRT2 - wobble(along);
+        const i = y * this.w + x;
+        const ford = fords.some((f) => Math.abs(along - f) < 2.3);
+        if (Math.abs(across) < 1.9) {
+          if (ford) {
+            this.tiles[i] = TERRAIN.GRASS;
+            this.elev[i] = 0.7; // fords stay dry even when the sea rises
+          } else {
+            this.tiles[i] = TERRAIN.WATER;
+            this.elev[i] = 0.05;
+          }
+        } else if (Math.abs(across) < 3.2) {
+          // soft, low banks
+          this.elev[i] = Math.min(this.elev[i], 0.3);
+          if (ford && this.tiles[i] !== TERRAIN.GRASS) this.tiles[i] = TERRAIN.GRASS;
+        }
+      }
     }
   }
 

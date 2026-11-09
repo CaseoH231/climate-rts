@@ -23,7 +23,7 @@ export const ERAS = [
 export const BUILDING_TYPES = {
   town_centre: {
     name: 'Town Centre', w: 3, h: 3, hp: 1200, cost: {}, buildTime: 60, era: 0,
-    attack: { dmg: 6, range: 230, cooldown: 2 },
+    attack: { dmg: 6, range: 230, cooldown: 2 }, garrison: 15,
     pop: 10, dropOff: true, trains: ['worker'], research: ['steel_axes', 'mining_carts', 'plough'], advancesEra: true,
     desc: 'Trains workers, advances your era and researches basic upgrades. Drop off any resource here.',
   },
@@ -45,7 +45,12 @@ export const BUILDING_TYPES = {
   },
   tower: {
     name: 'Watch Tower', w: 2, h: 2, hp: 500, cost: { wood: 60, stone: 100 }, buildTime: 20, era: 0,
-    attack: { dmg: 8, range: 250, cooldown: 1.6 }, desc: 'Shoots at enemies that come close.',
+    attack: { dmg: 8, range: 250, cooldown: 1.6 }, garrison: 5,
+    desc: 'Shoots at enemies that come close. Workers can shelter inside (more arrows).',
+  },
+  market: {
+    name: 'Market', w: 3, h: 3, hp: 900, cost: { wood: 175 }, buildTime: 35, era: 0,
+    desc: 'Trade one resource for another. Prices move as you buy and sell.',
   },
   wall: {
     name: 'Stone Wall', w: 1, h: 1, hp: 350, cost: { stone: 5 }, buildTime: 4, era: 0, wall: true, line: true,
@@ -91,8 +96,8 @@ export const BUILDING_TYPES = {
 
 // What a worker can build, in button order: an economy page and a military page.
 export const WORKER_PAGES = [
-  ['house', 'farm', 'storage', 'wind_turbine', 'trees', 'workshop',
-    'power_plant', 'solar', 'carbon_capture', 'restoration'],
+  ['house', 'farm', 'storage', 'market', 'wind_turbine', 'trees',
+    'workshop', 'power_plant', 'solar', 'carbon_capture', 'restoration'],
   ['barracks', 'tower', 'wall', 'gate'],
 ];
 export const WORKER_BUILDS = WORKER_PAGES.flat();
@@ -142,6 +147,7 @@ export class Building {
     this.wonderTime = 0;
     this.capturing = false;
     this.rally = null;        // tile where newly trained units gather
+    this.garrison = [];       // workers sheltering inside
     this.cooldown = 1;
     this.isBuilding = true;
     this.selected = false;
@@ -281,7 +287,11 @@ export class Building {
       if (this.cooldown <= 0) {
         const e = world.findEnemyUnitNear(this.cx, this.cy, this.def.attack.range, this.team);
         if (e) {
-          world.shoot(this.cx, this.cy, e, this.def.attack.dmg, this, this.type === 'tower' ? 60 : 50);
+          // one extra arrow for every 3 people sheltering inside
+          const arrows = 1 + Math.floor(this.garrison.length / 3);
+          for (let i = 0; i < arrows; i++) {
+            world.shoot(this.cx + (i ? (Math.random() - 0.5) * 30 : 0), this.cy, e, this.def.attack.dmg, this, this.type === 'tower' ? 60 : 50);
+          }
           this.cooldown = this.def.attack.cooldown;
         } else {
           this.cooldown = 0.5;

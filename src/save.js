@@ -50,6 +50,7 @@ export function serialize(w) {
   const ref = (t) => (!t || t.dead ? null : t.isBuilding ? { b: bIndex.get(t) } : { u: uIndex.get(t) });
   const orderOut = (o) => {
     if (!o) return null;
+    if (o.kind === 'garrison') return { kind: 'garrison', building: bIndex.get(o.building), prev: orderOut(o.prev) };
     if (o.kind === 'gather') return { kind: 'gather', res: o.res, tx: o.tx, ty: o.ty, farm: o.farm ? bIndex.get(o.farm) : null };
     if (o.kind === 'build') return { kind: 'build', building: bIndex.get(o.building) };
     if (o.kind === 'attack') return { kind: 'attack', target: ref(o.target), resume: o.resume || null };
@@ -63,6 +64,8 @@ export function serialize(w) {
     savedAt: Date.now(),
     seed: w.map.seed,
     difficulty: w.difficulty,
+    mapType: w.mapType,
+    market: { ...w.market },
     gameTime: w.gameTime,
     map: {
       tiles: Array.from(w.map.tiles),
@@ -77,6 +80,7 @@ export function serialize(w) {
       type: b.type, team: b.team, tx: b.tx, ty: b.ty, progress: b.progress, hp: b.hp,
       queue: [...b.queue], trainTimer: b.trainTimer, research: b.research ? { ...b.research } : null,
       food: b.food, grow: b.grow, wonderTime: b.wonderTime, rally: b.rally,
+      garrison: b.garrison.map((u) => ({ type: u.type, hp: u.hp, prev: orderOut(u.prevOrder) })),
     })),
     units: w.units.map((u) => ({
       type: u.type, team: u.team, x: u.px, y: u.py, hp: u.hp, carry: u.carry, carryType: u.carryType, order: orderOut(u.order),

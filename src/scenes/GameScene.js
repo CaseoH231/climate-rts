@@ -10,8 +10,9 @@ import { toIso, fromIso, ISO_W, ISO_H } from '../iso.js';
 import { Climate } from '../climate.js';
 import { findPath } from '../pathfinding.js';
 import { Stats } from '../stats.js';
-import { GAME_SPEEDS } from '../config.js';
+import { GAME_SPEEDS, MARKET_BASE } from '../config.js';
 
+const MARKET_FEE = 1.3;   // you always get back less than you put in
 const SPEED_KEY = 'climate-rts-speed';
 function loadSpeed() {
   try { const v = Number(localStorage.getItem(SPEED_KEY)); return GAME_SPEEDS.includes(v) ? v : 1; } catch (e) { return 1; }
@@ -31,6 +32,7 @@ export default class GameScene extends Phaser.Scene {
     this.savedGroups = null;
     this.difficulty = save ? save.difficulty : data.difficulty || 'normal';
     const seed = save ? save.seed : data.seed ?? MAP_SEED;
+    this.mapType = (save ? save.mapType : data.mapType) || 'continental';
 
     // --- Art (drawn with code at start-up) & sound ---
     generateArt(this, BUILDING_TYPES);
@@ -40,7 +42,7 @@ export default class GameScene extends Phaser.Scene {
     this.firesOnScreen = 0;
 
     // --- Map: painted onto a canvas texture we can repaint when tiles change ---
-    this.map = new GameMap(MAP_W, MAP_H, seed);
+    this.map = new GameMap(MAP_W, MAP_H, seed, this.mapType);
     if (save) {
       this.map.tiles.set(save.map.tiles);
       this.map.amount.set(save.map.amount);
@@ -83,6 +85,8 @@ export default class GameScene extends Phaser.Scene {
     this.speed = loadSpeed();
     this.targeting = null;       // 'amove' while choosing an attack-move destination
     this.stats = new Stats(save && save.stats);
+    // One market shared by everyone: prices go up when people buy and down when they sell.
+    this.market = { ...MARKET_BASE, ...(save && save.market) };
 
     if (save) {
       this.restore(save);
@@ -260,6 +264,24 @@ export default class GameScene extends Phaser.Scene {
       this.units.push(u);
       return u;
     });
+    // A saved "job to go back to" turned back into a live order.
+    const prevIn = (o) => {
+      if (!o) return null;
+      if (o.kind === 'gather') return { kind: 'gather', res: o.res, tx: o.tx, ty: o.ty, farm: o.farm !== null && o.farm !== undefined ? bs[o.farm] || null : null };
+      if (o.kind === 'build' && bs[o.building]) return { kind: 'build', building: bs[o.building] };
+      return null;
+    };
+    // Workers sheltering inside buildings.
+    save.buildings.forEach((d, i) => {
+      for (const g of d.garrison || []) {
+        const b = bs[i];
+        const u = new Unit(this, this.map, b.tx, b.ty, g.type, b.team);
+        u.hp = g.hp;
+        u.updateHpBar();
+        this.units.push(u);
+        this.enterBuilding(u, b, prevIn(g.prev));
+      }
+    });
     // Orders need everything to exist first.
     save.units.forEach((d, i) => {
       const u = us[i];
@@ -272,6 +294,7 @@ export default class GameScene extends Phaser.Scene {
           const tgt = o.target.b !== undefined ? bs[o.target.b] : us[o.target.u];
           if (tgt) { u.orderAttack(tgt); if (o.resume && u.order) u.order.resume = o.resume; }
         } else if (o.kind === 'amove' && o.dest) u.orderAttackMove(o.dest);
+        else if (o.kind === 'garrison' && bs[o.building]) u.orderGarrison(bs[o.building], prevIn(o.prev));
       }
       u.carry = d.carry;
       u.carryType = d.carryType;
@@ -378,7 +401,8 @@ export default class GameScene extends Phaser.Scene {
 
   // ---------- Economy (per team) ----------
   popUsedOf(team) {
-    return this.units.filter((u) => u.team === team).length;
+    const sheltering = this.buildings.reduce((n, b) => n + (b.team === team ? b.garrison.length : 0), 0);
+    return this.units.filter((u) => u.team === team).length + sheltering;
   }
 
   popCapOf(team) {
@@ -546,6 +570,7 @@ export default class GameScene extends Phaser.Scene {
 
   removeBuilding(b) {
     if (b.dead) return;
+    if (b.garrison.length) this.ejectAll(b); // everyone inside runs out
     b.dead = true;
     b.destroy();
     this.buildings = this.buildings.filter((x) => x !== b);
@@ -684,6 +709,126 @@ export default class GameScene extends Phaser.Scene {
     if (!landed.length) return;
     this.projectiles = this.projectiles.filter((p) => p.t > 0);
     for (const p of landed) if (!p.target.dead) this.dealDamage(p.target, p.dmg, p.attacker);
+  }
+
+  // ---------- Town bell & shelter ----------
+  // Every worker drops what they're doing and runs into the nearest Town Centre or tower with room.
+  ringBell(team = 'player') {
+    const shelters = this.buildings.filter((b) => b.team === team && b.complete && b.def.garrison);
+    if (!shelters.length) return;
+    const room = new Map(shelters.map((b) => [b, b.def.garrison - b.garrison.length]));
+    let sent = 0;
+    for (const u of this.units) {
+      if (u.team !== team || u.type !== 'worker' || (u.order && u.order.kind === 'garrison')) continue;
+      let best = null;
+      let bestD = Infinity;
+      for (const b of shelters) {
+        if (room.get(b) <= 0) continue;
+        const d = this.distanceTo(u.x, u.y, b);
+        if (d < bestD) { bestD = d; best = b; }
+      }
+      if (!best) break;
+      room.set(best, room.get(best) - 1);
+      u.orderGarrison(best, u.order);
+      sent++;
+    }
+    if (team === 'player') {
+      audio.play('horn');
+      this.toast(sent ? `The town bell rings! ${sent} workers run for shelter.` : 'No room left to shelter anyone.', '#e3c46f');
+      this.events.emit('selection', { units: [...this.selected], building: this.selectedBuilding });
+    }
+  }
+
+  // Everyone comes out of their shelters and goes back to work.
+  allClear(team = 'player') {
+    for (const b of this.buildings) if (b.team === team && b.garrison.length) this.ejectAll(b);
+    for (const u of this.units) if (u.team === team && u.order && u.order.kind === 'garrison') this.resumeWork(u, u.order.prev);
+    if (team === 'player') {
+      this.toast('All clear — back to work!', '#b8c99a');
+      this.events.emit('selection', { units: [...this.selected], building: this.selectedBuilding });
+    }
+  }
+
+  get bellRung() {
+    return this.buildings.some((b) => b.team === 'player' && b.garrison.length) ||
+      this.units.some((u) => u.team === 'player' && u.order && u.order.kind === 'garrison');
+  }
+
+  enterBuilding(u, b, prev) {
+    u.stop();
+    u.prevOrder = prev || null;
+    u.container.setVisible(false);
+    this.units = this.units.filter((x) => x !== u);
+    if (this.selected && this.selected.delete(u)) { u.setSelected(false); this.emitSelection(); }
+    b.garrison.push(u);
+    if (this.selectedBuilding && this.selectedBuilding === b) this.emitSelection();
+  }
+
+  ejectAll(b) {
+    const spots = this.map.standSpots(b.tx, b.ty, b.w, b.h, { x: b.tx + Math.floor(b.w / 2), y: b.ty + b.h });
+    b.garrison.forEach((u, i) => {
+      const s = spots[i % Math.max(1, spots.length)];
+      if (s) {
+        const c = this.map.tileCenter(s.x, s.y);
+        u.setPos(c.x, c.y);
+      }
+      u.container.setVisible(true);
+      this.units.push(u);
+      this.resumeWork(u, u.prevOrder);
+      u.prevOrder = null;
+    });
+    b.garrison = [];
+    if (this.selectedBuilding === b) this.emitSelection();
+  }
+
+  // Give a worker back the job it had before (if that job still makes sense).
+  resumeWork(u, prev) {
+    u.stop();
+    if (!prev) return;
+    if (prev.kind === 'gather' && prev.farm) {
+      if (!prev.farm.dead) u.orderFarm(prev.farm);
+    } else if (prev.kind === 'gather') {
+      if (this.map.resourceAt(prev.tx, prev.ty)) u.orderGather({ x: prev.tx, y: prev.ty });
+      else {
+        const n = this.map.nearestResource(prev.res, prev.tx, prev.ty, 10);
+        if (n) u.orderGather(n);
+      }
+    } else if (prev.kind === 'build') {
+      if (!prev.building.dead && !prev.building.complete) u.orderBuild(prev.building);
+    }
+  }
+
+  // ---------- Market ----------
+  // How much of `pay` it costs to buy 100 of `buy` right now.
+  tradeCost(pay, buy) {
+    return Math.ceil((100 * this.market[buy] * MARKET_FEE) / this.market[pay]);
+  }
+
+  trade(pay, buy, team = 'player') {
+    if (pay === buy) return false;
+    const cost = this.tradeCost(pay, buy);
+    if (!this.canAfford({ [pay]: cost }, team)) {
+      if (team === 'player') this.fail(`Need ${this.missingText({ [pay]: cost }, team)} more`);
+      return false;
+    }
+    this.spend({ [pay]: cost }, team);
+    // Bought coal still gets burned somewhere — it heats the planet like mined coal.
+    this.teams[team].resources[buy] += 100;
+    if (buy === 'fuel') {
+      this.climate.addCO2(100 * CLIMATE.co2PerFuel);
+      this.stats.emit(team, 100 * CLIMATE.co2PerFuel);
+    }
+    const clamp = (v) => Math.max(0.3, Math.min(4, v));
+    this.market[buy] = clamp(this.market[buy] * 1.05);
+    this.market[pay] = clamp(this.market[pay] * 0.96);
+    if (team === 'player') audio.play('confirm');
+    return true;
+  }
+
+  // Prices slowly drift back towards normal.
+  updateMarket(dt) {
+    const k = Math.min(1, (dt / 1000) * 0.004);
+    for (const r of Object.keys(MARKET_BASE)) this.market[r] += (MARKET_BASE[r] - this.market[r]) * k;
   }
 
   // ---------- Game speed ----------
@@ -1344,6 +1489,7 @@ export default class GameScene extends Phaser.Scene {
     for (const u of [...this.units]) u.update(dt, this);
     for (const b of [...this.buildings]) b.update(dt, this);
     this.updateTraining(dt);
+    this.updateMarket(dt);
     this.climate.update(dt);
     this.ai.update(dt);
     if (this.fog) this.fog.update(dt);

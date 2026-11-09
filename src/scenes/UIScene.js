@@ -10,7 +10,7 @@ import { audio } from '../audio.js';
 import { listSaves, readSave, writeSave } from '../save.js';
 import { DIFFICULTY } from '../ai.js';
 import { HOW_TO_PLAY } from '../help.js';
-import { GAME_SPEEDS } from '../config.js';
+import { GAME_SPEEDS, MARKET_BASE } from '../config.js';
 
 const TOP_H = 34;
 const PANEL_H = 180;
@@ -335,7 +335,8 @@ export default class UIScene extends Phaser.Scene {
     const era = w.eraOf('player');
     const cmds = [];
     if (b) {
-      if (!b.complete) return cmds;
+      if (!b.complete || b.team !== 'player') return cmds;
+      if (b.type === 'market') return this.marketCommands();
       for (const type of b.def.trains || []) {
         const u = UNIT_TYPES[type];
         cmds.push({
@@ -359,6 +360,14 @@ export default class UIScene extends Phaser.Scene {
           locked: up.era > era ? `Requires the ${ERAS[up.era].name}` : null, lockEra: up.era,
           busy: b.research && b.research.id === id, action: () => w.research(id),
         });
+      }
+      if (b.def.garrison) {
+        while (cmds.length < 5) cmds.push(null);
+        cmds.push(w.bellRung
+          ? { thumb: 'up_allclear', name: 'All clear', cost: null, desc: 'Everyone comes out of shelter and goes back to the job they were doing.', action: () => w.allClear() }
+          : { thumb: 'up_bell', name: 'Ring the town bell', cost: null,
+            desc: 'Every worker runs into the nearest Town Centre (15) or tower (5). Each 3 inside adds an extra arrow. Ring again for "All clear".',
+            action: () => w.ringBell() });
       }
       return cmds;
     }
@@ -391,6 +400,33 @@ export default class UIScene extends Phaser.Scene {
     return cmds;
   }
 
+  // Market: top row buys 100 of something, bottom row picks what you pay with.
+  marketCommands() {
+    const w = this.world;
+    const RES = ['food', 'wood', 'stone', 'fuel'];
+    if (!this.marketPay) this.marketPay = 'wood';
+    const pay = this.marketPay;
+    const cmds = [];
+    for (const r of RES) {
+      if (r === pay) { cmds.push(null); continue; }
+      const cost = w.tradeCost(pay, r);
+      cmds.push({
+        thumb: `i_${r}`, name: `Buy 100 ${RES_NAME[r]}`, cost: { [pay]: cost },
+        desc: r === 'fuel' ? 'Bought coal gets burned too: it adds CO₂ just like mining it.' : 'Buying makes this more expensive for a while.',
+        action: () => { w.trade(pay, r); this.buildButtons(); },
+      });
+    }
+    cmds.push(null, null);
+    for (const r of RES) {
+      cmds.push({
+        thumb: `i_${r}`, name: `Pay with ${RES_NAME[r]}`, cost: null, active: r === pay, payWith: true,
+        desc: `Price now: ${w.market[r].toFixed(2)} (normal ${MARKET_BASE[r]}). Selling a lot of something makes it cheaper.`,
+        action: () => { this.marketPay = r; this.buildButtons(); },
+      });
+    }
+    return cmds;
+  }
+
   buildButtons() {
     for (const b of this.buttons) if (b) b.container.destroy();
     this.buttons = [];
@@ -419,6 +455,16 @@ export default class UIScene extends Phaser.Scene {
       const stripe = this.add.rectangle(2, BTN - 5, BTN - 4, 3, 0x000000, 0).setOrigin(0);
       const shade = this.add.rectangle(0, 0, BTN, BTN, 0x000000, cmd.locked ? 0.55 : 0).setOrigin(0);
       c.add([g, img, shade, stripe, key]);
+      if (cmd.active) {
+        const ring = this.add.graphics();
+        ring.lineStyle(2, 0xe3c46f, 1).strokeRect(1, 1, BTN - 2, BTN - 2);
+        c.add(ring);
+      }
+      if (cmd.payWith) {
+        c.add(this.add.text(BTN - 3, BTN - 2, 'pay', {
+          fontFamily: SANS, fontSize: '10px', color: cmd.active ? COL.gold : COL.dim, stroke: '#000000', strokeThickness: 2,
+        }).setOrigin(1, 1));
+      }
       if (cmd.page) {
         c.add(this.add.text(BTN - 3, BTN - 2, '»', {
           fontFamily: SERIF, fontSize: '20px', color: COL.gold, stroke: '#000000', strokeThickness: 3,
@@ -482,6 +528,7 @@ export default class UIScene extends Phaser.Scene {
           (b.queue.length > 1 ? `  (+${b.queue.length - 1} queued)` : ''));
       }
       if (b.waitingForPop) lines.push('Population limit reached — build a House.');
+      if (b.def.garrison && b.team === 'player' && b.complete) lines.push(`Sheltering ${b.garrison.length} / ${b.def.garrison}`);
       if (b.def.trains && b.complete && b.team === 'player' && !b.research && !b.queue.length) {
         lines.push(b.rally ? 'Rally point set (right-click to move it).' : 'Right-click the ground to set a rally point.');
       }
@@ -720,7 +767,7 @@ export default class UIScene extends Phaser.Scene {
 
     const by = y0 + PH - 64;
     button(this, w / 2 - 210, by, 200, 44, 'Play Again', () => {
-      this.world.scene.start('GameScene', { seed: Math.floor(Math.random() * 1e9), difficulty: this.world.difficulty, fog: this.world.fog ? this.world.fog.enabled : true });
+      this.world.scene.start('GameScene', { seed: Math.floor(Math.random() * 1e9), mapType: this.world.mapType, difficulty: this.world.difficulty, fog: this.world.fog ? this.world.fog.enabled : true });
     }, { depth: D });
     button(this, w / 2 + 10, by, 200, 44, 'Main Menu', () => this.quitToMenu(), { depth: D });
   }

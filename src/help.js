@@ -9,6 +9,8 @@ export const HOW_TO_PLAY = [
   'Rally point: select a Town Centre or Barracks and right-click the ground. Right-click a resource and new workers go straight to work.',
   'Groups: Ctrl+1–9 (or Alt+1–9) saves your selection, 1–9 selects it, press twice to jump there.',
   'Attack-move: select soldiers, press A, click the map — they fight everything on the way.',
+  'Raided? Select your Town Centre and ring the bell: workers shelter inside and it shoots extra arrows. Ring again for all clear.',
+  'Market: buy any resource with another. Prices rise when you buy and fall when you sell.',
   'Counters: archers beat soldiers, soldiers beat riflemen, riflemen beat armoured cars, armoured cars beat archers.',
   '',
   'Coal is fast energy but adds CO₂. Wind, solar, forests and carbon capture fight back.',

@@ -363,6 +363,44 @@ function bannerL(ctx, x, y, z, team) {
   quad(ctx, P(x, y, z), [1, 0.5], [0, 1], 12, 22, (c) => banner(c, 0, 0, 18, team));
 }
 
+// A market stall: wooden counter with goods, four posts and a striped awning sloping to the front.
+function stall(ctx, x0, y0, x1, y1, stripeA, stripeB, goods) {
+  const post = (x, y, z) => {
+    const a = P(x, y, 0);
+    const b = P(x, y, z);
+    ctx.fillStyle = '#3e2a18';
+    ctx.fillRect(a[0] - 1, b[1], 2, a[1] - b[1]);
+  };
+  post(x0, y0, 22);
+  post(x1, y0, 22);
+  house(ctx, { x0, y0, x1, y1, z: 7, wallLeft: plankFace(x0 * 3 + y0, [126, 92, 58]), wallRight: plankFace(x0 + y0 * 3, [126, 92, 58]) });
+  diamond(ctx, x0, y0, x1, y1, 7);
+  ctx.fillStyle = '#8a6440';
+  ctx.fill();
+  // goods heaped on the counter
+  const r = rand(x0 * 7 + y0);
+  for (let i = 0; i < 9; i++) {
+    const g = P(x0 + 3 + r() * (x1 - x0 - 6), y0 + 3 + r() * (y1 - y0 - 6), 9);
+    ctx.fillStyle = goods[i % goods.length];
+    ctx.beginPath();
+    ctx.ellipse(g[0], g[1], 3, 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  post(x0, y1, 15);
+  post(x1, y1, 15);
+  const r0 = P(x0 - 2, y0 - 1, 22);
+  const fe = P(x0 - 2, y1 + 4, 15);
+  const L = Math.hypot(y1 + 5 - y0, 7);
+  quad(ctx, r0, [1, 0.5], [(fe[0] - r0[0]) / L, (fe[1] - r0[1]) / L], x1 - x0 + 4, L, (c, w, h) => {
+    for (let x = 0, k = 0; x < w; x += 5, k++) { c.fillStyle = k % 2 ? stripeA : stripeB; c.fillRect(x, 0, 5, h); }
+    c.fillStyle = 'rgba(0,0,0,0.18)';
+    c.fillRect(0, h - 2, w, 2);
+    // scalloped edge
+    c.fillStyle = stripeA;
+    for (let x = 0; x < w; x += 5) { c.beginPath(); c.arc(x + 2.5, h, 2.5, 0, Math.PI); c.fill(); }
+  });
+}
+
 // One tile of wall: a stone block with a walkway on top and merlons on the corners.
 // `door` optionally draws on the front faces (for gates).
 function wallBlock(ctx, team, seed, door, Z = 26) {
@@ -509,6 +547,37 @@ export const BUILDING_ART = {
     wallL(ctx, 26, 38, 46, 14, (c) => door(c, 0, 0, 12, 14, true), 0);
     flag(ctx, top.top[0] + 6, top.top[1] - 30, team);
     return base;
+  },
+
+  // Market square: a trading hall at the back and three striped stalls on a paved square.
+  market(ctx, team) {
+    isoShadow(ctx, 6, 6, 90, 90, 30);
+    diamond(ctx, 2, 2, 94, 94);
+    ctx.fillStyle = '#9d927c';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(60,50,40,0.35)';
+    ctx.lineWidth = 0.75;
+    for (let k = 14; k < 94; k += 12) {
+      let a = P(k, 2), b = P(k, 94);
+      ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+      a = P(2, k); b = P(94, k);
+      ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+    }
+    house(ctx, {
+      x0: 10, y0: 10, x1: 46, y1: 44, z: 22, ridge: 'y', rh: 16, ov: 3, seed: 77,
+      roof: ['#9a5236', '#4e2618'],
+      wallLeft: (c, w, h) => { stoneWall(c, 0, 0, w, h, 71, [150, 136, 112]); door(c, w / 2 - 7, h - 17, 14, 17, true); },
+      wallRight: (c, w, h) => { plankWall(c, 0, 0, w, h, 73); c.fillStyle = '#1e1813'; c.fillRect(8, 7, 5, 6); c.fillRect(w - 13, 7, 5, 6); },
+    });
+    bannerL(ctx, 34, 44, 20, team);
+    const tm = TEAM_RGB[team].main;
+    stall(ctx, 56, 14, 84, 34, tm, '#ece3cc', ['#c33', '#e8b23a', '#7a3']);
+    const b1 = P(52, 46);
+    barrel(ctx, b1[0] - 3, b1[1] - 9);
+    stall(ctx, 14, 58, 42, 80, '#c9a227', '#ece3cc', ['#d06030', '#6a9a3a', '#e8d27a']);
+    const c1 = P(50, 54);
+    crate(ctx, c1[0] - 5, c1[1] - 10, 9);
+    stall(ctx, 58, 60, 84, 82, '#3f7a4a', '#ece3cc', ['#8a6440', '#b9b2a4', '#2a2a2a']);
   },
 
   // A one-tile block of curtain wall; neighbouring blocks join up into a continuous wall.
@@ -1019,6 +1088,36 @@ export const ICON_ART = {
 
 // Bigger 40×40 icons for research buttons.
 const UPGRADE_ICON = {
+  // Town bell
+  bell(ctx) {
+    ctx.fillStyle = '#3e2a18';
+    ctx.fillRect(6, 5, 28, 3);
+    ctx.fillStyle = hgrad(ctx, 10, 30, ['#f0d27a', '#a87a26']);
+    ctx.beginPath();
+    ctx.moveTo(20, 8); ctx.quadraticCurveTo(11, 9, 11, 22); ctx.quadraticCurveTo(10, 28, 6, 30);
+    ctx.lineTo(34, 30); ctx.quadraticCurveTo(30, 28, 29, 22); ctx.quadraticCurveTo(29, 9, 20, 8);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = '#6a4a1a';
+    ctx.beginPath(); ctx.arc(20, 33, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#f2ead6';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(20, 20, 17, -0.45, 0.45); ctx.stroke();
+    ctx.beginPath(); ctx.arc(20, 20, 17, Math.PI - 0.45, Math.PI + 0.45); ctx.stroke();
+  },
+  // All clear: a worker's pick over a green tick
+  allclear(ctx) {
+    ctx.strokeStyle = '#6fbf4a';
+    ctx.lineWidth = 5;
+    ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(8, 21); ctx.lineTo(16, 29); ctx.lineTo(32, 10); ctx.stroke();
+    ctx.lineCap = 'butt';
+    ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  },
   // Attack-move: an arrow with a sword across it
   amove(ctx) {
     ctx.strokeStyle = '#e8dcc0';

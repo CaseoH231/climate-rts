@@ -62,3 +62,6 @@ export const TEAM_COLORS = {
 
 // Game speeds the player can pick (+ / - keys or the ×1 button in the top bar).
 export const GAME_SPEEDS = [0.5, 1, 1.5, 2, 3];
+
+// Starting market prices (relative value of one unit of each resource).
+export const MARKET_BASE = { food: 1, wood: 1, stone: 1.3, fuel: 1.2 };

@@ -116,6 +116,7 @@ export class Unit {
     if (!o) return this.isMoving ? 'moving' : 'idle';
     if (o.kind === 'attack') return 'fighting';
     if (o.kind === 'amove') return 'advancing';
+    if (o.kind === 'garrison') return 'running for shelter';
     if (o.kind === 'build') return `building ${o.building.def.name}`;
     if (o.phase === 'return') return `carrying ${o.res === 'fuel' ? 'coal' : o.res}`;
     return o.farm ? 'farming' : GATHER_WORD[o.res];
@@ -153,6 +154,12 @@ export class Unit {
     if (!target || target.dead || target.team === this.team) return;
     this.stop();
     this.order = { kind: 'attack', target, repath: 0 };
+  }
+
+  // Run to a building and shelter inside it. `prev` is the job to go back to afterwards.
+  orderGarrison(b, prev) {
+    this.stop();
+    this.order = { kind: 'garrison', building: b, prev, phase: 'goto' };
   }
 
   // Walk somewhere, but stop to fight any enemy met on the way, then carry on.
@@ -380,6 +387,7 @@ export class Unit {
     }
     if (o.kind === 'build') this.updateBuild(dt, world);
     else if (o.kind === 'gather') this.updateGather(dt, world);
+    else if (o.kind === 'garrison') this.updateGarrison(dt, world);
   }
 
   updateAttack(dt, world) {
@@ -454,6 +462,19 @@ export class Unit {
         });
       }
     }
+  }
+
+  updateGarrison(dt, world) {
+    const o = this.order;
+    const b = o.building;
+    if (b.dead || b.garrison.length >= b.def.garrison) { world.resumeWork(this, o.prev); return; }
+    if (!this.isNextTo(b.tx, b.ty, b.w, b.h)) {
+      if (o.phase === 'walking') { world.resumeWork(this, o.prev); return; } // couldn't get there
+      o.phase = 'walking';
+      if (!this.walkToAny(this.map.standSpots(b.tx, b.ty, b.w, b.h, this.tile))) world.resumeWork(this, o.prev);
+      return;
+    }
+    world.enterBuilding(this, b, o.prev);
   }
 
   updateBuild(dt, world) {
