@@ -1,6 +1,6 @@
 // Global settings for the game. Change numbers here to tweak the game.
 
-export const GAME_VERSION = 'v11';
+export const GAME_VERSION = 'v12';
 export const TICK_MS = 50;   // the simulation moves in fixed 50 ms steps (20 per second)
 export const TILE = 32;      // size of one map tile in pixels
 export const MAP_W = 64;     // map width in tiles

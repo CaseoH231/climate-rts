@@ -29,6 +29,21 @@ If pushes ever stop showing up:
 
 The `_headers` file tells Cloudflare not to cache the game code too hard, so updates show up straight away.
 
+`wrangler.jsonc` is Cloudflare's settings file. It says: serve the folder as the website, and run `worker/index.js` for anything under `/api/` (that's the online-play server). `.assetsignore` keeps the server code and this README off the website. Online play uses **Durable Objects**, which are included in Cloudflare's free Workers plan.
+
+## Play online (1 v 1)
+
+1. Main menu → **Play Online**, type your name.
+2. One of you presses **Host a Game** and reads out (or texts) the 5-letter code. The host picks the map and fog of war.
+3. The other types the code and presses **Join**. When both names show, the host presses **Start Game**.
+4. The host plays **Blue**, the guest **Red**. There are no computer players, just the two of you.
+
+In game: **Enter** opens chat. The number at the top right is your connection's round trip to the server. The **Menu** doesn't pause an online game. Use it to **Resign**, or to **Leave** (leaving counts as a loss).
+
+If someone's internet drops, the game pauses for both players and waits up to 90 seconds for them to come back. If someone refreshes or closes the page, **Play Online → Rejoin game** puts them back in. Their game quickly replays everything they missed. Online games are saved as replays too.
+
+Online play only works on the Cloudflare site. It won't work when you run the game with Live Server, because there's no game server there.
+
 ## Put it on itch.io (optional)
 
 1. Zip the folder's contents (`index.html` must be at the top level of the zip — not inside another folder).
@@ -170,6 +185,10 @@ src/ui.js               stone panels and buttons used by the menus
 src/save.js             saving / loading to browser storage
 src/rng.js              seeded random numbers + the state fingerprint (hash)
 src/replay.js           storing and listing replays
+src/net.js              the connection to an online game (reconnects by itself)
+worker/index.js         the Cloudflare Worker: serves the game, opens online rooms
+worker/room-core.js     an online room: game codes, the turn clock, relaying orders, sync checks, chat
+wrangler.jsonc          Cloudflare settings (website + Worker + Durable Object)
 src/fog.js              fog of war
 src/audio.js            all sound effects and ambience (Web Audio synthesis)
 src/help.js             the How to Play text
@@ -205,7 +224,7 @@ src/scenes/UIScene.js   resource bar, command panel, diamond minimap, climate pa
 - [x] Phase 15 – New frontiers: Scout Rider, Field Medic, Field Cannon, Electric Tank; Fishing Dock, Hydro Dam, Geothermal Plant; deer herds and hunting; Wheelbarrow, Fish Farming, Field Medicine and Cool Roofs research; heatwaves
 - [x] Phase 16 – Modern Age: a fifth era (Coal → Industrial → Modern → Transition → Green) with Apartment Blocks, Office Towers, Factories and Radar Stations; every building changes look each era; units change look with their upgrades
 - [x] Phase 17 – Multiplayer groundwork: the game is deterministic (seeded random numbers, fixed 50 ms ticks with smooth drawing in between, every unit and building has an id) and every player action is a "command" that runs on the next tick. Replays record those commands plus a state fingerprint every 2 seconds, and playback checks the fingerprints match
-- [ ] Phase 18 – Online 1v1: a lobby with a short invite code, a free Cloudflare Worker + Durable Object relaying commands between players (same Cloudflare account as the site), lockstep networking (both games run the same commands on the same tick), desync detection, reconnecting, chat and ping display
+- [x] Phase 18 – Online 1v1: a lobby with a short invite code, a free Cloudflare Worker + Durable Object relaying commands between players, lockstep networking (both games run the same commands on the same tick), sync checks, reconnecting / rejoining after a refresh, resigning, chat and ping display
 - [ ] Phase 19 – Bigger matches: 2v2 and free-for-all with up to 4 players, co-op against the AI, spectating and saved replays
 - [ ] Phase 20 – Playtesting feedback
 
@@ -215,4 +234,4 @@ src/scenes/UIScene.js   resource bar, command panel, diamond minimap, climate pa
 - **Random numbers:** anything that changes the game (the AI's choices, wildfires, deer, arrows) uses one seeded random number generator (`src/rng.js`). `Math.random` is only used for looks (smoke, sounds, clouds).
 - **Commands:** clicking a button or right-clicking doesn't change the game directly. It creates a small command like `{ k: 'train', b: 12, type: 'worker' }`, which runs at the start of the next tick. Units and buildings are named by their id number.
 - **Fingerprints:** every 40 ticks the game turns the important state (positions, health, resources, CO₂, the random-number state) into one number. Two computers running the same game must get the same numbers. If not, they've "desynced".
-- Online play (next phase) sends commands to the other player instead of only recording them, and compares fingerprints.
+- **Online (lockstep):** commands go to the room on the Cloudflare server instead of straight into the game. Every 100 ms the room sends both players a numbered *turn* holding everyone's commands. A turn covers 2 ticks, and a game may not run a tick until its turn has arrived. Both games therefore run the same commands on the same tick, and the room compares their fingerprints. The room keeps every turn, so a player who rejoins replays the whole game in a few seconds and carries on.

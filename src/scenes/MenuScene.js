@@ -4,7 +4,8 @@ import { GameMap, MAP_TYPES } from '../map.js';
 import { BUILDING_TYPES, ERAS } from '../buildings.js';
 import { generateArt, buildingKey, unitKey, buildingTexInfo, BUILDING_POINTS, ART_RES } from '../art.js';
 import { toIso, ISO_W, ISO_H } from '../iso.js';
-import { panel, button, volumeRows, scrollText, FONT_SERIF, FONT_SANS, UI_COL } from '../ui.js';
+import { panel, button, volumeRows, scrollText, htmlInput, FONT_SERIF, FONT_SANS, UI_COL } from '../ui.js';
+import { Net, newCode, cleanCode, playerName, setPlayerName, lastGame, forgetLastGame, onlineAvailable } from '../net.js';
 import { audio } from '../audio.js';
 import { listSaves, readSave } from '../save.js';
 import { listReplays, deleteReplay } from '../replay.js';
@@ -144,7 +145,12 @@ export default class MenuScene extends Phaser.Scene {
     this.events.once('shutdown', () => {
       this.scale.off('resize', this.relayout, this);
       window.removeEventListener('install-available', onInstall);
+      this.clearOverlay(); // removes any text boxes
     });
+    this.net = null;
+    this.starting = false;
+    this.online = null; // null = not checked yet, then true / false
+    this.netMsg = '';
     this.view = 'main';
     this.relayout();
   }
@@ -189,7 +195,7 @@ export default class MenuScene extends Phaser.Scene {
       const saves = listSaves().filter((s) => !s.empty).sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
       const any = saves.length > 0;
       const k = any ? 60 : 0; // room for "Continue"
-      this.addUI(panel(this, (w - PW) / 2, top, PW, (canInstall ? 430 : 370) + k, D));
+      this.addUI(panel(this, (w - PW) / 2, top, PW, (canInstall ? 490 : 430) + k, D));
       if (any) {
         const latest = saves[0];
         btn(top + 30, `Continue  ·  ${fmtTime(latest.gameTime || 0)}, ${ERAS[latest.era || 0].name}`, () => {
@@ -198,12 +204,13 @@ export default class MenuScene extends Phaser.Scene {
         }, { size: '16px' });
       }
       btn(top + 30 + k, 'New Game', () => this.show('new'));
-      btn(top + 90 + k, 'Load Game', () => this.show('load')).setEnabled(any);
-      btn(top + 150 + k, 'Replays', () => this.show('replays')).setEnabled(listReplays().length > 0);
-      btn(top + 210 + k, 'How to Play', () => this.show('help'));
-      btn(top + 270 + k, 'Settings', () => this.show('settings'));
+      btn(top + 90 + k, 'Play Online', () => this.show('online'));
+      btn(top + 150 + k, 'Load Game', () => this.show('load')).setEnabled(any);
+      btn(top + 210 + k, 'Replays', () => this.show('replays')).setEnabled(listReplays().length > 0);
+      btn(top + 270 + k, 'How to Play', () => this.show('help'));
+      btn(top + 330 + k, 'Settings', () => this.show('settings'));
       if (canInstall) {
-        btn(top + 330 + k, 'Install Game', async () => {
+        btn(top + 390 + k, 'Install Game', async () => {
           const prompt = window.installPrompt;
           if (!prompt) return;
           prompt.prompt();
@@ -287,6 +294,89 @@ export default class MenuScene extends Phaser.Scene {
         this.addUI(button(this, (w - RW) / 2 + RW - 72, top + 86 + i * 54, 52, 44, '✕', () => { deleteReplay(r.id); this.show(listReplays().length ? 'replays' : 'main'); }, { depth: D + 1, size: '16px' }));
       });
       btn(top + 86 + list.length * 54 + 6, 'Back', () => this.show('main'), { w: 200 });
+    } else if (view === 'online') {
+      const OW = 480;
+      const x0 = (w - OW) / 2;
+      const last = lastGame();
+      const rejoin = last && last.started;
+      this.addUI(panel(this, x0, top - 20, OW, rejoin ? 470 : 410, D));
+      const T = (x, y, str, style = {}, ox = 0.5) => this.addUI(this.add.text(x, y, str, {
+        fontFamily: FONT_SANS, fontSize: '14px', color: UI_COL.text, stroke: '#000', strokeThickness: 2, ...style,
+      }).setOrigin(ox, 0).setDepth(D + 1));
+      T(w / 2, top, 'Play Online', { fontFamily: FONT_SERIF, fontSize: '22px', color: UI_COL.gold, strokeThickness: 4 });
+      T(w / 2, top + 30, 'Play a friend over the internet: one of you hosts,\nthe other joins with the code.', { fontStyle: 'italic', color: UI_COL.dim, fontSize: '13px', align: 'center' });
+      T(x0 + 30, top + 74, 'Your name', {}, 0);
+      this.addUI(htmlInput(this, x0 + 150, top + 66, OW - 180, 34, { maxLength: 16, value: playerName(), onInput: (v) => setPlayerName(v.trim()) }));
+      const ok = this.online !== false;
+      btn(top + 120, 'Host a Game', () => this.connectOnline(newCode(), 'host')).setEnabled(ok);
+      T(x0 + 30, top + 190, 'Join with a code', {}, 0);
+      const codeBox = this.addUI(htmlInput(this, x0 + 180, top + 182, 130, 34, {
+        maxLength: 8, upper: true, align: 'center', spacing: '3px', placeholder: 'CODE',
+        onEnter: (v) => cleanCode(v).length >= 4 && this.connectOnline(cleanCode(v), 'join'),
+      }));
+      this.addUI(button(this, x0 + 322, top + 178, 128, 42, 'Join', () => {
+        const code = cleanCode(codeBox.value);
+        if (code.length < 4) { this.netMsg = 'Type the code your friend sees on their screen.'; this.show('online'); return; }
+        this.connectOnline(code, 'join');
+      }, { depth: D + 1 })).setEnabled(ok);
+      let y = top + 240;
+      if (rejoin) {
+        btn(y, `Rejoin game ${last.code}`, () => this.connectOnline(last.code, last.role));
+        y += 60;
+      }
+      const msg = this.online === false
+        ? 'Online play needs the game\'s Cloudflare website — it won\'t work from a copy on your own computer.'
+        : this.online === null ? 'Checking the game server…' : this.netMsg;
+      T(w / 2, y, msg, { color: this.online === false || this.netMsg ? '#e8b080' : UI_COL.dim, wordWrap: { width: OW - 60 }, align: 'center' });
+      btn(y + 64, 'Back', () => { this.netMsg = ''; this.show('main'); }, { w: 200 });
+      if (this.online === null) onlineAvailable().then((v) => { this.online = v; if (this.view === 'online') this.show('online'); });
+    } else if (view === 'lobby') {
+      const net = this.net;
+      if (!net) { this.show('online'); return; }
+      const OW = 520;
+      const x0 = (w - OW) / 2;
+      const host = net.role === 'host';
+      this.addUI(panel(this, x0, top - 20, OW, host ? 470 : 380, D));
+      const T = (x, y, str, style = {}, ox = 0.5) => this.addUI(this.add.text(x, y, str, {
+        fontFamily: FONT_SANS, fontSize: '14px', color: UI_COL.text, stroke: '#000', strokeThickness: 2, ...style,
+      }).setOrigin(ox, 0).setDepth(D + 1));
+      T(w / 2, top - 4, 'Game code', { fontFamily: FONT_SERIF, fontSize: '16px', color: UI_COL.dim });
+      T(w / 2, top + 16, net.code.split('').join(' '), { fontFamily: FONT_SERIF, fontSize: '40px', color: UI_COL.gold, strokeThickness: 5 });
+      T(w / 2, top + 70, !net.connected && net.slot === null ? 'Connecting…'
+        : host ? 'Send this code to your friend. Start when they\'ve joined.' : 'Waiting for the host to start the game…', { fontStyle: 'italic', color: UI_COL.dim });
+      // players
+      const p = net.players;
+      const row = (i, y) => {
+        const pl = p[i];
+        const dot = i === 0 ? '🔵' : '🔴';
+        const label = pl ? `${dot}  ${pl.name}${i === net.slot ? '  (you)' : ''}${i === 0 ? '  — host, plays Blue' : '  — plays Red'}${pl.connected ? '' : '  · reconnecting…'}`
+          : `${dot}  Waiting for someone to join…`;
+        T(x0 + 40, y, label, { fontSize: '16px', color: pl ? UI_COL.text : UI_COL.dim }, 0);
+      };
+      row(0, top + 104);
+      row(1, top + 132);
+      // settings
+      const st = net.settings || {};
+      if (host) {
+        T(w / 2, top + 172, 'Map', { fontFamily: FONT_SERIF, fontSize: '16px' });
+        const keys = Object.keys(MAP_TYPES);
+        keys.forEach((k, i) => {
+          const b = this.addUI(button(this, x0 + 24 + i * ((OW - 48) / keys.length), top + 196, (OW - 48) / keys.length - 8, 36, MAP_TYPES[k].name, () => {
+            net.send({ t: 'settings', mapType: k, fog: st.fog !== false });
+          }, { depth: D + 1, size: '14px' }));
+          b.setSelected(st.mapType === k);
+        });
+        const fog = this.addUI(button(this, x0 + (OW - 240) / 2, top + 244, 240, 36, `Fog of war: ${st.fog !== false ? 'on' : 'off'}`, () => {
+          net.send({ t: 'settings', mapType: st.mapType, fog: st.fog === false });
+        }, { depth: D + 1, size: '14px' }));
+        fog.setSelected(st.fog !== false);
+        const ready = p[1] && p[1].connected;
+        btn(top + 306, ready ? 'Start Game' : 'Waiting for a player…', () => net.send({ t: 'start' })).setEnabled(!!ready);
+      } else {
+        T(w / 2, top + 176, `Map: ${MAP_TYPES[st.mapType] ? MAP_TYPES[st.mapType].name : '—'}   ·   Fog of war: ${st.fog !== false ? 'on' : 'off'}`, { fontSize: '15px' });
+        T(w / 2, top + 204, 'You play Red, starting in the far corner. No computer players — just the two of you.', { color: UI_COL.dim, fontSize: '13px' });
+      }
+      btn(top + (host ? 368 : 270), 'Leave', () => this.leaveOnline(), { w: 200 });
     } else if (view === 'help') {
       const PH = Math.min(440, h - top - 10);
       this.addUI(panel(this, (w - 600) / 2, top - 20, 600, PH, D));
@@ -295,6 +385,46 @@ export default class MenuScene extends Phaser.Scene {
       }, D + 1));
       btn(top - 20 + PH - 62, 'Back', () => this.show('main'), { w: 200 });
     }
+  }
+
+  // ---------- Online lobby ----------
+  connectOnline(code, role) {
+    if (this.net) this.net.close();
+    this.netMsg = '';
+    const net = new Net(code, role);
+    this.net = net;
+    const refresh = () => { if (this.net === net && this.view === 'lobby') this.show('lobby'); };
+    net.on('welcome', (m) => { if (m.started) this.startOnline(); else refresh(); })
+      .on('lobby', refresh)
+      .on('start', () => this.startOnline())
+      .on('disconnected', refresh)
+      .on('error', (m) => this.onlineFailed(net, m.msg))
+      .on('closed', (m) => this.onlineFailed(net, m.msg))
+      .on('lost', () => this.onlineFailed(net, 'Lost the connection to the game server.'));
+    net.connect();
+    this.show('lobby');
+  }
+
+  onlineFailed(net, msg) {
+    if (this.net !== net) return;
+    net.close(false);
+    this.net = null;
+    this.netMsg = msg;
+    this.show('online');
+  }
+
+  leaveOnline() {
+    if (this.net) this.net.close();
+    this.net = null;
+    forgetLastGame();
+    this.show('online');
+  }
+
+  startOnline() {
+    const net = this.net;
+    if (!net || this.starting) return;
+    this.starting = true;
+    this.scene.start('GameScene', { net });
   }
 
   startGame() {

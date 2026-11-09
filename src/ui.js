@@ -126,3 +126,51 @@ export function scrollText(scene, x, y, w, h, text, style, depth) {
   box.once('destroy', () => { scene.input.off('wheel', onWheel); maskG.destroy(); });
   return box;
 }
+
+// A real text box (Phaser has none), laid over the game canvas at game coordinates (x, y).
+// While it has focus the game's keyboard shortcuts are switched off, so typing "A" doesn't attack-move.
+// Returns an object you can add to a Phaser scene's UI list: .value, .focus(), .setPosition(), .destroy().
+export function htmlInput(scene, x, y, w, h, opts = {}) {
+  const el = document.createElement('input');
+  el.type = 'text';
+  el.maxLength = opts.maxLength || 40;
+  el.placeholder = opts.placeholder || '';
+  el.value = opts.value || '';
+  el.spellcheck = false;
+  el.autocomplete = 'off';
+  Object.assign(el.style, {
+    position: 'absolute', boxSizing: 'border-box', width: `${w}px`, height: `${h}px`,
+    font: `${opts.size || 18}px Georgia, 'Times New Roman', serif`, color: '#f3e7c4',
+    background: 'rgba(20, 14, 8, 0.92)', border: '2px solid #a8873f', borderRadius: '3px',
+    padding: '0 10px', outline: 'none', zIndex: 10, textAlign: opts.align || 'left',
+    letterSpacing: opts.spacing || 'normal', textTransform: opts.upper ? 'uppercase' : 'none',
+  });
+  const keyboard = scene.input.keyboard;
+  const mgr = keyboard && keyboard.manager;
+  el.addEventListener('focus', () => { if (mgr) mgr.enabled = false; });
+  el.addEventListener('blur', () => { if (mgr) { mgr.enabled = true; keyboard.resetKeys(); } });
+  el.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter' && opts.onEnter) opts.onEnter(el.value);
+    if (e.key === 'Escape' && opts.onEscape) opts.onEscape();
+  });
+  if (opts.onInput) el.addEventListener('input', () => opts.onInput(el.value));
+  document.body.appendChild(el);
+  const place = (px, py) => {
+    const r = scene.game.canvas.getBoundingClientRect();
+    el.style.left = `${r.left + px}px`;
+    el.style.top = `${r.top + py}px`;
+  };
+  place(x, y);
+  return {
+    el,
+    get value() { return el.value; },
+    set value(v) { el.value = v; },
+    focus() { el.focus(); return this; },
+    blur() { el.blur(); return this; },
+    setPosition(px, py) { place(px, py); return this; },
+    setVisible(v) { el.style.display = v ? 'block' : 'none'; return this; },
+    setScrollFactor() { return this; },
+    destroy() { if (el === document.activeElement) el.blur(); el.remove(); },
+  };
+}

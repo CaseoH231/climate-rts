@@ -1,0 +1,19 @@
+// Cloudflare settings for the game. Cloudflare reads this file when it deploys (npx wrangler deploy).
+{
+  "name": "climate-rts",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    // The game's files are served from the project folder (see .assetsignore for what's left out).
+    "directory": ".",
+    "binding": "ASSETS",
+    // Only /api/... requests run the Worker; everything else is a plain file.
+    "run_worker_first": ["/api/*"]
+  },
+  // Each online game gets its own Room (a Durable Object).
+  "durable_objects": {
+    "bindings": [{ "name": "ROOMS", "class_name": "Room" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }],
+  "observability": { "enabled": true }
+}

@@ -19,6 +19,7 @@ export const HOW_TO_PLAY = [
   'Coal is fast energy but adds CO₂. Wind, solar, forests and carbon capture fight back.',
   'Heat brings wildfires, droughts, storms and rising seas.',
   '',
+  'Online: Play Online on the main menu. One player hosts and shares the 5-letter code, the other joins with it. Enter to chat.',
   'Replays: every new game is recorded. Watch it from the end screen, or from Replays on the main menu.',
   '',
   'Camera: arrow keys / screen edge, mouse wheel to zoom, click the minimap.',

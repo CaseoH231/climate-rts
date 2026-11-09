@@ -1,0 +1,11 @@
+# Files that are part of the project but shouldn't be served as part of the website
+.git
+.github
+.vscode
+.wrangler
+node_modules
+worker
+wrangler.jsonc
+wrangler.toml
+.assetsignore
+README.md

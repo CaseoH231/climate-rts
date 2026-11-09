@@ -5,7 +5,7 @@ import { BUILDING_TYPES, WORKER_PAGES, WORKER_PAGE_NAMES, UPGRADES, ERAS } from 
 import { UNIT_TYPES } from '../unit.js';
 import { buildingKey, unitKey } from '../art.js';
 import { toIso, fromIso, ISO_W, ISO_H } from '../iso.js';
-import { panel, button, inset, bevelBorder, volumeRows, scrollText, FONT_SERIF, FONT_SANS, UI_COL } from '../ui.js';
+import { panel, button, inset, bevelBorder, volumeRows, scrollText, htmlInput, FONT_SERIF, FONT_SANS, UI_COL } from '../ui.js';
 import { audio } from '../audio.js';
 import { listSaves, readSave, writeSave } from '../save.js';
 import { DIFFICULTY } from '../ai.js';
@@ -83,7 +83,7 @@ export default class UIScene extends Phaser.Scene {
       this.resItems[res] = this.add.text(x + 30, 8, '0', { fontFamily: SERIF, fontSize: '15px', color: COL.text });
       // how many workers are on this resource (small, on the right of the box)
       if (['food', 'wood', 'stone', 'fuel'].includes(res)) {
-        const icon = this.add.image(x + 74, 17, unitKey('worker', 'player')).setScale(0.22).setAlpha(0.9);
+        const icon = this.add.image(x + 74, 17, unitKey('worker', this.world.me)).setScale(0.22).setAlpha(0.9);
         const t = this.add.text(x + 91, 10, '', { fontFamily: SANS, fontSize: '12px', color: COL.dim, stroke: '#000', strokeThickness: 2 }).setOrigin(1, 0);
         this.gatherers[res] = { icon, t };
         const hit = this.add.rectangle(x + 64, 4, 32, 24, 0, 0).setOrigin(0).setInteractive();
@@ -104,7 +104,9 @@ export default class UIScene extends Phaser.Scene {
       audio.play('click');
       this.world.setSpeed(GAME_SPEEDS[(i + (p.rightButtonDown() ? n - 1 : 1)) % n]);
     });
-    this.speedText.on('pointerover', () => this.showTip({ name: 'Game speed', cost: null, desc: 'Click to speed up, right-click to slow down. Keys: + and -.' }, this.speedText.x - 120, 40, true));
+    this.speedText.on('pointerover', () => this.showTip(this.world.net
+      ? { name: 'Connection', cost: null, desc: `Playing ${this.world.teamName(this.world.foe)} online. This is the round trip to the game server. Press Enter to chat.` }
+      : { name: 'Game speed', cost: null, desc: 'Click to speed up, right-click to slow down. Keys: + and -.' }, this.speedText.x - 120, 40, true));
     this.speedText.on('pointerout', () => this.hideTip());
     this.menuBtn = button(this, 0, 4, 78, 26, 'Menu', () => this.openMenu(), { size: '14px' });
 
@@ -134,7 +136,7 @@ export default class UIScene extends Phaser.Scene {
     const ib = this.add.graphics();
     ib.fillStyle(0x2a241c, 1).fillRect(0, 0, 46, 46);
     ib.lineStyle(2, UI_COL.bronze, 1).strokeRect(1, 1, 44, 44);
-    const iImg = this.add.image(23, 22, unitKey('worker', 'player')).setScale(0.55);
+    const iImg = this.add.image(23, 22, unitKey('worker', this.world.me)).setScale(0.55);
     this.idleCount = this.add.text(42, 44, '', { fontFamily: SERIF, fontSize: '14px', color: COL.gold, stroke: '#000', strokeThickness: 3 }).setOrigin(1, 1);
     const iHit = this.add.rectangle(0, 0, 46, 46, 0, 0).setOrigin(0).setInteractive({ useHandCursor: true });
     iHit.on('pointerdown', (p) => { if (p.leftButtonDown()) { audio.play('click'); this.world.selectIdleWorker(); } });
@@ -173,6 +175,20 @@ export default class UIScene extends Phaser.Scene {
       backgroundColor: 'rgba(0,0,0,0.45)', padding: { x: 12, y: 5 },
     }).setOrigin(0.5, 0).setDepth(50) : null;
 
+    // Online: who you're playing, chat, and a banner when the connection needs attention.
+    if (w.net) {
+      this.netBanner = this.add.text(0, TOP_H + 8, '', {
+        fontFamily: SERIF, fontSize: '16px', color: '#f0d890', stroke: '#000', strokeThickness: 4,
+        backgroundColor: 'rgba(0,0,0,0.55)', padding: { x: 12, y: 5 },
+      }).setOrigin(0.5, 0).setDepth(50).setVisible(false);
+      this.chatLines = [];
+      this.chatText = this.add.text(12, 0, '', {
+        fontFamily: SANS, fontSize: '14px', color: '#f3e7c4', stroke: '#000', strokeThickness: 3, lineSpacing: 3,
+        wordWrap: { width: 460 },
+      }).setOrigin(0, 1).setDepth(45);
+      this.chatInput = null;
+    }
+
     this.layout();
     this.scale.on('resize', this.layout, this);
 
@@ -185,9 +201,11 @@ export default class UIScene extends Phaser.Scene {
       gameOver: (r) => this.showGameOver(r),
       openMenu: () => (this.menu ? this.closeMenu() : this.openMenu()),
       market: () => this.buildButtons(),
+      chat: (m) => this.addChat(m),
     };
     for (const [ev, fn] of Object.entries(handlers)) w.events.on(ev, fn);
     this.events.once('shutdown', () => {
+      this.closeChat();
       for (const [ev, fn] of Object.entries(handlers)) w.events.off(ev, fn);
       this.scale.off('resize', this.layout, this);
     });
@@ -195,6 +213,7 @@ export default class UIScene extends Phaser.Scene {
 
     // Hotkeys press the command buttons.
     this.input.keyboard.on('keydown', (e) => {
+      if (w.net && e.key === 'Enter' && !this.menu) { this.openChat(); return; }
       if (this.menu || w.gameOver || e.ctrlKey || e.altKey || e.metaKey) return;
       const i = HOTKEYS.indexOf(e.key.toLowerCase());
       if (i >= 0 && this.buttons[i]) this.buttons[i].cmd.action();
@@ -241,6 +260,9 @@ export default class UIScene extends Phaser.Scene {
     this.speedText.setPosition(w - 150, 8);
     this.menuBtn.setPosition(w - 86, 3);
     if (this.replayBanner) this.replayBanner.setX(w / 2);
+    if (this.netBanner) this.netBanner.setX(w / 2);
+    if (this.chatText) this.chatText.setY(h - PANEL_H - 52);
+    if (this.chatInput) this.chatInput.setPosition(12, h - PANEL_H - 44);
 
     const cx = w - CLIM_W - 8;
     const cy = TOP_H + 6;
@@ -356,7 +378,7 @@ export default class UIScene extends Phaser.Scene {
     if (!b && units.length > 1) {
       mode = 'units';
       sig = 'u' + units.length + units.map((u) => u.type[0]).join('');
-    } else if (b && b.team === 'player' && b.queue.length) {
+    } else if (b && b.team === this.world.me && b.queue.length) {
       mode = 'queue';
       sig = 'q' + b.queue.join(',');
     }
@@ -422,7 +444,7 @@ export default class UIScene extends Phaser.Scene {
   buildQueueStrip(b) {
     const w = this.world;
     b.queue.forEach((type, i) => {
-      const { bar } = this.stripCell(i, w.unitTexKey(type, 'player'), () => { w.issue({ k: 'cancel', b: b.id, i }); audio.play('click'); },
+      const { bar } = this.stripCell(i, w.unitTexKey(type, this.world.me), () => { w.issue({ k: 'cancel', b: b.id, i }); audio.play('click'); },
         { name: `Cancel ${UNIT_TYPES[type].name}`, cost: null, desc: 'Click to take it out of the queue and get the cost back.' });
       this.stripItems.push({ first: i === 0, bar });
     });
@@ -452,16 +474,16 @@ export default class UIScene extends Phaser.Scene {
   commandList() {
     const { units, building: b } = this.sel;
     const w = this.world;
-    const era = w.eraOf('player');
+    const era = w.eraOf(this.world.me);
     const cmds = [];
     if (w.replay) return cmds;
     if (b) {
-      if (!b.complete || b.team !== 'player') return cmds;
+      if (!b.complete || b.team !== this.world.me) return cmds;
       if (b.type === 'market') return this.marketCommands();
       for (const type of b.def.trains || []) {
         const u = UNIT_TYPES[type];
         cmds.push({
-          thumb: w.unitTexKey(type, 'player'), name: `Train ${u.name}`, cost: u.cost,
+          thumb: w.unitTexKey(type, this.world.me), name: `Train ${u.name}`, cost: u.cost,
           desc: `${u.desc}\nHealth ${u.hp}  ·  Damage ${u.attack}  ·  ${u.range > 60 ? 'Ranged' : 'Close combat'}`,
           locked: u.era > era ? `Requires the ${ERAS[u.era].name}` : null, lockEra: u.era, action: () => w.train(type),
         });
@@ -496,14 +518,14 @@ export default class UIScene extends Phaser.Scene {
       for (const type of WORKER_PAGES[this.buildPage]) {
         const d = BUILDING_TYPES[type];
         cmds.push({
-          thumb: w.buildingTexKey(type, 'player'), name: d.name, cost: d.cost, desc: d.desc,
+          thumb: w.buildingTexKey(type, this.world.me), name: d.name, cost: d.cost, desc: d.desc,
           locked: d.era > era ? `Requires the ${ERAS[d.era].name}` : null, lockEra: d.era, action: () => w.startPlacing(type),
         });
       }
       while (cmds.length < 11) cmds.push(null);
       const next = (this.buildPage + 1) % WORKER_PAGES.length;
       cmds.push({
-        thumb: w.buildingTexKey(WORKER_PAGES[next][0], 'player'), page: true,
+        thumb: w.buildingTexKey(WORKER_PAGES[next][0], this.world.me), page: true,
         name: `${WORKER_PAGE_NAMES[next]} »`,
         desc: `Page ${this.buildPage + 1} of ${WORKER_PAGES.length} (${WORKER_PAGE_NAMES[this.buildPage]}). Show: ${WORKER_PAGES[next].map((t) => BUILDING_TYPES[t].name).join(', ')}.`,
         action: () => { this.buildPage = next; this.buildButtons(); },
@@ -516,7 +538,7 @@ export default class UIScene extends Phaser.Scene {
       return cmds;
     }
     if (!units.length) {
-      cmds.push({ thumb: unitKey('worker', 'player'), name: 'Find idle worker', cost: null, desc: 'Selects the next worker with nothing to do. Key: full stop.', action: () => w.selectIdleWorker() });
+      cmds.push({ thumb: unitKey('worker', this.world.me), name: 'Find idle worker', cost: null, desc: 'Selects the next worker with nothing to do. Key: full stop.', action: () => w.selectIdleWorker() });
     }
     return cmds;
   }
@@ -649,8 +671,8 @@ export default class UIScene extends Phaser.Scene {
           (b.queue.length > 1 ? `  (+${b.queue.length - 1} queued)` : ''));
       }
       if (b.waitingForPop) lines.push('Population limit reached — build a House.');
-      if (b.def.garrison && b.team === 'player' && b.complete) lines.push(`Sheltering ${b.garrison.length} / ${b.def.garrison}`);
-      if (b.def.trains && b.complete && b.team === 'player' && !b.research && !b.queue.length) {
+      if (b.def.garrison && b.team === this.world.me && b.complete) lines.push(`Sheltering ${b.garrison.length} / ${b.def.garrison}`);
+      if (b.def.trains && b.complete && b.team === this.world.me && !b.research && !b.queue.length) {
         lines.push(b.rally ? 'Rally point set (right-click to move it).' : 'Right-click the ground to set a rally point.');
       }
       if (b.type === 'farm') {
@@ -660,7 +682,7 @@ export default class UIScene extends Phaser.Scene {
       if (b.type === 'trees' && b.complete) lines.push(`Growing: ${Math.floor(b.grow * 100)}%`);
       if (b.def.produces && b.complete) {
         const [res, rate] = Object.entries(b.def.produces)[0];
-        lines.push(`Producing ${(rate * w.productionMultiplier(res, 'player')).toFixed(2)} ${RES_NAME[res].toLowerCase()} / sec`);
+        lines.push(`Producing ${(rate * w.productionMultiplier(res, this.world.me)).toFixed(2)} ${RES_NAME[res].toLowerCase()} / sec`);
       }
       if (b.def.capture && b.complete) lines.push(b.capturing ? 'Capturing CO₂.' : 'Idle — needs clean energy.');
       if (b.def.wonder && b.complete) lines.push(`Green Victory in ${Math.max(0, Math.ceil(180 - b.wonderTime))}s`);
@@ -724,7 +746,7 @@ export default class UIScene extends Phaser.Scene {
     if (c.heatwave > 0) ev.push(`Heatwave ${Math.ceil(c.heatwave)}s`);
     if (c.seaStage) ev.push(`Sea risen ×${c.seaStage}`);
     const wonder = this.world.buildings.find((b) => b.def.wonder && b.complete);
-    if (wonder) ev.push(`${wonder.team === 'player' ? 'Green Victory' : 'Enemy wonder'} in ${Math.max(0, Math.ceil(180 - wonder.wonderTime))}s`);
+    if (wonder) ev.push(`${wonder.team === this.world.me ? 'Green Victory' : 'Enemy wonder'} in ${Math.max(0, Math.ceil(180 - wonder.wonderTime))}s`);
     if (!ev.length) ev.push(t < 1 ? 'Climate stable' : t < 2.5 ? 'Disasters becoming more likely' : 'Severe climate disruption');
     const evText = ev.join('   ·   ');
     if (this.climEvents.text !== evText) this.climEvents.setText(evText);
@@ -745,7 +767,16 @@ export default class UIScene extends Phaser.Scene {
     const PW = 420;
     let rows = [];
     let title = 'Game Menu';
-    if (view === 'main') {
+    if (view === 'main' && w.net) {
+      title = `Online — vs ${w.teamName(w.foe)}`;
+      rows = [
+        ['Back to the Game', () => this.closeMenu()],
+        ['Resign', () => { w.resign(); this.closeMenu(); }],
+        ['How to Play', () => this.openMenu('help')],
+        ['Settings', () => this.openMenu('settings')],
+        ['Leave (counts as a loss)', () => this.quitToMenu()],
+      ];
+    } else if (view === 'main') {
       rows = [
         ['Resume Game', () => this.closeMenu()],
         ['Save Game', () => this.openMenu('save'), !!w.replay],
@@ -817,6 +848,56 @@ export default class UIScene extends Phaser.Scene {
     this.scene.start('MenuScene');
   }
 
+  // ---------- Online: chat & connection banner ----------
+  addChat(m) {
+    const w = this.world;
+    const mine = w.net && m.slot === w.net.slot;
+    this.chatLines.push({ text: `${mine ? 'You' : m.name}: ${m.text}`, at: Date.now() });
+    if (this.chatLines.length > 30) this.chatLines.shift();
+    if (!mine) audio.play('click');
+  }
+
+  openChat() {
+    if (this.chatInput) { this.chatInput.focus(); return; }
+    const h = this.scale.height;
+    this.chatInput = htmlInput(this, 12, h - PANEL_H - 44, 420, 34, {
+      maxLength: 200, size: 15, placeholder: 'Say something — Enter to send, Esc to close',
+      onEnter: (text) => {
+        if (text.trim()) this.world.net.send({ t: 'chat', text });
+        this.closeChat();
+      },
+      onEscape: () => this.closeChat(),
+    });
+    this.chatInput.el.addEventListener('blur', () => this.time.delayedCall(0, () => this.closeChat()));
+    this.chatInput.focus();
+  }
+
+  closeChat() {
+    if (!this.chatInput) return;
+    const c = this.chatInput;
+    this.chatInput = null;
+    c.destroy();
+  }
+
+  updateOnline() {
+    const w = this.world;
+    const now = Date.now();
+    // chat: recent lines (all of them while typing)
+    const lines = this.chatLines.filter((l) => this.chatInput || now - l.at < 15000).slice(-6).map((l) => l.text);
+    const ct = lines.join('\n');
+    if (this.chatText.text !== ct) this.chatText.setText(ct);
+    if (this.chatInput) this.chatInput.setPosition(12, this.scale.height - PANEL_H - 44);
+    // banner
+    let msg = '';
+    if (w.gameOver) msg = '';
+    else if (w.catchingUp && w.catchingUp.far) msg = `Catching up with the game… ${Math.floor((100 * w.catchingUp.done) / Math.max(1, w.catchingUp.of))}%`;
+    else if (w.netWait) msg = `Waiting for ${w.netWait.name} to reconnect… ${Math.max(0, Math.ceil((w.netWait.until - now) / 1000))}s`;
+    else if (w.netDown) msg = 'Connection lost — reconnecting…';
+    else if (w.desync != null) msg = '⚠ Out of sync with the other player';
+    if (this.netBanner.text !== msg) this.netBanner.setText(msg);
+    this.netBanner.setVisible(!!msg);
+  }
+
   // ---------- Game over screen ----------
   showGameOver(result) {
     this.closeMenu(true);
@@ -830,6 +911,8 @@ export default class UIScene extends Phaser.Scene {
       collapse: ['Climate Collapse', 'The planet passed +5°C. Nobody wins on a ruined world.', '#e8a060'],
     }[result];
     const world = this.world;
+    if (world.endNote) info[1] = world.endNote;
+    else if (world.mp && result === 'victory') info[1] = `${world.teamName(world.foe)}'s Town Centre has fallen.`;
     const c = world.climate;
     const PW = Math.min(860, w - 20);
     const PH = Math.min(580, h - 20);
@@ -842,22 +925,22 @@ export default class UIScene extends Phaser.Scene {
     txt(w / 2, y0 + 16, info[0], { fontFamily: SERIF, fontSize: '44px', color: info[2], strokeThickness: 6 }, 0.5);
     txt(w / 2, y0 + 70, info[1], { fontFamily: SERIF, fontSize: '17px', fontStyle: 'italic', strokeThickness: 3 }, 0.5);
     txt(w / 2, y0 + 96, `Game time ${fmtTime(world.gameTime)}   ·   CO₂ ${Math.round(c.co2)} ppm   ·   +${Math.max(0, c.temp).toFixed(1)}°C   ·   ` +
-      `Sea rises ${c.seaStage}   ·   ${ERAS[world.eraOf('player')].name}`, { color: COL.dim }, 0.5);
+      `Sea rises ${c.seaStage}   ·   ${ERAS[world.eraOf(this.world.me)].name}`, { color: COL.dim }, 0.5);
 
     // --- Left: the numbers ---
-    const st = world.stats.teams;
+    const st = { me: world.stats.teams[world.me], foe: world.stats.teams[world.foe] };
     const sum = (g) => Math.round(g.food + g.wood + g.stone + g.fuel + g.clean);
     const rows = [
-      ['Resources gathered', sum(st.player.gathered), sum(st.enemy.gathered)],
-      ['   of which coal', Math.round(st.player.gathered.fuel), Math.round(st.enemy.gathered.fuel)],
-      ['   of which clean energy', Math.round(st.player.gathered.clean), Math.round(st.enemy.gathered.clean)],
-      ['CO₂ added (ppm)', Math.round(st.player.co2), Math.round(st.enemy.co2)],
-      ['Units trained', st.player.trained, st.enemy.trained],
-      ['Units lost', st.player.lost, st.enemy.lost],
-      ['Enemy units killed', st.player.kills, st.enemy.kills],
-      ['Buildings completed', st.player.built, st.enemy.built],
-      ['Buildings lost', st.player.buildingsLost, st.enemy.buildingsLost],
-      ['Enemy buildings destroyed', st.player.razed, st.enemy.razed],
+      ['Resources gathered', sum(st.me.gathered), sum(st.foe.gathered)],
+      ['   of which coal', Math.round(st.me.gathered.fuel), Math.round(st.foe.gathered.fuel)],
+      ['   of which clean energy', Math.round(st.me.gathered.clean), Math.round(st.foe.gathered.clean)],
+      ['CO₂ added (ppm)', Math.round(st.me.co2), Math.round(st.foe.co2)],
+      ['Units trained', st.me.trained, st.foe.trained],
+      ['Units lost', st.me.lost, st.foe.lost],
+      ['Enemy units killed', st.me.kills, st.foe.kills],
+      ['Buildings completed', st.me.built, st.foe.built],
+      ['Buildings lost', st.me.buildingsLost, st.foe.buildingsLost],
+      ['Enemy buildings destroyed', st.me.razed, st.foe.razed],
     ];
     const lx = x0 + 28;
     const ty = y0 + 132;
@@ -866,8 +949,8 @@ export default class UIScene extends Phaser.Scene {
     const tw = colB + 10 - lx;
     const g = this.add.graphics().setDepth(D);
     g.fillStyle(0x000000, 0.35).fillRect(lx - 8, ty - 6, tw + 16, 28 + rows.length * 25);
-    txt(colA, ty, 'You', { fontFamily: SERIF, fontSize: '15px', color: '#9fb9e0' }, 1);
-    txt(colB, ty, 'Enemy', { fontFamily: SERIF, fontSize: '15px', color: '#e0a49c' }, 1);
+    txt(colA, ty, 'You', { fontFamily: SERIF, fontSize: '15px', color: world.me === 'player' ? '#9fb9e0' : '#e0a49c' }, 1);
+    txt(colB, ty, world.mp ? 'Them' : 'Enemy', { fontFamily: SERIF, fontSize: '15px', color: world.me === 'player' ? '#e0a49c' : '#9fb9e0' }, 1);
     rows.forEach(([label, a, b], i) => {
       const y = ty + 26 + i * 25;
       if (i % 2 === 0) g.fillStyle(0xffffff, 0.04).fillRect(lx - 8, y - 4, tw + 16, 25);
@@ -889,27 +972,29 @@ export default class UIScene extends Phaser.Scene {
     this.drawChart(cx, ty, chartW, chartH, 'Temperature (°C above normal)', tl.map((p) => p.t),
       [{ values: tl.map((p) => Math.max(0, p.temp)), color: 0xe08a4a }], { min: 0, maxAtLeast: 1, fmt: (v) => `+${v.toFixed(1)}` });
     this.drawChart(cx, ty + chartH + 58, chartW, chartH, 'Army size', tl.map((p) => p.t),
-      [{ values: tl.map((p) => p.army.player), color: TEAM_COLORS.player.main, name: 'You' },
-        { values: tl.map((p) => p.army.enemy), color: TEAM_COLORS.enemy.main, name: 'Enemy' }], { min: 0, maxAtLeast: 5, fmt: (v) => String(Math.round(v)) });
+      [{ values: tl.map((p) => p.army[world.me]), color: TEAM_COLORS[world.me].main, name: 'You' },
+        { values: tl.map((p) => p.army[world.foe]), color: TEAM_COLORS[world.foe].main, name: world.mp ? 'Opponent' : 'Enemy' }], { min: 0, maxAtLeast: 5, fmt: (v) => String(Math.round(v)) });
 
     const by = y0 + PH - 64;
     const rep = world.replay || world.finishRecording(result);
     const bw = 190;
-    const x1 = rep ? w / 2 - bw * 1.5 - 15 : w / 2 - bw - 10;
+    const online = !!world.net;
+    const nb = (online ? 1 : 2) + (rep ? 1 : 0);
+    const x1 = w / 2 - (nb * bw + (nb - 1) * 15) / 2;
     if (world.replay) {
       txt(w / 2, y0 + 112, world.desync != null ? 'This replay went out of sync — it was probably recorded with an older version.' : `Replay finished — stayed in sync for all ${world.syncChecks} checks.`,
         { color: world.desync != null ? '#e07a6a' : '#b8dc90' }, 0.5);
     }
-    button(this, x1, by, bw, 44, world.replay ? 'New Game' : 'Play Again', () => {
+    if (!online) button(this, x1, by, bw, 44, world.replay ? 'New Game' : 'Play Again', () => {
       const r = world.replay;
       this.world.scene.start('GameScene', { seed: Math.floor(Math.random() * 1e9), mapType: world.mapType, difficulty: world.difficulty, fog: r ? r.fog !== false : world.fog ? world.fog.enabled : true });
     }, { depth: D });
     if (rep) {
-      button(this, x1 + bw + 15, by, bw, 44, world.replay ? 'Watch Again' : 'Watch Replay', () => {
+      button(this, x1 + (online ? 0 : bw + 15), by, bw, 44, world.replay ? 'Watch Again' : 'Watch Replay', () => {
         this.world.scene.start('GameScene', { replay: rep });
       }, { depth: D });
     }
-    button(this, x1 + (rep ? 2 : 1) * (bw + 15), by, bw, 44, 'Main Menu', () => this.quitToMenu(), { depth: D });
+    button(this, x1 + (nb - 1) * (bw + 15), by, bw, 44, 'Main Menu', () => this.quitToMenu(), { depth: D });
   }
 
   // A small line chart: times along the bottom, one line per series.
@@ -965,12 +1050,13 @@ export default class UIScene extends Phaser.Scene {
     }
     const pop = `${w.popUsed} / ${w.popCap}`;
     if (this.popText.text !== pop) this.popText.setText(pop);
-    const era = ERAS[w.eraOf('player')].name + (w.paused ? '   (paused)' : '');
+    const era = ERAS[w.eraOf(this.world.me)].name + (w.paused && !w.net ? '   (paused)' : '');
     if (this.eraText.text !== era) this.eraText.setText(era);
     const clock = fmtTime(w.gameTime);
     if (this.clockText.text !== clock) this.clockText.setText(clock);
-    const sp = `×${w.speed}`;
+    const sp = w.net ? (w.net.ping != null ? `${w.net.ping} ms` : '…') : `×${w.speed}`;
     if (this.speedText.text !== sp) this.speedText.setText(sp);
+    if (w.net) this.updateOnline();
     if (this.replayBanner) {
       const sync = w.desync != null ? '✗ out of sync' : w.syncChecks ? `✓ in sync (${w.syncChecks} checks)` : 'checking…';
       const end = w.replay.ticks ? `  ·  ${fmtTime(Math.min(w.tick, w.replay.ticks) / 20)} / ${fmtTime(w.replay.ticks / 20)}` : '';
@@ -997,7 +1083,7 @@ export default class UIScene extends Phaser.Scene {
       this.idleTimer = 400;
       const count = { food: 0, wood: 0, stone: 0, fuel: 0 };
       for (const u of w.units) {
-        if (u.team !== 'player' || u.type !== 'worker' || !u.order || u.order.kind !== 'gather') continue;
+        if (u.team !== this.world.me || u.type !== 'worker' || !u.order || u.order.kind !== 'gather') continue;
         if (u.order.res in count) count[u.order.res]++;
       }
       for (const [r, g] of Object.entries(this.gatherers)) {
@@ -1005,7 +1091,7 @@ export default class UIScene extends Phaser.Scene {
         if (g.t.text !== txt) g.t.setText(txt);
         g.icon.setVisible(count[r] > 0);
       }
-      const n = w.units.filter((u) => u.team === 'player' && u.type === 'worker' && u.isIdle).length;
+      const n = w.units.filter((u) => u.team === this.world.me && u.type === 'worker' && u.isIdle).length;
       this.idleBtn.setVisible(n > 0 && !this.menu && !w.gameOver);
       this.idleCount.setText(String(n));
     }

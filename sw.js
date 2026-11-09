@@ -1,7 +1,7 @@
 // Service worker: lets the installed game run offline.
 // Strategy: always try the network first (so updates show up straight away), fall back to the saved copy when offline.
 // Bump CACHE when you want old offline copies thrown away.
-const CACHE = 'age-of-emissions-v9';
+const CACHE = 'age-of-emissions-v10';
 const FILES = [
   './',
   'index.html',
@@ -33,6 +33,7 @@ const FILES = [
   'src/wildlife.js',
   'src/rng.js',
   'src/replay.js',
+  'src/net.js',
   'src/scenes/MenuScene.js',
   'src/scenes/GameScene.js',
   'src/scenes/UIScene.js',
@@ -52,7 +53,9 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const req = event.request;
-  if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
+  const url = new URL(req.url);
+  // Online play (/api/...) always goes straight to the server.
+  if (req.method !== 'GET' || url.origin !== self.location.origin || url.pathname.startsWith('/api/')) return;
   event.respondWith(
     fetch(req)
       .then((res) => {

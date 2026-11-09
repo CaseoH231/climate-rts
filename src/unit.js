@@ -302,7 +302,7 @@ export class Unit {
     const o = this.order;
     const d = world.nearestDropOff(this.x, this.y, this.team);
     if (!d) {
-      if (this.team === 'player') world.toast('Nowhere to drop off resources — build a Storage Shed');
+      if (this.team === world.me) world.toast('Nowhere to drop off resources — build a Storage Shed');
       this.stop();
       return;
     }
@@ -550,7 +550,7 @@ export class Unit {
       const amount = this.def.heals * (world.teams[this.team].upgrades.has('field_medicine') ? 2 : 1);
       best.hp = Math.min(best.maxHp, best.hp + amount);
       best.updateHpBar();
-      if (this.team === 'player' && world.fx && best.container.visible) world.fx.floatText(best.isoX, best.isoY - 26, `+${amount}`, '#8fd18a');
+      if (this.team === world.me && world.fx && best.container.visible) world.fx.floatText(best.isoX, best.isoY - 26, `+${amount}`, '#8fd18a');
     } else if (far && !this.order && !this.path.length) {
       const t = far.tile;
       this.walkTo({ x: t.x, y: t.y });
@@ -658,7 +658,7 @@ export class Unit {
       }
       o.retriedReturn = false;
       world.addResource(o.res, Math.round(this.carry), this.team);
-      if (this.team === 'player' && world.fx && this.container.visible) {
+      if (this.team === world.me && world.fx && this.container.visible) {
         world.fx.floatText(this.isoX, this.isoY - 30, `+${Math.round(this.carry)}`, RES_TEXT_COLOR[o.res]);
       }
       this.carry = 0;

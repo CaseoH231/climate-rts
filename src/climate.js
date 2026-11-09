@@ -102,9 +102,15 @@ export class Climate {
     this.world.events.emit('alert', tile.x, tile.y);
   }
 
+  // Whose town a fire or storm lands near. Against the computer it's always yours; online it's either.
+  victimTeam() {
+    if (!this.world.mp) return 'player';
+    return this.world.rand() < 0.5 ? 'player' : 'enemy';
+  }
+
   pickFireTile() {
-    // Usually near the player's town, so they see it.
-    const bs = this.world.buildings.filter((b) => b.team === 'player');
+    // Usually near someone's town, so they see it. (Online, either town.)
+    const bs = this.world.buildings.filter((b) => b.team === this.victimTeam());
     if (bs.length && this.world.rand() < 0.75) {
       const b = bs[Math.floor(this.world.rand() * bs.length)];
       const near = this.map.resourceTilesNear('wood', b.tx, b.ty, 14);
@@ -222,12 +228,13 @@ export class Climate {
 
   // ----- Storms -----
   startStorm() {
-    const bs = this.world.buildings.filter((b) => b.team === 'player');
+    const team = this.victimTeam();
+    const bs = this.world.buildings.filter((b) => b.team === team);
     if (!bs.length) return;
     const centre = bs[Math.floor(this.world.rand() * bs.length)];
     const radius = 5 * TILE;
     const hit = bs.filter((b) => Math.hypot(b.cx - centre.cx, b.cy - centre.cy) <= radius);
-    this.world.toast(`🌪️ A severe storm hit your town! ${hit.length} building${hit.length === 1 ? '' : 's'} damaged`, '#9fc5e8');
+    this.world.toast(`🌪️ A severe storm hit ${team === this.world.me ? 'your' : 'the enemy'} town! ${hit.length} building${hit.length === 1 ? '' : 's'} damaged`, '#9fc5e8');
     this.world.stormEffect(centre.cx, centre.cy, radius);
     if (this.world.sfx) this.world.sfx('thunder');
     for (const b of hit) this.world.damageBuilding(b, Math.round(b.maxHp * (0.25 + this.world.rand() * 0.2)), 'a storm');
@@ -261,7 +268,7 @@ export class Climate {
       this.ash.delete(k);
     }
     for (const b of lost) {
-      if (b.team === 'player') w.toast(`🌊 Your ${b.def.name} was swallowed by the sea`, '#9fc5e8');
+      if (b.team === w.me) w.toast(`🌊 Your ${b.def.name} was swallowed by the sea`, '#9fc5e8');
       w.removeBuilding(b);
     }
     // Redraw flooded tiles and their neighbours (for the new beaches).
