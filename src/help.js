@@ -19,6 +19,8 @@ export const HOW_TO_PLAY = [
   'Coal is fast energy but adds CO₂. Wind, solar, forests and carbon capture fight back.',
   'Heat brings wildfires, droughts, storms and rising seas.',
   '',
+  'Replays: every new game is recorded. Watch it from the end screen, or from Replays on the main menu.',
+  '',
   'Camera: arrow keys / screen edge, mouse wheel to zoom, click the minimap.',
   'Space: look at the last attack   ·   Click a portrait to pick one unit (Shift-click drops it), click a queued unit to cancel it.',
   'H: home   ·   Full stop: idle worker   ·   + / −: game speed   ·   Esc / F10: menu   ·   Shift: add to selection / place several',

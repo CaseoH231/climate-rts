@@ -83,7 +83,7 @@ export class Climate {
   // ---------- Disasters ----------
   rollDisasters() {
     const T = Math.max(0, this.temp);
-    const r = Math.random;
+    const r = () => this.world.rand();
     if (r() < Math.min(0.5, 0.02 + 0.08 * T)) this.startWildfire();
     if (T > 1 && this.drought <= 0 && r() < 0.07 * T) this.startDrought();
     if (T > 1.5 && r() < 0.05 * (T - 1)) this.startStorm();
@@ -105,14 +105,14 @@ export class Climate {
   pickFireTile() {
     // Usually near the player's town, so they see it.
     const bs = this.world.buildings.filter((b) => b.team === 'player');
-    if (bs.length && Math.random() < 0.75) {
-      const b = bs[Math.floor(Math.random() * bs.length)];
+    if (bs.length && this.world.rand() < 0.75) {
+      const b = bs[Math.floor(this.world.rand() * bs.length)];
       const near = this.map.resourceTilesNear('wood', b.tx, b.ty, 14);
-      if (near.length) return near[Math.floor(Math.random() * near.length)];
+      if (near.length) return near[Math.floor(this.world.rand() * near.length)];
     }
     for (let i = 0; i < 300; i++) {
-      const x = Math.floor(Math.random() * this.map.w);
-      const y = Math.floor(Math.random() * this.map.h);
+      const x = Math.floor(this.world.rand() * this.map.w);
+      const y = Math.floor(this.world.rand() * this.map.h);
       if (this.map.get(x, y) === TERRAIN.FOREST) return { x, y };
     }
     return null;
@@ -124,7 +124,7 @@ export class Climate {
     const k = y * this.map.w + x;
     if (this.fires.has(k) || (!first && this.fireBudget <= 0)) return;
     if (!first) this.fireBudget--;
-    this.fires.set(k, { x, y, t: 4 + Math.random() * 2 });
+    this.fires.set(k, { x, y, t: 4 + this.world.rand() * 2 });
   }
 
   updateFires() {
@@ -138,7 +138,7 @@ export class Climate {
         const nx = f.x + dx;
         const ny = f.y + dy;
         const nt = this.map.get(nx, ny);
-        if ((nt === TERRAIN.FOREST || nt === TERRAIN.BERRIES) && Math.random() < spread * (dx && dy ? 0.6 : 1)) {
+        if ((nt === TERRAIN.FOREST || nt === TERRAIN.BERRIES) && this.world.rand() < spread * (dx && dy ? 0.6 : 1)) {
           toIgnite.push([nx, ny]);
         }
         const b = this.map.buildingAt(nx, ny);
@@ -149,7 +149,7 @@ export class Climate {
         if (this.map.resourceAt(f.x, f.y)) {
           this.map.setTerrain(f.x, f.y, TERRAIN.ASH);
           this.addCO2(CLIMATE.co2PerBurntTile);
-          this.ash.set(k, { x: f.x, y: f.y, t: 90 + Math.random() * 60 });
+          this.ash.set(k, { x: f.x, y: f.y, t: 90 + this.world.rand() * 60 });
         }
       }
     }
@@ -224,13 +224,13 @@ export class Climate {
   startStorm() {
     const bs = this.world.buildings.filter((b) => b.team === 'player');
     if (!bs.length) return;
-    const centre = bs[Math.floor(Math.random() * bs.length)];
+    const centre = bs[Math.floor(this.world.rand() * bs.length)];
     const radius = 5 * TILE;
     const hit = bs.filter((b) => Math.hypot(b.cx - centre.cx, b.cy - centre.cy) <= radius);
     this.world.toast(`🌪️ A severe storm hit your town! ${hit.length} building${hit.length === 1 ? '' : 's'} damaged`, '#9fc5e8');
     this.world.stormEffect(centre.cx, centre.cy, radius);
     if (this.world.sfx) this.world.sfx('thunder');
-    for (const b of hit) this.world.damageBuilding(b, Math.round(b.maxHp * (0.25 + Math.random() * 0.2)), 'a storm');
+    for (const b of hit) this.world.damageBuilding(b, Math.round(b.maxHp * (0.25 + this.world.rand() * 0.2)), 'a storm');
   }
 
   // ----- Sea-level rise -----

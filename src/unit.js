@@ -61,12 +61,12 @@ const CARRY_MAX = 10;
 const CARRY_COLOR = { wood: 0x8a6440, stone: 0xa9a59b, food: 0xc9a94e, fuel: 0x1f1f1f };
 const GATHER_WORD = { wood: 'chopping wood', stone: 'mining stone', food: 'foraging', fuel: 'mining coal' };
 
-let nextId = 1;
-
 export class Unit {
   constructor(scene, map, tx, ty, type, team = 'player') {
+    // permanent ID: commands, replays and (later) multiplayer refer to units by this
+    this.id = scene.newId ? scene.newId() : 0;
+    if (scene.ents) scene.ents.set(this.id, this);
     const def = UNIT_TYPES[type];
-    this.id = nextId++;
     this.scene = scene;
     this.map = map;
     this.type = type;
@@ -86,7 +86,7 @@ export class Unit {
     this.workAnim = 0;
     this.cooldown = 0;
     this.sfxTimer = Math.random() * 600;
-    this.scanTimer = Math.random() * 500;
+    this.scanTimer = scene.rand ? scene.rand() * 500 : 0;
     this.isBuilding = false;
     this.dead = false;
     this.selected = false;

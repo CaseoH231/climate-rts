@@ -40,6 +40,7 @@ The `_headers` file tells Cloudflare not to cache the game code too hard, so upd
 - **Main menu:** New Game (choose **Easy / Normal / Hard**, a **random** or **classic** map, and **fog of war** on/off), Load Game, How to Play.
 - **In game:** press **Esc** (with nothing selected), **F10** or the **Menu** button to pause. From there you can **save** to one of 3 slots, **load**, read the help, or quit to the main menu.
 - Saves are kept in your browser's storage on this computer.
+- **Replays:** every new game is recorded. When it ends, press **Watch Replay**, or open **Replays** on the main menu to watch your last 6 games. A replay is tiny: just the map settings and the orders you gave, with the time each one happened. The banner shows whether playback is still "in sync" (a replay recorded with an older version of the game may drift). Games continued from a save aren't recorded.
 - **Settings** (main menu or in-game menu): master, sound-effects and ambience volume.
 
 ## Fog of war
@@ -167,6 +168,8 @@ src/main.js             starts Phaser (menu → game + interface)
 src/iso.js              isometric maths (grid ↔ screen)
 src/ui.js               stone panels and buttons used by the menus
 src/save.js             saving / loading to browser storage
+src/rng.js              seeded random numbers + the state fingerprint (hash)
+src/replay.js           storing and listing replays
 src/fog.js              fog of war
 src/audio.js            all sound effects and ambience (Web Audio synthesis)
 src/help.js             the How to Play text
@@ -201,7 +204,15 @@ src/scenes/UIScene.js   resource bar, command panel, diamond minimap, climate pa
 - [x] Phase 14 – The big polish: climate colour grading, burning buildings and ruins, combat effects, birds, rain and dust storms, worker counts, unit portraits, clickable training queue, custom cursors, Continue button, generative music
 - [x] Phase 15 – New frontiers: Scout Rider, Field Medic, Field Cannon, Electric Tank; Fishing Dock, Hydro Dam, Geothermal Plant; deer herds and hunting; Wheelbarrow, Fish Farming, Field Medicine and Cool Roofs research; heatwaves
 - [x] Phase 16 – Modern Age: a fifth era (Coal → Industrial → Modern → Transition → Green) with Apartment Blocks, Office Towers, Factories and Radar Stations; every building changes look each era; units change look with their upgrades
-- [ ] Phase 17 – Multiplayer groundwork: make the game deterministic (seeded random numbers everywhere, fixed simulation ticks) and turn every player action into a "command" that can be sent over a network. Replays come almost for free and prove it works: if a replay plays out identically, two computers will too
+- [x] Phase 17 – Multiplayer groundwork: the game is deterministic (seeded random numbers, fixed 50 ms ticks with smooth drawing in between, every unit and building has an id) and every player action is a "command" that runs on the next tick. Replays record those commands plus a state fingerprint every 2 seconds, and playback checks the fingerprints match
 - [ ] Phase 18 – Online 1v1: a lobby with a short invite code, a free Cloudflare Worker + Durable Object relaying commands between players (same Cloudflare account as the site), lockstep networking (both games run the same commands on the same tick), desync detection, reconnecting, chat and ping display
 - [ ] Phase 19 – Bigger matches: 2v2 and free-for-all with up to 4 players, co-op against the AI, spectating and saved replays
 - [ ] Phase 20 – Playtesting feedback
+
+## How the simulation works (for multiplayer)
+
+- **Ticks:** the game world moves in fixed steps of 50 ms (20 per second). Faster game speeds just run more ticks per second. Units are drawn part-way between their last two positions so movement still looks smooth.
+- **Random numbers:** anything that changes the game (the AI's choices, wildfires, deer, arrows) uses one seeded random number generator (`src/rng.js`). `Math.random` is only used for looks (smoke, sounds, clouds).
+- **Commands:** clicking a button or right-clicking doesn't change the game directly. It creates a small command like `{ k: 'train', b: 12, type: 'worker' }`, which runs at the start of the next tick. Units and buildings are named by their id number.
+- **Fingerprints:** every 40 ticks the game turns the important state (positions, health, resources, CO₂, the random-number state) into one number. Two computers running the same game must get the same numbers. If not, they've "desynced".
+- Online play (next phase) sends commands to the other player instead of only recording them, and compares fingerprints.

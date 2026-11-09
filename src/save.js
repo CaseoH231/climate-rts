@@ -77,6 +77,8 @@ export function serialize(w) {
     mapType: w.mapType,
     market: { ...w.market },
     gameTime: w.gameTime,
+    tick: w.tick,
+    rngState: w.rng.state,
     map: {
       tiles: Array.from(w.map.tiles),
       amount: Array.from(w.map.amount, (v) => Math.round(v * 10) / 10),

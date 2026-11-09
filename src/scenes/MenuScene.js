@@ -1,5 +1,5 @@
 // Title screen: a living landscape in the background, with New Game, Load Game and How to Play.
-import { TILE, MAP_W, MAP_H, PLAYER_START } from '../config.js';
+import { TILE, MAP_W, MAP_H, PLAYER_START, GAME_VERSION } from '../config.js';
 import { GameMap, MAP_TYPES } from '../map.js';
 import { BUILDING_TYPES, ERAS } from '../buildings.js';
 import { generateArt, buildingKey, unitKey, buildingTexInfo, BUILDING_POINTS, ART_RES } from '../art.js';
@@ -7,13 +7,14 @@ import { toIso, ISO_W, ISO_H } from '../iso.js';
 import { panel, button, volumeRows, scrollText, FONT_SERIF, FONT_SANS, UI_COL } from '../ui.js';
 import { audio } from '../audio.js';
 import { listSaves, readSave } from '../save.js';
+import { listReplays, deleteReplay } from '../replay.js';
 import { DIFFICULTY } from '../ai.js';
 import { HOW_TO_PLAY } from '../help.js';
 import { Effects } from '../effects.js';
 import { makeCanvas } from '../art.js';
 import { cursors } from '../cursors.js';
 
-export const GAME_VERSION = 'v10';
+export { GAME_VERSION };
 
 // The game's crest: a globe, half green and half smog, ringed in bronze with a laurel.
 function drawCrest(ctx) {
@@ -188,7 +189,7 @@ export default class MenuScene extends Phaser.Scene {
       const saves = listSaves().filter((s) => !s.empty).sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
       const any = saves.length > 0;
       const k = any ? 60 : 0; // room for "Continue"
-      this.addUI(panel(this, (w - PW) / 2, top, PW, (canInstall ? 370 : 310) + k, D));
+      this.addUI(panel(this, (w - PW) / 2, top, PW, (canInstall ? 430 : 370) + k, D));
       if (any) {
         const latest = saves[0];
         btn(top + 30, `Continue  ·  ${fmtTime(latest.gameTime || 0)}, ${ERAS[latest.era || 0].name}`, () => {
@@ -198,10 +199,11 @@ export default class MenuScene extends Phaser.Scene {
       }
       btn(top + 30 + k, 'New Game', () => this.show('new'));
       btn(top + 90 + k, 'Load Game', () => this.show('load')).setEnabled(any);
-      btn(top + 150 + k, 'How to Play', () => this.show('help'));
-      btn(top + 210 + k, 'Settings', () => this.show('settings'));
+      btn(top + 150 + k, 'Replays', () => this.show('replays')).setEnabled(listReplays().length > 0);
+      btn(top + 210 + k, 'How to Play', () => this.show('help'));
+      btn(top + 270 + k, 'Settings', () => this.show('settings'));
       if (canInstall) {
-        btn(top + 270 + k, 'Install Game', async () => {
+        btn(top + 330 + k, 'Install Game', async () => {
           const prompt = window.installPrompt;
           if (!prompt) return;
           prompt.prompt();
@@ -266,6 +268,25 @@ export default class MenuScene extends Phaser.Scene {
         }, { w: 380, size: '15px' }).setEnabled(!s.empty);
       });
       btn(top + 66 + saves.length * 54 + 6, 'Back', () => this.show('main'), { w: 200 });
+    } else if (view === 'replays') {
+      const list = listReplays();
+      const RW = 520;
+      this.addUI(panel(this, (w - RW) / 2, top, RW, 120 + list.length * 54 + 40, D));
+      this.addUI(this.add.text(w / 2, top + 22, 'Replays', { fontFamily: FONT_SERIF, fontSize: '22px', color: UI_COL.gold, stroke: '#000', strokeThickness: 4 }).setOrigin(0.5, 0).setDepth(D + 1));
+      this.addUI(this.add.text(w / 2, top + 54, 'Your last few games, played back move by move.', {
+        fontFamily: FONT_SANS, fontSize: '13px', fontStyle: 'italic', color: UI_COL.dim, stroke: '#000', strokeThickness: 2,
+      }).setOrigin(0.5, 0).setDepth(D + 1));
+      const RESULT = { victory: 'Victory', green: 'Green Victory', defeat: 'Defeat', collapse: 'Collapse' };
+      list.forEach((r, i) => {
+        const d = new Date(r.date);
+        const when = `${d.getDate()}/${d.getMonth() + 1} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+        const map = MAP_TYPES[r.mapType] ? MAP_TYPES[r.mapType].name : r.mapType;
+        const label = `${when} — ${fmtTime((r.ticks || 0) / 20)}, ${RESULT[r.result] || 'unfinished'}, ${map}, ${DIFFICULTY[r.difficulty]?.name || ''}`;
+        const b = btn(top + 86 + i * 54, label, () => this.scene.start('GameScene', { replay: r }), { w: 420, size: '14px' });
+        b.setX((w - RW) / 2 + 20);
+        this.addUI(button(this, (w - RW) / 2 + RW - 72, top + 86 + i * 54, 52, 44, '✕', () => { deleteReplay(r.id); this.show(listReplays().length ? 'replays' : 'main'); }, { depth: D + 1, size: '16px' }));
+      });
+      btn(top + 86 + list.length * 54 + 6, 'Back', () => this.show('main'), { w: 200 });
     } else if (view === 'help') {
       const PH = Math.min(440, h - top - 10);
       this.addUI(panel(this, (w - 600) / 2, top - 20, 600, PH, D));

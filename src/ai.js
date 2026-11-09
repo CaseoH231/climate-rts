@@ -132,14 +132,15 @@ export class EnemyAI {
     // 5. Train soldiers and archers (keep some food for workers early on).
     for (const b of mine) {
       if (b.type !== 'barracks' || !b.complete || b.queue.length >= 2) continue;
-      let type = Math.random() < 0.55 ? 'soldier' : era >= 1 ? 'rifleman' : 'archer';
-      const r = Math.random();
+      const rand = () => this.world.rand();
+      let type = rand() < 0.55 ? 'soldier' : era >= 1 ? 'rifleman' : 'archer';
+      const r = rand();
       if (era === 0 && r < 0.12) type = 'scout';
       if (era >= 1 && r < 0.1) type = 'cannon';
       else if (era >= 1 && r < 0.17) type = 'medic';
-      if (era >= 2 && Math.random() < 0.3) type = 'armoured_car';
-      if (era >= 4 && Math.random() < 0.35) type = 'e_tank';
-      if (Math.random() < this.cfg.counterChance) type = this.counterPick(era) || type;
+      if (era >= 2 && rand() < 0.3) type = 'armoured_car';
+      if (era >= 4 && rand() < 0.35) type = 'e_tank';
+      if (rand() < this.cfg.counterChance) type = this.counterPick(era) || type;
       const reserve = (workers.length < 12 ? 60 : 0) + (this.saving ? this.saving.food || 0 : 0);
       if (this.res.food - reserve >= (UNIT_TYPES[type].cost.food || 0)) w.trainAt(b, type);
     }
@@ -287,7 +288,7 @@ export class EnemyAI {
           cands.push({ x: centre.x + dx - Math.floor(def.w / 2), y: centre.y + dy - Math.floor(def.h / 2) });
         }
       }
-      cands.sort(() => Math.random() - 0.5);
+      this.world.rng.shuffle(cands);
       for (const c of cands) {
         if (w.map.canPlace(c.x - gap, c.y - gap, def.w + gap * 2, def.h + gap * 2) && !w.unitsInRect(c.x, c.y, def.w, def.h)) return c;
       }

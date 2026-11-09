@@ -161,6 +161,8 @@ const CROP_ROWS = 9;
 
 export class Building {
   constructor(scene, map, type, tx, ty, team = 'player', complete = false) {
+    this.id = scene.newId ? scene.newId() : 0;
+    if (scene.ents) scene.ents.set(this.id, this);
     const def = BUILDING_TYPES[type];
     this.scene = scene;
     this.map = map;
@@ -342,7 +344,7 @@ export class Building {
           // one extra arrow for every 3 people sheltering inside
           const arrows = 1 + Math.floor(this.garrison.length / 3);
           for (let i = 0; i < arrows; i++) {
-            world.shoot(this.cx + (i ? (Math.random() - 0.5) * 30 : 0), this.cy, e, this.def.attack.dmg, this, this.type === 'tower' ? 60 : 50);
+            world.shoot(this.cx + (i ? (world.rand() - 0.5) * 30 : 0), this.cy, e, this.def.attack.dmg, this, this.type === 'tower' ? 60 : 50);
           }
           this.cooldown = this.def.attack.cooldown;
         } else {

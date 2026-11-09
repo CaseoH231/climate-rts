@@ -41,7 +41,7 @@ export class Wildlife {
 
   add(x, y) {
     const sprite = this.scene.add.image(0, 0, 'deer0').setOrigin(0.5, 0.88).setScale(0.5);
-    const d = { id: this.nextId++, x, y, tx: x, ty: y, wait: Math.random() * 4, fleeing: 0, sprite, dead: false, phase: Math.random() * 1000 };
+    const d = { id: this.nextId++, x, y, tx: x, ty: y, wait: this.scene.rand() * 4, fleeing: 0, sprite, dead: false, phase: Math.random() * 1000 };
     this.place(d);
     this.deer.push(d);
     return d;
@@ -82,7 +82,7 @@ export class Wildlife {
           if (dist < td) { td = dist; threat = u; }
         }
         if (threat) {
-          const ang = Math.atan2(d.y - threat.y, d.x - threat.x) + (Math.random() - 0.5) * 0.9;
+          const ang = Math.atan2(d.y - threat.y, d.x - threat.x) + (world.rand() - 0.5) * 0.9;
           for (const len of [4, 3, 2]) {
             const nx = d.x + Math.cos(ang) * len * TILE;
             const ny = d.y + Math.sin(ang) * len * TILE;
@@ -106,9 +106,9 @@ export class Wildlife {
         d.moving = false;
         d.wait -= s;
         if (d.wait <= 0) {
-          d.wait = 3 + Math.random() * 6;
-          const ang = Math.random() * Math.PI * 2;
-          const len = (0.6 + Math.random() * 1.6) * TILE;
+          d.wait = 3 + world.rand() * 6;
+          const ang = world.rand() * Math.PI * 2;
+          const len = (0.6 + world.rand() * 1.6) * TILE;
           const nx = d.x + Math.cos(ang) * len;
           const ny = d.y + Math.sin(ang) * len;
           if (this.clearLine(d, nx, ny)) { d.tx = nx; d.ty = ny; }
@@ -128,6 +128,23 @@ export class Wildlife {
       // face the way it's heading (screen left/right)
       const sx = (d.tx - d.ty) - (d.x - d.y);
       if (Math.abs(sx) > 1) d.sprite.setFlipX(sx < 0);
+    }
+  }
+
+  byId(id) {
+    return this.deer.find((d) => d.id === id && !d.dead) || null;
+  }
+
+  // Remember where every deer was before a tick, so they can be drawn smoothly in between.
+  snapshot() {
+    for (const d of this.deer) { d.ox = d.x; d.oy = d.y; }
+  }
+
+  interpolate(a) {
+    for (const d of this.deer) {
+      if (d.dead || d.ox === undefined) continue;
+      const i = toIso(d.ox + (d.x - d.ox) * a, d.oy + (d.y - d.oy) * a);
+      d.sprite.setPosition(i.x, i.y);
     }
   }
 

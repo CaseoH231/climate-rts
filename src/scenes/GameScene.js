@@ -13,7 +13,12 @@ import { Stats } from '../stats.js';
 import { Effects } from '../effects.js';
 import { cursors } from '../cursors.js';
 import { Wildlife } from '../wildlife.js';
-import { GAME_SPEEDS, MARKET_BASE } from '../config.js';
+import { GAME_SPEEDS, MARKET_BASE, GAME_VERSION, TICK_MS } from '../config.js';
+import { Rng, hashNumbers } from '../rng.js';
+import { saveReplay } from '../replay.js';
+
+const HASH_EVERY = 40;      // fingerprint the game state every 40 ticks (2 seconds)
+const MAX_TICKS_PER_FRAME = 8;
 
 const MARKET_FEE = 1.3;   // you always get back less than you put in
 const SPEED_KEY = 'climate-rts-speed';
@@ -30,12 +35,34 @@ export default class GameScene extends Phaser.Scene {
   }
 
   // data: { seed, difficulty } for a new game, or { load: <save data> } to continue a saved one.
+  // data: { replay } to watch a recorded game.
   create(data = {}) {
-    const save = data.load || null;
+    const replay = data.replay || null;
+    const save = replay ? null : data.load || null;
+    this.replay = replay;
     this.savedGroups = null;
-    this.difficulty = save ? save.difficulty : data.difficulty || 'normal';
-    const seed = save ? save.seed : data.seed ?? MAP_SEED;
-    this.mapType = (save ? save.mapType : data.mapType) || 'continental';
+    this.difficulty = replay ? replay.difficulty : save ? save.difficulty : data.difficulty || 'normal';
+    const seed = replay ? replay.seed : save ? save.seed : data.seed ?? MAP_SEED;
+    this.mapType = (replay ? replay.mapType : save ? save.mapType : data.mapType) || 'continental';
+
+    // --- Deterministic simulation ---
+    // Everything that changes the game uses this seeded random number generator (never Math.random),
+    // runs in fixed 50 ms ticks, and only changes through commands. The same seed + the same commands
+    // always give the same game: that's what makes replays — and later online play — possible.
+    this.rng = new Rng((seed ^ 0x9e3779b9) >>> 0);
+    this.nextId = 1;
+    this.ents = new Map();        // id -> unit or building, so commands can name things by number
+    this.tick = 0;
+    this.acc = 0;                 // real time waiting to be turned into ticks
+    this.pending = [];            // commands given since the last tick
+    this.replayCursor = 0;
+    this.hashCursor = 0;
+    this.desync = null;
+    this.syncChecks = 0;
+    this.recording = !save && !replay ? {
+      id: Date.now(), v: GAME_VERSION, date: Date.now(), seed, mapType: this.mapType, difficulty: this.difficulty,
+      fog: data.fog !== false, cmds: [], hashes: [], ticks: 0, result: null,
+    } : null;
 
     // --- Art (drawn with code at start-up) & sound ---
     generateArt(this, BUILDING_TYPES);
@@ -95,6 +122,8 @@ export default class GameScene extends Phaser.Scene {
 
     if (save) {
       this.restore(save);
+      if (save.rngState != null) this.rng.state = save.rngState >>> 0;
+      this.tick = save.tick || 0;
     } else {
       // --- Starting bases ---
       this.setupBase(PLAYER_START, 'player', ['worker', 'worker', 'worker', 'worker', 'soldier', 'soldier', 'soldier'], 2);
@@ -107,7 +136,7 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // --- Fog of war ---
-    const fogOn = save ? (save.fog ? save.fog.enabled : true) : data.fog !== false;
+    const fogOn = replay ? false : save ? (save.fog ? save.fog.enabled : true) : data.fog !== false;
     this.fog = new Fog(this, fogOn, save && save.fog ? save.fog.explored : null);
     this.fog.applyVisibility();
 
@@ -115,6 +144,7 @@ export default class GameScene extends Phaser.Scene {
     this.fx = new Effects(this);
     this.wildlife = new Wildlife(this, this.map, save ? save.wildlife || [] : null);
     this.events.once('shutdown', () => this.wildlife.destroy());
+    this.events.once('shutdown', () => this.finishRecording());
     this.cursorKind = null;
     this.time.delayedCall(0, () => this.setCursor('arrow'));
     this.cursorTimer = 0;
@@ -375,6 +405,7 @@ export default class GameScene extends Phaser.Scene {
 
   // A message about something the player can't do, with an error sound.
   fail(msg) {
+    if (this.replay) return;
     this.toast(msg);
     audio.play('error');
   }
@@ -562,11 +593,19 @@ export default class GameScene extends Phaser.Scene {
 
   // Player buttons
   research(id) {
-    if (this.selectedBuilding) this.startResearch(this.selectedBuilding, 'upgrade', id);
+    const b = this.selectedBuilding;
+    if (!b) return;
+    const problem = this.researchProblem(b, 'upgrade', id);
+    if (problem) { this.fail(problem); return; }
+    this.issue({ k: 'research', b: b.id, id });
   }
 
   advanceEra() {
-    if (this.selectedBuilding) this.startResearch(this.selectedBuilding, 'era');
+    const b = this.selectedBuilding;
+    if (!b) return;
+    const problem = this.researchProblem(b, 'era');
+    if (problem) { this.fail(problem); return; }
+    this.issue({ k: 'era', b: b.id });
   }
 
   researchFor(team, id) {
@@ -593,6 +632,7 @@ export default class GameScene extends Phaser.Scene {
     if (b.hp <= 0 && (b.complete || b.progress > 0.25) && b.type !== 'trees') this.fx.ruins(b);
     b.dead = true;
     b.destroy();
+    this.ents.delete(b.id);
     this.buildings = this.buildings.filter((x) => x !== b);
     if (this.selectedBuilding === b) {
       this.selectedBuilding = null;
@@ -705,7 +745,7 @@ export default class GameScene extends Phaser.Scene {
     this.sfx(kind, x, y);
     const from = toIso(x, y);
     from.y -= z;
-    const to = target.isBuilding ? toIso(target.cx, target.cy) : { x: target.isoX, y: target.isoY };
+    const to = target.isBuilding ? toIso(target.cx, target.cy) : toIso(target.x, target.y);
     to.y -= target.isBuilding ? 20 : 12;
     const dist = Math.hypot(to.x - from.x, to.y - from.y);
     const flight = Math.max(80, dist * 2.2); // ms of game time
@@ -1005,14 +1045,12 @@ export default class GameScene extends Phaser.Scene {
     b.queue.splice(i, 1);
     if (i === 0) { b.trainTimer = 0; b.waitingForPop = false; }
     b.redraw();
-    audio.play('click');
+    if (b === this.selectedBuilding) this.emitSelection();
   }
 
   attackMoveTo(wx, wy) {
-    const t = this.map.worldToTile(wx, wy);
-    const army = [...this.selected].filter((u) => u.isMilitary);
-    const spots = this.map.tilesAround(t.x, t.y, army.length);
-    army.forEach((u, i) => u.orderAttackMove(spots[i] || t));
+    const ids = [...this.selected].filter((u) => u.isMilitary).map((u) => u.id);
+    if (ids.length) this.issue({ k: 'amove', ids, x: wx, y: wy });
     audio.play('confirm');
     this.showMarker(wx, wy, 0xe05a4a);
     if (!this.keys.SHIFT.isDown) this.cancelTargeting();
@@ -1047,6 +1085,7 @@ export default class GameScene extends Phaser.Scene {
     this.sfx('death', u.x, u.y);
     if (u.container.visible) this.fx.death(u);
     u.container.destroy();
+    this.ents.delete(u.id);
     this.units = this.units.filter((x) => x !== u);
     if (this.selected.delete(u)) this.emitSelection();
   }
@@ -1105,14 +1144,11 @@ export default class GameScene extends Phaser.Scene {
   }
 
   startPlacing(type) {
-    if (!this.selectedWorkers().length) return;
+    if (this.replay || !this.selectedWorkers().length) return;
     const def = BUILDING_TYPES[type];
-    if (def.era > this.eraOf('player')) {
-      this.fail(`${def.name} requires the ${ERAS[def.era].name}`);
-      return;
-    }
-    if (def.wonder && this.buildings.some((b) => b.team === 'player' && b.def.wonder)) {
-      this.fail('You can only build one Climate Restoration Project');
+    const problem = this.placeProblem(type, 'player');
+    if (problem) {
+      this.fail(problem);
       return;
     }
     if (!this.canAfford(def.cost)) {
@@ -1134,10 +1170,25 @@ export default class GameScene extends Phaser.Scene {
     const def = BUILDING_TYPES[this.placing.type];
     const tx = Math.round(w.x / TILE - def.w / 2);
     const ty = Math.round(w.y / TILE - def.h / 2);
-    let valid = this.map.canPlace(tx, ty, def.w, def.h);
-    if (valid && !def.walkable) valid = !this.unitsInRect(tx, ty, def.w, def.h);
-    if (valid && def.needsWater) valid = this.map.waterAround(tx, ty, def.w, def.h) >= def.needsWater;
-    return { tx, ty, valid, def };
+    return { tx, ty, valid: this.canPlaceAt(this.placing.type, tx, ty), def };
+  }
+
+  // Is the ground free for this building with its top-left corner on tile (tx, ty)?
+  canPlaceAt(type, tx, ty) {
+    const def = BUILDING_TYPES[type];
+    if (!def || !this.map.canPlace(tx, ty, def.w, def.h)) return false;
+    if (!def.walkable && this.unitsInRect(tx, ty, def.w, def.h)) return false;
+    if (def.needsWater && this.map.waterAround(tx, ty, def.w, def.h) < def.needsWater) return false;
+    return true;
+  }
+
+  // Why a team can't start this kind of building at all (or null if it can).
+  placeProblem(type, team) {
+    const def = BUILDING_TYPES[type];
+    if (!def) return "Can't build that";
+    if (def.era > this.eraOf(team)) return `${def.name} requires the ${ERAS[def.era].name}`;
+    if (def.wonder && this.buildings.some((b) => b.team === team && b.def.wonder)) return 'You can only build one Climate Restoration Project';
+    return null;
   }
 
   // Tiles on a straight line between two tiles (Bresenham) — used for walls.
@@ -1175,23 +1226,15 @@ export default class GameScene extends Phaser.Scene {
     const def = BUILDING_TYPES[type];
     const tiles = this.wallLine().filter((t) => t.valid);
     this.placing.from = null;
-    let placed = 0;
-    let first = null;
-    for (const t of tiles) {
-      if (!this.canAfford(def.cost)) break;
-      const b = this.placeBuilding(type, t.x, t.y, 'player');
-      first = first || b;
-      placed++;
-    }
-    if (!placed) {
+    if (!tiles.length || !this.canAfford(def.cost)) {
       this.fail(tiles.length ? `Need ${this.missingText(def.cost)} more for a ${def.name}` : "Can't build there");
       this.updateGhost();
       return;
     }
-    if (placed < tiles.length) this.fail(`Ran out of stone after ${placed} wall sections`);
+    this.issue({ k: 'wall', type, tiles: tiles.map((t) => [t.x, t.y]), ids: this.selectedWorkers().map((u) => u.id) });
     audio.play('build');
-    for (const u of this.selectedWorkers()) u.orderBuild(first);
-    this.showMarker(first.cx, first.cy, 0x7cfc00);
+    const c = this.map.tileCenter(tiles[0].x, tiles[0].y);
+    this.showMarker(c.x, c.y, 0x7cfc00);
     if (!this.keys.SHIFT.isDown) this.cancelPlacing();
     else this.updateGhost();
   }
@@ -1235,10 +1278,9 @@ export default class GameScene extends Phaser.Scene {
       this.cancelPlacing();
       return;
     }
-    const b = this.placeBuilding(this.placing.type, tx, ty, 'player');
+    this.issue({ k: 'place', type: this.placing.type, tx, ty, ids: this.selectedWorkers().map((u) => u.id) });
     audio.play('build');
-    for (const u of this.selectedWorkers()) u.orderBuild(b);
-    this.showMarker(b.cx, b.cy, 0x7cfc00);
+    this.showMarker((tx + def.w / 2) * TILE, (ty + def.h / 2) * TILE, 0x7cfc00);
     if (!this.keys.SHIFT.isDown) this.cancelPlacing();
   }
 
@@ -1246,18 +1288,20 @@ export default class GameScene extends Phaser.Scene {
   train(type) {
     const b = this.selectedBuilding;
     if (!b || !b.complete || !(b.def.trains || []).includes(type)) return;
-    if (UNIT_TYPES[type].era > this.eraOf('player')) {
-      this.fail(`${UNIT_TYPES[type].name} requires the ${ERAS[UNIT_TYPES[type].era].name}`);
-      return;
-    }
-    if (b.research) { this.fail('Busy researching'); return; }
-    if (b.queue.length >= 5) { this.fail('Queue is full (5 max)'); return; }
-    const cost = UNIT_TYPES[type].cost;
-    if (!this.canAfford(cost)) {
-      this.fail(`Need ${this.missingText(cost)} more for a ${UNIT_TYPES[type].name}`);
-      return;
-    }
-    this.trainAt(b, type);
+    const problem = this.trainProblem(b, type);
+    if (problem) { this.fail(problem); return; }
+    this.issue({ k: 'train', b: b.id, type });
+  }
+
+  // Why this building can't start training this unit right now (or null if it can).
+  trainProblem(b, type) {
+    const u = UNIT_TYPES[type];
+    if (!u || !b || b.dead || !b.complete || !(b.def.trains || []).includes(type)) return "Can't train that here";
+    if (u.era > this.eraOf(b.team)) return `${u.name} requires the ${ERAS[u.era].name}`;
+    if (b.research) return 'Busy researching';
+    if (b.queue.length >= 5) return 'Queue is full (5 max)';
+    if (!this.canAfford(u.cost, b.team)) return `Need ${this.missingText(u.cost, b.team)} more for a ${u.name}`;
+    return null;
   }
 
   trainAt(b, type) {
@@ -1267,6 +1311,7 @@ export default class GameScene extends Phaser.Scene {
     this.spend(cost, b.team);
     b.queue.push(type);
     b.redraw();
+    if (b === this.selectedBuilding) this.emitSelection();
     return true;
   }
 
@@ -1312,7 +1357,7 @@ export default class GameScene extends Phaser.Scene {
       if (this.map.resourceAt(r.x, r.y)) { u.orderGather(r); return; }
     }
     const spots = this.map.tilesAround(r.x, r.y, 9);
-    if (spots.length) u.moveTo(spots[Math.floor(Math.random() * spots.length)]);
+    if (spots.length) u.moveTo(spots[Math.floor(this.rand() * spots.length)]);
   }
 
   // Flag and dotted line showing where the selected building sends its new units.
@@ -1334,7 +1379,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   stopSelected() {
-    for (const u of this.selected) u.stop();
+    if (this.selected.size) this.issue({ k: 'stop', ids: [...this.selected].map((u) => u.id) });
   }
 
   // ---------- Control groups ----------
@@ -1466,56 +1511,72 @@ export default class GameScene extends Phaser.Scene {
   // ---------- Right-click orders ----------
   // Right-click at grid point (wx, wy). `iso` is the isometric click point when it came from the mouse.
   commandAt(wx, wy, iso) {
+    if (this.replay) return;
     const sb = this.selectedBuilding;
     if (!this.selected.size && sb && sb.team === 'player' && sb.def.trains) {
       const rt = this.map.worldToTile(wx, wy);
-      sb.rally = { x: rt.x, y: rt.y };
+      this.issue({ k: 'rally', b: sb.id, x: rt.x, y: rt.y });
       audio.play('confirm');
       this.showMarker(wx, wy, 0xf0e6c0);
-      this.drawRally();
       return;
     }
     if (!this.selected.size) return;
     const t = this.map.worldToTile(wx, wy);
     const b = iso ? this.buildingAtIso(iso.x, iso.y) : this.map.buildingAt(t.x, t.y);
     const units = [...this.selected];
+    const ids = units.map((u) => u.id);
     if (iso) audio.play('confirm');
 
-    // Attack an enemy unit or building.
+    // What did we click on? Work it out here (where the player sees things) and send it by id.
     const enemy = (iso && this.enemyUnitAt(iso.x, iso.y)) || (b && b.team !== 'player' ? b : null);
     if (enemy) {
-      units.forEach((u) => u.orderAttack(enemy));
+      this.issue({ k: 'order', ids, x: wx, y: wy, target: enemy.id });
       this.showMarker(wx, wy, 0xff4444);
       return;
     }
+    const hasWorkers = units.some((u) => u.type === 'worker');
+    const deer = iso && hasWorkers ? this.wildlife.at(iso.x, iso.y) : null;
+    const job = hasWorkers && (deer || (b && (!b.complete || b.type === 'farm')) || this.map.resourceAt(t.x, t.y));
+    this.issue({ k: 'order', ids, x: wx, y: wy, at: b ? b.id : null, deer: deer ? deer.id : null });
+    this.showMarker(wx, wy, job ? 0x7cfc00 : 0xffffff);
+  }
 
+  // A right-click order, carried out on the tick it was sent for.
+  execOrder(units, c, team) {
+    const wx = c.x;
+    const wy = c.y;
+    if (c.target != null) {
+      const target = this.byId(c.target);
+      if (target && target.team !== team) { units.forEach((u) => u.orderAttack(target)); return; }
+      this.moveGroup(units, wx, wy); // it died on the way: just go there
+      return;
+    }
+    const t = this.map.worldToTile(wx, wy);
+    const b = c.at != null ? this.byId(c.at) : null;
     const res = this.map.resourceAt(t.x, t.y);
     const workers = units.filter((u) => u.type === 'worker');
     let movers = units.filter((u) => u.type !== 'worker');
 
     // Hunt a deer.
-    const deer = iso && workers.length ? this.wildlife.at(iso.x, iso.y) : null;
+    const deer = c.deer != null && workers.length ? this.wildlife.byId(c.deer) : null;
     if (deer) {
       workers.forEach((w) => w.orderHunt(deer));
-      this.showMarker(wx, wy, 0x7cfc00);
       if (movers.length) this.moveGroup(movers, wx, wy);
       return;
     }
 
-    if (workers.length && b && !b.complete) {
+    const ours = b && b.team === team;
+    if (workers.length && ours && !b.complete) {
       workers.forEach((w) => w.orderBuild(b));
-      this.showMarker(wx, wy, 0x7cfc00);
-    } else if (workers.length && b && b.type === 'farm') {
+    } else if (workers.length && ours && b.type === 'farm') {
       const [first, ...rest] = workers;
       const taken = b.farmer && b.farmer.order && b.farmer.order.farm === b && b.farmer !== first;
       if (!taken) first.orderFarm(b);
       else movers.push(first);
       movers.push(...rest);
-      this.showMarker(wx, wy, 0x7cfc00);
     } else if (workers.length && res) {
       const tiles = this.map.resourceTilesNear(res, t.x, t.y, 4);
       if (tiles.length) workers.forEach((w, i) => w.orderGather(tiles[i % tiles.length]));
-      this.showMarker(wx, wy, 0x7cfc00);
     } else {
       movers = units;
     }
@@ -1529,7 +1590,6 @@ export default class GameScene extends Phaser.Scene {
     // Closest units take the closest spots so the group doesn't cross over itself.
     units.sort((a, b) => Phaser.Math.Distance.Between(a.x, a.y, wx, wy) - Phaser.Math.Distance.Between(b.x, b.y, wx, wy));
     units.forEach((u, i) => u.moveTo(goals[Math.min(i, goals.length - 1)]));
-    this.showMarker(wx, wy, 0xffffff);
   }
 
   showMarker(wx, wy, color) {
@@ -1554,6 +1614,7 @@ export default class GameScene extends Phaser.Scene {
     this.cancelTargeting();
     audio.play(result === 'victory' || result === 'green' ? 'victory' : 'defeat');
     this.clearSelection();
+    this.finishRecording(result);
     this.events.emit('gameOver', result);
   }
 
@@ -1621,13 +1682,21 @@ export default class GameScene extends Phaser.Scene {
     this.wildlife.render(time, this.fog);
     this.fx.updateBirds(delta, view, this.climate.temp);
     this.ambientEffects(delta);
-    // Cap frame time so a lag spike doesn't teleport units; faster speeds run extra ticks.
-    let left = Math.min(delta, 100) * this.speed;
-    while (left > 0 && !this.gameOver) {
-      const d = Math.min(left, 50);
-      this.step(d);
-      left -= d;
+    // Turn real time into fixed 50 ms ticks (faster game speeds run more ticks per second).
+    // A lag spike is capped so units don't teleport.
+    this.acc += Math.min(delta, 100) * this.speed;
+    let n = 0;
+    if (this.replay && !this.replayEnded && this.tick >= (this.replay.ticks || Infinity)) {
+      this.replayEnded = true;
+      this.toast('The replay has ended. Esc opens the menu.', '#d8c9a0');
     }
+    while (this.acc >= TICK_MS && !this.gameOver && !this.replayEnded && n < MAX_TICKS_PER_FRAME) {
+      this.tickOnce();
+      this.acc -= TICK_MS;
+      n++;
+    }
+    if (n >= MAX_TICKS_PER_FRAME) this.acc = Math.min(this.acc, TICK_MS);
+    this.interpolate(this.gameOver ? 1 : this.acc / TICK_MS);
   }
 
   // Drifting cloud shadows and glints of sunlight on water near the camera.
@@ -1655,6 +1724,184 @@ export default class GameScene extends Phaser.Scene {
       targets: s, alpha: 0.75, duration: 450, yoyo: true, ease: 'Sine.easeInOut',
       onComplete: () => { s.destroy(); this.glints--; },
     });
+  }
+
+  // ---------- Deterministic simulation: ids, random numbers, commands, ticks ----------
+  rand() {
+    return this.rng.next();
+  }
+
+  newId() {
+    return this.nextId++;
+  }
+
+  byId(id) {
+    const e = this.ents.get(id);
+    return e && !e.dead ? e : null;
+  }
+
+  // Everything the player does to the game goes through here. Commands wait for the next tick,
+  // so they happen at the same moment in the recording (and, later, on every computer online).
+  issue(cmd) {
+    if (this.replay || this.gameOver) return;
+    this.pending.push({ p: 'player', ...cmd });
+  }
+
+  execute(c) {
+    const team = c.p || 'player';
+    const live = new Set(this.units); // garrisoned units aren't on the field
+    const units = (c.ids || []).map((id) => this.ents.get(id))
+      .filter((u) => u && !u.dead && !u.isBuilding && u.team === team && live.has(u));
+    const b = c.b != null ? this.byId(c.b) : null;
+    const own = b && b.isBuilding && b.team === team ? b : null;
+    switch (c.k) {
+      case 'order': if (units.length) this.execOrder(units, c, team); break;
+      case 'move': if (units.length) this.moveGroup(units, c.x, c.y); break;
+      case 'amove': {
+        const army = units.filter((u) => u.isMilitary);
+        const t = this.map.worldToTile(c.x, c.y);
+        const spots = this.map.tilesAround(t.x, t.y, army.length);
+        army.forEach((u, i) => u.orderAttackMove(spots[i] || t));
+        break;
+      }
+      case 'stop': units.forEach((u) => u.stop()); break;
+      case 'rally':
+        if (own && own.def.trains) {
+          own.rally = { x: c.x, y: c.y };
+          if (own === this.selectedBuilding) this.drawRally();
+        }
+        break;
+      case 'place': this.execPlace(c, units, team); break;
+      case 'wall': this.execWall(c, units, team); break;
+      case 'train': {
+        if (!own) break;
+        const problem = this.trainProblem(own, c.type);
+        if (problem) { if (team === 'player') this.fail(problem); break; }
+        this.trainAt(own, c.type);
+        break;
+      }
+      case 'research': if (own) this.startResearch(own, 'upgrade', c.id); break;
+      case 'era': if (own) this.startResearch(own, 'era'); break;
+      case 'cancel': if (own) this.cancelTrain(own, c.i); break;
+      case 'bell': this.ringBell(team); break;
+      case 'allclear': this.allClear(team); break;
+      case 'trade':
+        this.trade(c.pay, c.buy, team);
+        if (team === 'player') this.events.emit('market');
+        break;
+      default: break;
+    }
+  }
+
+  execPlace(c, units, team) {
+    const def = BUILDING_TYPES[c.type];
+    const problem = this.placeProblem(c.type, team)
+      || (!this.canPlaceAt(c.type, c.tx, c.ty) ? "Can't build there" : null)
+      || (!this.canAfford(def.cost, team) ? `Need ${this.missingText(def.cost, team)} more for a ${def.name}` : null);
+    if (problem) { if (team === 'player') this.fail(problem); return; }
+    const b = this.placeBuilding(c.type, c.tx, c.ty, team);
+    for (const u of units) if (u.type === 'worker') u.orderBuild(b);
+  }
+
+  execWall(c, units, team) {
+    const def = BUILDING_TYPES[c.type];
+    if (!def || !def.line || this.placeProblem(c.type, team)) return;
+    const tiles = (c.tiles || []).slice(0, 80);
+    let placed = 0;
+    let first = null;
+    for (const [x, y] of tiles) {
+      if (!this.canAfford(def.cost, team)) break;
+      if (!this.canPlaceAt(c.type, x, y)) continue;
+      const b = this.placeBuilding(c.type, x, y, team);
+      first = first || b;
+      placed++;
+    }
+    if (team === 'player') {
+      if (!placed) this.fail(`Need ${this.missingText(def.cost, team)} more for a ${def.name}`);
+      else if (placed < tiles.length) this.fail(`Ran out of stone after ${placed} wall sections`);
+    }
+    if (first) for (const u of units) if (u.type === 'worker') u.orderBuild(first);
+  }
+
+  // One fixed tick: carry out this tick's commands, then move the world on by 50 ms.
+  tickOnce() {
+    if (this.replay) {
+      const cmds = this.replay.cmds;
+      while (this.replayCursor < cmds.length && cmds[this.replayCursor][0] <= this.tick) {
+        this.execute(cmds[this.replayCursor][1]);
+        this.replayCursor++;
+      }
+    } else if (this.pending.length) {
+      const batch = this.pending;
+      this.pending = [];
+      for (const c of batch) {
+        if (this.recording) this.recording.cmds.push([this.tick, c]);
+        this.execute(c);
+      }
+    }
+    for (const u of this.units) { u.ox = u.px; u.oy = u.py; }
+    this.wildlife.snapshot();
+    this.step(TICK_MS);
+    this.tick++;
+    if (this.tick % HASH_EVERY === 0) this.checkHash();
+  }
+
+  // A fingerprint of everything that matters in the game. Two computers running the same game
+  // must get the same number on the same tick — if not, they've drifted apart ("desync").
+  stateHash() {
+    const nums = [this.tick, this.rng.state, this.units.length, this.buildings.length];
+    for (const u of this.units) nums.push(u.id, u.px, u.py, u.hp);
+    for (const b of this.buildings) nums.push(b.id, b.hp, b.progress || 0, b.queue.length);
+    for (const team of ['player', 'enemy']) {
+      const t = this.teams[team];
+      for (const k of Object.keys(t.resources).sort()) nums.push(t.resources[k]);
+      nums.push(t.era, t.upgrades.size);
+    }
+    nums.push(this.climate.co2, this.climate.temp);
+    return hashNumbers(nums);
+  }
+
+  checkHash() {
+    const h = this.stateHash();
+    if (this.recording) {
+      this.recording.hashes.push([this.tick, h]);
+      return;
+    }
+    if (!this.replay) return;
+    const hs = this.replay.hashes || [];
+    while (this.hashCursor < hs.length && hs[this.hashCursor][0] < this.tick) this.hashCursor++;
+    const e = hs[this.hashCursor];
+    if (!e || e[0] !== this.tick) return;
+    this.syncChecks++;
+    if (e[1] !== h && this.desync == null) {
+      this.desync = this.tick;
+      this.toast(`⚠ Replay went out of sync at ${Math.floor(this.tick / 1200)}:${String(Math.floor(this.tick / 20) % 60).padStart(2, '0')}`, '#e07a6a');
+    }
+  }
+
+  // Save the recording of this game (on game over, and when leaving it).
+  finishRecording(result = null) {
+    const r = this.recording;
+    if (!r || this.tick < 100) return null;
+    if (result) r.result = result;
+    r.ticks = this.tick;
+    r.gameTime = this.gameTime;
+    r.era = this.eraOf('player');
+    saveReplay(r);
+    return r;
+  }
+
+  // Draw units part-way between their last two tick positions, so movement stays smooth at any frame rate.
+  interpolate(a) {
+    for (const u of this.units) {
+      if (u.ox === undefined) continue;
+      const dx = u.px - u.ox;
+      const dy = u.py - u.oy;
+      if (dx * dx + dy * dy > TILE * TILE * 4) continue; // teleported (left a building): don't slide
+      const iso = toIso(u.ox + dx * a, u.oy + dy * a);
+      u.container.setPosition(iso.x, iso.y);
+    }
+    this.wildlife.interpolate(a);
   }
 
   // One tick of the simulation.

@@ -167,6 +167,12 @@ export default class UIScene extends Phaser.Scene {
     this.hovered = null;
     this.menu = null;
 
+    // Watching a replay: a banner that also shows whether the replay is still in step.
+    this.replayBanner = w.replay ? this.add.text(0, TOP_H + 8, '', {
+      fontFamily: SERIF, fontSize: '16px', color: COL.gold, stroke: '#000', strokeThickness: 4,
+      backgroundColor: 'rgba(0,0,0,0.45)', padding: { x: 12, y: 5 },
+    }).setOrigin(0.5, 0).setDepth(50) : null;
+
     this.layout();
     this.scale.on('resize', this.layout, this);
 
@@ -178,6 +184,7 @@ export default class UIScene extends Phaser.Scene {
       alert: (ax, ay) => this.pings.push({ x: ax, y: ay, t: 3000 }),
       gameOver: (r) => this.showGameOver(r),
       openMenu: () => (this.menu ? this.closeMenu() : this.openMenu()),
+      market: () => this.buildButtons(),
     };
     for (const [ev, fn] of Object.entries(handlers)) w.events.on(ev, fn);
     this.events.once('shutdown', () => {
@@ -233,6 +240,7 @@ export default class UIScene extends Phaser.Scene {
     this.clockText.setPosition(w - 98, 8);
     this.speedText.setPosition(w - 150, 8);
     this.menuBtn.setPosition(w - 86, 3);
+    if (this.replayBanner) this.replayBanner.setX(w / 2);
 
     const cx = w - CLIM_W - 8;
     const cy = TOP_H + 6;
@@ -414,7 +422,7 @@ export default class UIScene extends Phaser.Scene {
   buildQueueStrip(b) {
     const w = this.world;
     b.queue.forEach((type, i) => {
-      const { bar } = this.stripCell(i, w.unitTexKey(type, 'player'), () => w.cancelTrain(b, i),
+      const { bar } = this.stripCell(i, w.unitTexKey(type, 'player'), () => { w.issue({ k: 'cancel', b: b.id, i }); audio.play('click'); },
         { name: `Cancel ${UNIT_TYPES[type].name}`, cost: null, desc: 'Click to take it out of the queue and get the cost back.' });
       this.stripItems.push({ first: i === 0, bar });
     });
@@ -446,6 +454,7 @@ export default class UIScene extends Phaser.Scene {
     const w = this.world;
     const era = w.eraOf('player');
     const cmds = [];
+    if (w.replay) return cmds;
     if (b) {
       if (!b.complete || b.team !== 'player') return cmds;
       if (b.type === 'market') return this.marketCommands();
@@ -476,10 +485,10 @@ export default class UIScene extends Phaser.Scene {
       if (b.def.garrison) {
         while (cmds.length < 5) cmds.push(null);
         cmds.push(w.bellRung
-          ? { thumb: 'up_allclear', name: 'All clear', cost: null, desc: 'Everyone comes out of shelter and goes back to the job they were doing.', action: () => w.allClear() }
+          ? { thumb: 'up_allclear', name: 'All clear', cost: null, desc: 'Everyone comes out of shelter and goes back to the job they were doing.', action: () => w.issue({ k: 'allclear' }) }
           : { thumb: 'up_bell', name: 'Ring the town bell', cost: null,
             desc: 'Every worker runs into the nearest Town Centre (15) or tower (5). Each 3 inside adds an extra arrow. Ring again for "All clear".',
-            action: () => w.ringBell() });
+            action: () => w.issue({ k: 'bell' }) });
       }
       return cmds;
     }
@@ -525,7 +534,7 @@ export default class UIScene extends Phaser.Scene {
       cmds.push({
         thumb: `i_${r}`, name: `Buy 100 ${RES_NAME[r]}`, cost: { [pay]: cost },
         desc: r === 'fuel' ? 'Bought coal gets burned too: it adds CO₂ just like mining it.' : 'Buying makes this more expensive for a while.',
-        action: () => { w.trade(pay, r); this.buildButtons(); },
+        action: () => w.issue({ k: 'trade', pay, buy: r }),
       });
     }
     cmds.push(null, null);
@@ -658,6 +667,11 @@ export default class UIScene extends Phaser.Scene {
       if (!b.research && !b.queue.length && lines.length < 3) lines.push(b.def.desc);
       return [b.def.name, lines.join('\n')];
     }
+    if (!units.length && w.replay) {
+      return ['Watching a replay', 'Every move is played back exactly as it happened. You can look around,\n' +
+        'select things and change the speed (+ and −), but not give orders.\n' +
+        'Esc opens the menu.'];
+    }
     if (!units.length) {
       return ['Your people', 'Click or drag to select. Right-click to move, gather or attack.\n' +
         'Ctrl/Alt+1–9: make a group, 1–9: select it (twice to jump there)\n' +
@@ -734,7 +748,7 @@ export default class UIScene extends Phaser.Scene {
     if (view === 'main') {
       rows = [
         ['Resume Game', () => this.closeMenu()],
-        ['Save Game', () => this.openMenu('save')],
+        ['Save Game', () => this.openMenu('save'), !!w.replay],
         ['Load Game', () => this.openMenu('load')],
         ['How to Play', () => this.openMenu('help')],
         ['Settings', () => this.openMenu('settings')],
@@ -879,10 +893,23 @@ export default class UIScene extends Phaser.Scene {
         { values: tl.map((p) => p.army.enemy), color: TEAM_COLORS.enemy.main, name: 'Enemy' }], { min: 0, maxAtLeast: 5, fmt: (v) => String(Math.round(v)) });
 
     const by = y0 + PH - 64;
-    button(this, w / 2 - 210, by, 200, 44, 'Play Again', () => {
-      this.world.scene.start('GameScene', { seed: Math.floor(Math.random() * 1e9), mapType: this.world.mapType, difficulty: this.world.difficulty, fog: this.world.fog ? this.world.fog.enabled : true });
+    const rep = world.replay || world.finishRecording(result);
+    const bw = 190;
+    const x1 = rep ? w / 2 - bw * 1.5 - 15 : w / 2 - bw - 10;
+    if (world.replay) {
+      txt(w / 2, y0 + 112, world.desync != null ? 'This replay went out of sync — it was probably recorded with an older version.' : `Replay finished — stayed in sync for all ${world.syncChecks} checks.`,
+        { color: world.desync != null ? '#e07a6a' : '#b8dc90' }, 0.5);
+    }
+    button(this, x1, by, bw, 44, world.replay ? 'New Game' : 'Play Again', () => {
+      const r = world.replay;
+      this.world.scene.start('GameScene', { seed: Math.floor(Math.random() * 1e9), mapType: world.mapType, difficulty: world.difficulty, fog: r ? r.fog !== false : world.fog ? world.fog.enabled : true });
     }, { depth: D });
-    button(this, w / 2 + 10, by, 200, 44, 'Main Menu', () => this.quitToMenu(), { depth: D });
+    if (rep) {
+      button(this, x1 + bw + 15, by, bw, 44, world.replay ? 'Watch Again' : 'Watch Replay', () => {
+        this.world.scene.start('GameScene', { replay: rep });
+      }, { depth: D });
+    }
+    button(this, x1 + (rep ? 2 : 1) * (bw + 15), by, bw, 44, 'Main Menu', () => this.quitToMenu(), { depth: D });
   }
 
   // A small line chart: times along the bottom, one line per series.
@@ -944,6 +971,15 @@ export default class UIScene extends Phaser.Scene {
     if (this.clockText.text !== clock) this.clockText.setText(clock);
     const sp = `×${w.speed}`;
     if (this.speedText.text !== sp) this.speedText.setText(sp);
+    if (this.replayBanner) {
+      const sync = w.desync != null ? '✗ out of sync' : w.syncChecks ? `✓ in sync (${w.syncChecks} checks)` : 'checking…';
+      const end = w.replay.ticks ? `  ·  ${fmtTime(Math.min(w.tick, w.replay.ticks) / 20)} / ${fmtTime(w.replay.ticks / 20)}` : '';
+      const txt = `${w.replayEnded ? '■ REPLAY ENDED' : '▶ REPLAY'}${end}   ·   ${sync}`;
+      if (this.replayBanner.text !== txt) {
+        this.replayBanner.setText(txt);
+        this.replayBanner.setColor(w.desync != null ? '#e07a6a' : COL.gold);
+      }
+    }
 
     // heat haze, stronger and shimmering during a heatwave
     const hw = w.climate.heatwave > 0 ? 0.07 + Math.sin(time / 350) * 0.025 : 0;
