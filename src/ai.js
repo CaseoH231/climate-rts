@@ -11,8 +11,8 @@ export const AI_SETTINGS = {
   waveGap: 150,        // seconds between attacks
   firstWaveSize: 4,    // soldiers/archers in the first attack
   waveGrowth: 2,       // extra units each wave
-  eraTimes: [0, 480, 960],   // earliest game time (s) the enemy tries to reach each era (it never goes Green)
-  research: ['steel_axes', 'mining_carts', 'plough', 'chainsaws', 'iron_weapons'],
+  eraTimes: [0, 480, 840, 1140],   // earliest game time (s) the enemy tries to reach each era (it never goes Green)
+  research: ['steel_axes', 'mining_carts', 'plough', 'chainsaws', 'iron_weapons', 'electric_tools', 'body_armour'],
   // Share of workers on each resource. This enemy loves coal — it pollutes a lot!
   gatherMix: { food: 0.4, wood: 0.35, fuel: 0.15, stone: 0.1 },
 };
@@ -97,12 +97,14 @@ export class EnemyAI {
     if (!tc.research && workers.length + workersQueued < this.cfg.maxWorkers && tc.queue.length < 2 && !this.saving) w.trainAt(tc, 'worker');
 
     // 2. Build: houses when nearly full, then barracks, farms, more barracks.
-    const houseUnderway = mine.some((b) => b.type === 'house' && !b.complete);
     const farmUnderway = mine.some((b) => b.type === 'farm' && !b.complete);
     const berriesLeft = w.map.nearestResource('food', tc.tx + 1, tc.ty + 1, 10);
     // Wish list in priority order — the first one that can actually be placed gets built.
     const wishes = [];
-    if (popCap < 200 && popCap - popUsed - queued <= 3 && !houseUnderway) wishes.push('house');
+    const homeType = era >= 2 ? 'apartments' : 'house';
+    const homeUnderway = mine.some((b) => (b.type === 'house' || b.type === 'apartments') && !b.complete);
+    if (popCap < 200 && popCap - popUsed - queued <= 3 && !homeUnderway) wishes.push(homeType);
+    if (era >= 2 && count('factory') === 0 && !this.saving) wishes.push('factory');
     if (count('barracks') === 0 && workers.length >= 7) wishes.push('barracks');
     if (!berriesLeft && !farmUnderway && count('farm') < Math.ceil(workers.length * AI_SETTINGS.gatherMix.food)) wishes.push('farm');
     if (era >= 1 && count('workshop') === 0) wishes.push('workshop');
@@ -136,7 +138,7 @@ export class EnemyAI {
       if (era >= 1 && r < 0.1) type = 'cannon';
       else if (era >= 1 && r < 0.17) type = 'medic';
       if (era >= 2 && Math.random() < 0.3) type = 'armoured_car';
-      if (era >= 3 && Math.random() < 0.35) type = 'e_tank';
+      if (era >= 4 && Math.random() < 0.35) type = 'e_tank';
       if (Math.random() < this.cfg.counterChance) type = this.counterPick(era) || type;
       const reserve = (workers.length < 12 ? 60 : 0) + (this.saving ? this.saving.food || 0 : 0);
       if (this.res.food - reserve >= (UNIT_TYPES[type].cost.food || 0)) w.trainAt(b, type);

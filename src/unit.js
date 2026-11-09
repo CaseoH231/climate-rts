@@ -1,6 +1,6 @@
 // Units: workers and soldiers. Workers can gather resources and construct buildings.
 import { findPath } from './pathfinding.js';
-import { unitKey, ART_RES } from './art.js';
+import { unitKey, ART_RES, unitTier, ensureUnitTex } from './art.js';
 import { toIso } from './iso.js';
 import { TERRAIN } from './config.js';
 
@@ -38,11 +38,14 @@ export const UNIT_TYPES = {
              attack: 14, range: 120, cooldown: 1.4, sight: 240, vsBuilding: 1.0, vehicle: true,
              bonus: { archer: 1.5, soldier: 1.3 },
              desc: 'Fast, tough and great against buildings, soldiers and archers. Weak to riflemen. Runs on energy.' },
-  e_tank: { name: 'Electric Tank', era: 3, speed: 82, hp: 380, cost: { wood: 100, stone: 120, clean: 160 }, trainTime: 26, vehicle: true,
+  e_tank: { name: 'Electric Tank', era: 4, speed: 82, hp: 380, cost: { wood: 100, stone: 120, clean: 160 }, trainTime: 26, vehicle: true,
              attack: 24, range: 150, cooldown: 1.6, sight: 260, vsBuilding: 1.4,
              bonus: { archer: 1.5, soldier: 1.4, scout: 1.4, armoured_car: 1.3 },
              desc: 'Silent solar-charged tank. The strongest unit in the game — riflemen are its only real counter. Needs clean energy.' },
 };
+
+// Foot soldiers that Body Armour protects.
+export const INFANTRY = ['soldier', 'archer', 'rifleman', 'scout', 'medic'];
 
 // Colour of the "+10" that floats up when a worker drops off a load.
 const RES_TEXT_COLOR = { food: '#f0d77a', wood: '#d9b07a', stone: '#d8d4cc', fuel: '#b8b0a8' };
@@ -71,7 +74,9 @@ export class Unit {
     this.team = team;
     this.name = def.name;
     this.speed = def.speed;
-    this.maxHp = def.hp;
+    const ups = scene.teams ? scene.teams[team].upgrades : new Set();
+    this.maxHp = Math.round(def.hp * (ups.has('body_armour') && INFANTRY.includes(type) ? 1.3 : 1));
+    this.hp = this.maxHp;
     this.hp = def.hp;
     this.path = [];
     this.dest = null;
@@ -96,7 +101,9 @@ export class Unit {
     const big = def.vehicle || def.mounted;
     const shadow = scene.add.ellipse(0, 1, big ? 34 : 18, big ? 12 : 8, 0x000000, 0.32);
     this.ring = scene.add.ellipse(0, 1, big ? 42 : 26, big ? 16 : 12).setStrokeStyle(1.5, 0xe0d8b0, 0.9).setVisible(false);
-    this.sprite = scene.add.image(0, 0, unitKey(type, team)).setOrigin(0.5, def.mounted ? 0.9 : big ? 0.72 : 0.86).setScale(1 / ART_RES);
+    this.tier = unitTier(type, ups);
+    ensureUnitTex(scene, type, team, this.tier);
+    this.sprite = scene.add.image(0, 0, unitKey(type, team, 0, this.tier)).setOrigin(0.5, def.mounted ? 0.9 : big ? 0.72 : 0.86).setScale(1 / ART_RES);
     this.frame = 0;
     this.tool = null;
     const body = [this.sprite];
@@ -231,10 +238,18 @@ export class Unit {
   }
 
   // Walking animation: switch between standing and two stride poses.
+  // New look after an upgrade (e.g. Iron Weapons gives soldiers steel armour).
+  setTier(tier) {
+    if (tier === this.tier) return;
+    this.tier = tier;
+    ensureUnitTex(this.scene, this.type, this.team, tier);
+    this.sprite.setTexture(unitKey(this.type, this.team, this.def.vehicle ? 0 : this.frame, tier));
+  }
+
   setFrame(f) {
     if (this.def.vehicle || f === this.frame) return;
     this.frame = f;
-    this.sprite.setTexture(unitKey(this.type, this.team, f));
+    this.sprite.setTexture(unitKey(this.type, this.team, f, this.tier));
   }
 
   // Turn to face a point on the grid (left/right on screen).

@@ -12,13 +12,22 @@ function storage() {
 }
 
 // Short info about each slot for the save/load menus.
+// Version 10 added the Modern Age as era 2, so older saves in era 2+ move up one.
+const SAVE_VERSION = 10;
+function migrate(d) {
+  if (!d || (d.version || 0) >= SAVE_VERSION) return d;
+  for (const t of Object.values(d.teams || {})) if (t.era >= 2) t.era += 1;
+  d.version = SAVE_VERSION;
+  return d;
+}
+
 export function listSaves() {
   const ls = storage();
   return SAVE_SLOTS.map((slot) => {
     try {
       const raw = ls && ls.getItem(key(slot));
       if (!raw) return { slot, empty: true };
-      const d = JSON.parse(raw);
+      const d = migrate(JSON.parse(raw));
       return { slot, empty: false, savedAt: d.savedAt, gameTime: d.gameTime, era: d.teams.player.era, difficulty: d.difficulty };
     } catch (e) {
       return { slot, empty: true };
@@ -29,7 +38,7 @@ export function listSaves() {
 export function readSave(slot) {
   const ls = storage();
   const raw = ls && ls.getItem(key(slot));
-  return raw ? JSON.parse(raw) : null;
+  return raw ? migrate(JSON.parse(raw)) : null;
 }
 
 export function writeSave(slot, world) {
@@ -62,6 +71,7 @@ export function serialize(w) {
   return {
     version: 1,
     savedAt: Date.now(),
+    version: SAVE_VERSION,
     seed: w.map.seed,
     difficulty: w.difficulty,
     mapType: w.mapType,

@@ -3,9 +3,9 @@ import {
   TILE, MAP_W, MAP_H, MAP_SEED, PLAYER_START, ENEMY_START, START_RESOURCES, POP_MAX, TEAM_COLORS, TERRAIN, CLIMATE,
 } from '../config.js';
 import { GameMap } from '../map.js';
-import { Unit, UNIT_TYPES } from '../unit.js';
+import { Unit, UNIT_TYPES, INFANTRY } from '../unit.js';
 import { Building, BUILDING_TYPES, UPGRADES, ERAS } from '../buildings.js';
-import { generateArt, buildingKey, buildingTexInfo, ART_RES } from '../art.js';
+import { generateArt, buildingKey, buildingTexInfo, ART_RES, ensureBuildingTex, unitKey, unitTier, ensureUnitTex } from '../art.js';
 import { toIso, fromIso, ISO_W, ISO_H } from '../iso.js';
 import { Climate } from '../climate.js';
 import { findPath } from '../pathfinding.js';
@@ -467,11 +467,13 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
-  productionMultiplier(res, team) {
+  productionMultiplier(res, team, type) {
     const ups = this.teams[team].upgrades;
-    if (res === 'clean' && ups.has('smart_grid')) return 1.5;
-    if (res === 'food' && ups.has('fish_farming')) return 1.6;
-    return 1;
+    let m = 1;
+    if (res === 'clean' && ups.has('smart_grid')) m *= 1.5;
+    if (type === 'fishing_dock' && ups.has('fish_farming')) m *= 1.6;
+    if (['factory', 'office', 'fishing_dock'].includes(type) && ups.has('automation')) m *= 1.5;
+    return m;
   }
 
   attackMultiplier(team) {
@@ -545,11 +547,13 @@ export default class GameScene extends Phaser.Scene {
     const t = this.teams[b.team];
     if (r.kind === 'era') {
       t.era++;
+      this.restyleTeam(b.team);
       if (b.team === 'player') audio.play('fanfare');
       if (b.team === 'player') this.toast(`Your people have entered the ${ERAS[t.era].name}`, '#d8c9a0');
       else this.toast(`The enemy has entered the ${ERAS[t.era].name}`, '#d9a39b');
     } else {
       t.upgrades.add(r.id);
+      this.refreshUnitLooks(b.team, r.id);
       if (b.team === 'player') { this.toast(`${UPGRADES[r.id].name} researched: ${UPGRADES[r.id].desc}`, '#b8c99a'); audio.play('chime'); }
     }
     b.redraw();
@@ -736,6 +740,64 @@ export default class GameScene extends Phaser.Scene {
       }
       this.dealDamage(p.target, p.dmg, p.attacker);
     }
+  }
+
+  // ---------- Era looks ----------
+  // Buildings look like their owner's era (but never older than the era they belong to).
+  styleFor(type, team) {
+    return Math.max(this.teams ? this.teams[team].era : 0, BUILDING_TYPES[type].era || 0);
+  }
+
+  // Texture key for a building in a team's current look (drawn if needed) — for buttons and the ghost.
+  buildingTexKey(type, team = 'player') {
+    return ensureBuildingTex(this, type, team, this.styleFor(type, team), BUILDING_TYPES[type]);
+  }
+
+  unitTexKey(type, team = 'player') {
+    const tier = unitTier(type, this.teams[team].upgrades);
+    ensureUnitTex(this, type, team, tier);
+    return unitKey(type, team, 0, tier);
+  }
+
+  // A team entered a new era: every one of its buildings gets the new look.
+  restyleTeam(team) {
+    for (const b of this.buildings) if (b.team === team) b.restyle(this.styleFor(b.type, team));
+  }
+
+  // While an era is being researched, quietly draw the next era's building looks a few per frame
+  // so switching over doesn't cause a stutter.
+  prewarmStyles(delta) {
+    if (!this.styleQueue || !this.styleQueue.length) {
+      for (const team of ['player', 'enemy']) {
+        const tc = this.buildings.find((b) => b.team === team && b.research && b.research.kind === 'era');
+        if (!tc) continue;
+        const style = this.teams[team].era + 1;
+        const types = [...new Set(this.buildings.filter((b) => b.team === team).map((b) => b.type))];
+        this.styleQueue = types.map((type) => ({ type, team, style: Math.max(style, BUILDING_TYPES[type].era || 0) }))
+          .filter((q) => !this.textures.exists(buildingKey(q.type, q.team, q.style)));
+        if (this.styleQueue.length) break;
+      }
+      return;
+    }
+    const q = this.styleQueue.shift();
+    ensureBuildingTex(this, q.type, q.team, q.style, BUILDING_TYPES[q.type]);
+  }
+
+  // Research finished: units that it upgrades get their new look (and Body Armour's extra health).
+  refreshUnitLooks(team, id) {
+    const ups = this.teams[team].upgrades;
+    const all = [...this.units, ...this.buildings.flatMap((b) => b.garrison)];
+    for (const u of all) {
+      if (u.team !== team) continue;
+      if (id === 'body_armour' && INFANTRY.includes(u.type)) {
+        const frac = u.hp / u.maxHp;
+        u.maxHp = Math.round(u.def.hp * 1.3);
+        u.hp = u.maxHp * frac;
+        u.updateHpBar();
+      }
+      u.setTier(unitTier(u.type, ups));
+    }
+    if (team === 'player') this.emitSelection();
   }
 
   // ---------- Town bell & shelter ----------
@@ -1156,7 +1218,7 @@ export default class GameScene extends Phaser.Scene {
     const o = toIso(tx * TILE, ty * TILE);
     const info = buildingTexInfo(def);
     g.setPosition(o.x, o.y);
-    this.ghostImg.setTexture(buildingKey(this.placing.type, 'player')).setPosition(o.x - info.ox, o.y - info.oy).setVisible(true);
+    this.ghostImg.setTexture(this.buildingTexKey(this.placing.type, 'player')).setPosition(o.x - info.ox, o.y - info.oy).setVisible(true);
     const W = def.w * TILE;
     const H = def.h * TILE;
     const pts = [{ x: 0, y: 0 }, { x: W, y: W / 2 }, { x: W - H, y: (W + H) / 2 }, { x: -H, y: H / 2 }];
@@ -1547,7 +1609,7 @@ export default class GameScene extends Phaser.Scene {
     if (this.moodTimer <= 0) {
       this.moodTimer = 2000;
       const era = this.eraOf('player');
-      audio.setMood(this.climate.temp > 2.5 ? 'tense' : era === 0 ? 'calm' : era === 1 ? 'industry' : 'hope');
+      audio.setMood(this.climate.temp > 2.5 ? 'tense' : era === 0 ? 'calm' : era <= 2 ? 'industry' : 'hope');
     }
     if (!this.paused && !this.gameOver) this.updateCursor(delta);
     else this.setCursor('arrow');
@@ -1555,6 +1617,7 @@ export default class GameScene extends Phaser.Scene {
     this.rainTime = Math.max(0, this.rainTime - delta / 1000);
     const view = this.cameras.main.worldView;
     this.fx.updateDamage(delta, this.buildings, view);
+    this.prewarmStyles(delta);
     this.wildlife.render(time, this.fog);
     this.fx.updateBirds(delta, view, this.climate.temp);
     this.ambientEffects(delta);

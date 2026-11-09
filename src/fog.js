@@ -7,8 +7,8 @@ const K = 4; // the fog is drawn at 1/K size and stretched, which gives it soft 
 
 // How far each thing can see, in tiles.
 export const SIGHT = {
-  worker: 4, soldier: 6, archer: 7, rifleman: 7, armoured_car: 7,
-  town_centre: 8, tower: 9, barracks: 5, default: 4,
+  worker: 4, soldier: 6, archer: 7, rifleman: 7, armoured_car: 7, scout: 9, medic: 5, cannon: 6, e_tank: 7,
+  town_centre: 8, tower: 9, barracks: 5, radar: 20, default: 4,
 };
 
 export class Fog {

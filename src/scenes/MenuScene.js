@@ -13,7 +13,7 @@ import { Effects } from '../effects.js';
 import { makeCanvas } from '../art.js';
 import { cursors } from '../cursors.js';
 
-export const GAME_VERSION = 'v9';
+export const GAME_VERSION = 'v10';
 
 // The game's crest: a globe, half green and half smog, ringed in bronze with a laurel.
 function drawCrest(ctx) {

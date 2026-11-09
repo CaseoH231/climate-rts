@@ -12,6 +12,7 @@ export const HOW_TO_PLAY = [
   'Raided? Select your Town Centre and ring the bell: workers shelter inside and it shoots extra arrows. Ring again for all clear.',
   'Market: buy any resource with another. Prices rise when you buy and fall when you sell.',
   'Hunting: right-click a deer with workers to hunt it — fast food. Fishing Docks and Hydro Dams must be built on the shore.',
+  'Five ages: Coal → Industrial → Modern → Transition → Green. Each one changes how your whole town looks; upgrades like Iron Weapons and Body Armour change how your people look.',
   'Heatwaves slow every worker by 30% until they break. Research Cool Roofs at the Workshop to ignore them.',
   'Counters: archers beat soldiers, soldiers beat riflemen, riflemen beat armoured cars, armoured cars beat archers.',
   '',

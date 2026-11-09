@@ -64,10 +64,13 @@ Advance at the Town Centre. Each age unlocks new buildings (shown with a roman n
 
 | Age | Unlocks |
 | --- | --- |
-| I · Coal Age | Houses, farms, storage, barracks, towers, wind turbines, tree planting; basic upgrades at the Town Centre |
-| II · Industrial Age | Workshop (advanced research), Coal Power Plant (lots of energy, lots of CO₂), Riflemen |
-| III · Transition Age | Solar Farm, Carbon Capture, Armoured Cars, green research (Smart Grid, Reforestation, Electric Tools) |
-| IV · Green Age | Climate Restoration Project (wonder), Climate Shields. Needs **clean** energy to reach. |
+| I · Coal Age | Houses, farms, storage, docks, market, barracks, towers, walls, wind turbines, tree planting; scouts; basic upgrades at the Town Centre |
+| II · Industrial Age | Workshop, Coal Power Plant (lots of energy, lots of CO₂), Riflemen, Medics, Cannons. Buildings turn to brick with slate roofs and chimneys |
+| III · Modern Age | Apartment Blocks (+15 pop), Office Towers (steady income), Factories (wood + stone, but CO₂), Radar Stations (see through fog), Armoured Cars, Electric Tools, Body Armour, Automation. Concrete, glass and flat roofs |
+| IV · Transition Age | Solar Farm, Hydro Dam, Carbon Capture, Smart Grid, Reforestation, Cool Roofs. White buildings with solar panels on every roof |
+| V · Green Age | Geothermal Plant, Electric Tank, Climate Restoration Project (wonder), Climate Shields. Needs **clean** energy to reach. Timber, ivy and grass roofs |
+
+When you advance, **every building you own changes to the new era's look**. Units change too when you research their upgrades: Iron Weapons puts soldiers in steel armour and plumed helmets, Body Armour gives them modern helmets and camouflage; Steel Axes / Mining Carts / Wheelbarrow give workers better tools, Electric Tools gives them hard hats and hi-vis vests.
 
 Research takes time and is shown by a purple bar. Hover any button to see what it costs and does.
 
@@ -197,7 +200,8 @@ src/scenes/UIScene.js   resource bar, command panel, diamond minimap, climate pa
 - [x] Phase 13 – Town life: Market trading, town bell and shelter, four map types (Continental, Lakes, Highlands, Great River)
 - [x] Phase 14 – The big polish: climate colour grading, burning buildings and ruins, combat effects, birds, rain and dust storms, worker counts, unit portraits, clickable training queue, custom cursors, Continue button, generative music
 - [x] Phase 15 – New frontiers: Scout Rider, Field Medic, Field Cannon, Electric Tank; Fishing Dock, Hydro Dam, Geothermal Plant; deer herds and hunting; Wheelbarrow, Fish Farming, Field Medicine and Cool Roofs research; heatwaves
-- [ ] Phase 16 – Multiplayer groundwork: make the game deterministic (seeded random numbers everywhere, fixed simulation ticks) and turn every player action into a "command" that can be sent over a network. Replays come almost for free and prove it works: if a replay plays out identically, two computers will too
-- [ ] Phase 17 – Online 1v1: a lobby with a short invite code, a free Cloudflare Worker + Durable Object relaying commands between players (same Cloudflare account as the site), lockstep networking (both games run the same commands on the same tick), desync detection, reconnecting, chat and ping display
-- [ ] Phase 18 – Bigger matches: 2v2 and free-for-all with up to 4 players, co-op against the AI, spectating and saved replays
-- [ ] Phase 19 – Playtesting feedback
+- [x] Phase 16 – Modern Age: a fifth era (Coal → Industrial → Modern → Transition → Green) with Apartment Blocks, Office Towers, Factories and Radar Stations; every building changes look each era; units change look with their upgrades
+- [ ] Phase 17 – Multiplayer groundwork: make the game deterministic (seeded random numbers everywhere, fixed simulation ticks) and turn every player action into a "command" that can be sent over a network. Replays come almost for free and prove it works: if a replay plays out identically, two computers will too
+- [ ] Phase 18 – Online 1v1: a lobby with a short invite code, a free Cloudflare Worker + Durable Object relaying commands between players (same Cloudflare account as the site), lockstep networking (both games run the same commands on the same tick), desync detection, reconnecting, chat and ping display
+- [ ] Phase 19 – Bigger matches: 2v2 and free-for-all with up to 4 players, co-op against the AI, spectating and saved replays
+- [ ] Phase 20 – Playtesting feedback

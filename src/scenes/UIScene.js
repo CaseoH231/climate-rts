@@ -1,7 +1,7 @@
 // In-game interface, in the style of classic isometric RTS games: wooden resource bar, stone command panel
 // with a command grid, info portrait and diamond minimap, climate panel, messages, in-game menu, end screen.
 import { TILE, MAP_W, MAP_H, TEAM_COLORS, CLIMATE } from '../config.js';
-import { BUILDING_TYPES, WORKER_PAGES, UPGRADES, ERAS } from '../buildings.js';
+import { BUILDING_TYPES, WORKER_PAGES, WORKER_PAGE_NAMES, UPGRADES, ERAS } from '../buildings.js';
 import { UNIT_TYPES } from '../unit.js';
 import { buildingKey, unitKey } from '../art.js';
 import { toIso, fromIso, ISO_W, ISO_H } from '../iso.js';
@@ -397,7 +397,7 @@ export default class UIScene extends Phaser.Scene {
     const max = Math.max(1, Math.floor((this.stripW + 3) / 31));
     const shown = units.length > max ? units.slice(0, max - 1) : units;
     shown.forEach((u, i) => {
-      const { bar } = this.stripCell(i, unitKey(u.type, u.team), (p) => {
+      const { bar } = this.stripCell(i, unitKey(u.type, u.team, 0, u.tier), (p) => {
         audio.play('click');
         if (p.event.shiftKey) w.deselectUnit(u);
         else w.selectWhere((x) => x === u, false);
@@ -414,7 +414,7 @@ export default class UIScene extends Phaser.Scene {
   buildQueueStrip(b) {
     const w = this.world;
     b.queue.forEach((type, i) => {
-      const { bar } = this.stripCell(i, unitKey(type, 'player'), () => w.cancelTrain(b, i),
+      const { bar } = this.stripCell(i, w.unitTexKey(type, 'player'), () => w.cancelTrain(b, i),
         { name: `Cancel ${UNIT_TYPES[type].name}`, cost: null, desc: 'Click to take it out of the queue and get the cost back.' });
       this.stripItems.push({ first: i === 0, bar });
     });
@@ -428,8 +428,8 @@ export default class UIScene extends Phaser.Scene {
     this.buildButtons();
     const { units, building } = sel;
     let key = null;
-    if (building) key = buildingKey(building.type, building.team);
-    else if (units.length) key = unitKey(units[0].type, units[0].team);
+    if (building) key = building.image.texture.key;
+    else if (units.length) key = unitKey(units[0].type, units[0].team, 0, units[0].tier);
     if (key) {
       const tex = this.textures.get(key).getSourceImage();
       const s = Math.min(78 / tex.width, 78 / tex.height, 1.9);
@@ -452,7 +452,7 @@ export default class UIScene extends Phaser.Scene {
       for (const type of b.def.trains || []) {
         const u = UNIT_TYPES[type];
         cmds.push({
-          thumb: unitKey(type, 'player'), name: `Train ${u.name}`, cost: u.cost,
+          thumb: w.unitTexKey(type, 'player'), name: `Train ${u.name}`, cost: u.cost,
           desc: `${u.desc}\nHealth ${u.hp}  ·  Damage ${u.attack}  ·  ${u.range > 60 ? 'Ranged' : 'Close combat'}`,
           locked: u.era > era ? `Requires the ${ERAS[u.era].name}` : null, lockEra: u.era, action: () => w.train(type),
         });
@@ -487,17 +487,17 @@ export default class UIScene extends Phaser.Scene {
       for (const type of WORKER_PAGES[this.buildPage]) {
         const d = BUILDING_TYPES[type];
         cmds.push({
-          thumb: buildingKey(type, 'player'), name: d.name, cost: d.cost, desc: d.desc,
+          thumb: w.buildingTexKey(type, 'player'), name: d.name, cost: d.cost, desc: d.desc,
           locked: d.era > era ? `Requires the ${ERAS[d.era].name}` : null, lockEra: d.era, action: () => w.startPlacing(type),
         });
       }
       while (cmds.length < 11) cmds.push(null);
-      const toMilitary = this.buildPage === 0;
+      const next = (this.buildPage + 1) % WORKER_PAGES.length;
       cmds.push({
-        thumb: buildingKey(toMilitary ? 'barracks' : 'house', 'player'), page: true,
-        name: toMilitary ? 'Military & science' : 'Economy & energy',
-        desc: toMilitary ? 'Barracks, towers, walls, gates, the Workshop, Carbon Capture and the Restoration Project.' : 'Back to houses, farms, food and energy.',
-        action: () => { this.buildPage = toMilitary ? 1 : 0; this.buildButtons(); },
+        thumb: w.buildingTexKey(WORKER_PAGES[next][0], 'player'), page: true,
+        name: `${WORKER_PAGE_NAMES[next]} »`,
+        desc: `Page ${this.buildPage + 1} of ${WORKER_PAGES.length} (${WORKER_PAGE_NAMES[this.buildPage]}). Show: ${WORKER_PAGES[next].map((t) => BUILDING_TYPES[t].name).join(', ')}.`,
+        action: () => { this.buildPage = next; this.buildButtons(); },
       });
       return cmds;
     }
