@@ -11,10 +11,13 @@
 //     tells everyone the games have drifted apart ("desync").
 //
 // Seats: up to four sides (Blue, Red, Green, Yellow). The host decides what each seat is: open for a
-// person to join, a computer player, or closed; and which team (alliance) each seat is on.
+// person to join, a computer player, or closed; and its team, AoE2-style: 1–4, or 0 ("–") for nobody's
+// ally. Seats with the same team number are allies.
 //
 // This file has no Cloudflare-specific code, so the same room logic runs in the real Durable Object
 // (worker/index.js) and in the local test server.
+
+import { cleanRules } from '../src/setup.js';
 
 export const TURN_MS = 100;
 export const TICKS_PER_TURN = 2;
@@ -38,15 +41,15 @@ export class RoomCore {
   reset() {
     if (this.clock) this.timers.clearInterval(this.clock);
     for (const t of (this.dropTimers || new Map()).values()) this.timers.clearTimeout(t);
-    // seat: { kind: 'human'|'ai'|'open'|'closed', alliance, ai?, token?, name?, conn?, connected? }
+    // seat: { kind: 'human'|'ai'|'open'|'closed', team (0–4), ai?, token?, name?, conn?, connected? }
     this.slots = [
-      { kind: 'human', alliance: 0, token: null },
-      { kind: 'open', alliance: 1 },
-      { kind: 'closed', alliance: 2 },
-      { kind: 'closed', alliance: 3 },
+      { kind: 'human', team: 1, token: null },
+      { kind: 'open', team: 2 },
+      { kind: 'closed', team: 0 },
+      { kind: 'closed', team: 0 },
     ];
     this.watchers = [];             // spectators: { token, name, conn }
-    this.settings = { mapType: 'continental', fog: true };
+    this.settings = { mapType: 'continental', ...cleanRules({}) };
     this.started = false;
     this.ended = false;
     this.turn = 0;
@@ -70,7 +73,7 @@ export class RoomCore {
   // What everyone may know about the seats.
   publicSlots() {
     return this.slots.map((s, i) => ({
-      slot: i, team: TEAMS[i], kind: s.kind, alliance: s.alliance,
+      slot: i, side: TEAMS[i], kind: s.kind, team: s.team,
       ai: s.kind === 'ai' ? s.ai : undefined,
       name: s.kind === 'human' ? s.name : undefined,
       connected: s.kind === 'human' ? !!s.connected : undefined,
@@ -161,18 +164,33 @@ export class RoomCore {
     switch (m.t) {
       case 'settings':
         if (!host || this.started) return;
-        this.settings = { mapType: MAP_TYPES.includes(m.mapType) ? m.mapType : 'continental', fog: m.fog !== false };
+        // map type + game settings (map size, resources, starting age, population, reveal, peace, victory, climate)
+        this.settings = { mapType: MAP_TYPES.includes(m.mapType) ? m.mapType : this.settings.mapType, ...cleanRules({ ...this.settings, ...m }) };
         this.broadcast(this.lobbyMsg());
         break;
       case 'slot': {
-        // The host sets a seat: { i, kind?: 'open'|'ai'|'closed', ai?: level, alliance?: 0–3 }
+        // The host sets a seat: { i, kind?: 'open'|'ai'|'closed', ai?: level, team?: 0–4 }
         if (!host || this.started || !Number.isInteger(m.i) || m.i < 0 || m.i > 3) return;
         const s = this.slots[m.i];
-        if (Number.isInteger(m.alliance) && m.alliance >= 0 && m.alliance <= 3) s.alliance = m.alliance;
+        if (Number.isInteger(m.team) && m.team >= 0 && m.team <= 4) s.team = m.team;
         if (m.i !== 0 && s.kind !== 'human' && ['open', 'ai', 'closed'].includes(m.kind)) {
           s.kind = m.kind;
           if (m.kind === 'ai') s.ai = AI_LEVELS.includes(m.ai) ? m.ai : 'normal';
         }
+        this.broadcast(this.lobbyMsg());
+        break;
+      }
+      case 'preset': {
+        // A quick set-up: which seats are in the game and their teams. Seats people are sitting in stay theirs.
+        if (!host || this.started || !Array.isArray(m.seats) || m.seats.length !== 4) return;
+        m.seats.forEach((p, i) => {
+          const s = this.slots[i];
+          if (!p || typeof p !== 'object') return;
+          if (Number.isInteger(p.team) && p.team >= 0 && p.team <= 4) s.team = p.team;
+          if (i === 0 || s.kind === 'human') return;
+          if (p.used && s.kind === 'closed') s.kind = 'open';
+          if (!p.used) s.kind = 'closed';
+        });
         this.broadcast(this.lobbyMsg());
         break;
       }
@@ -182,7 +200,7 @@ export class RoomCore {
         if (problem) { this.send(conn, { t: 'notice', msg: problem }); return; }
         this.started = true;
         this.settings.seed = Math.floor(Math.random() * 1e9);
-        this.settings.slots = this.publicSlots().map((s) => ({ kind: s.kind, alliance: s.alliance, ai: s.ai, name: s.name }));
+        this.settings.slots = this.publicSlots().map((s) => ({ kind: s.kind, team: s.team, ai: s.ai, name: s.name }));
         this.broadcast({ t: 'start', settings: this.settings, slots: this.publicSlots(), turnMs: TURN_MS, ticksPerTurn: TICKS_PER_TURN });
         this.clock = this.timers.setInterval(() => this.closeTurn(), TURN_MS);
         break;
@@ -217,7 +235,8 @@ export class RoomCore {
     if (this.slots.some((s) => s.kind === 'open')) return 'Waiting for players to fill the open seats (or set them to Computer or Closed).';
     if (this.slots.some((s) => s.kind === 'human' && !s.connected)) return 'Waiting for a player to reconnect.';
     if (seats.length < 2) return 'You need at least two sides.';
-    if (new Set(seats.map((s) => s.alliance)).size < 2) return 'Everyone is on the same team — put at least one side on another team.';
+    const alliance = (s) => (s.team > 0 ? s.team : 10 + this.slots.indexOf(s));
+    if (new Set(seats.map(alliance)).size < 2) return 'Everyone is on the same team — put at least one side on another team (or on "–").';
     return null;
   }
 
@@ -256,7 +275,7 @@ export class RoomCore {
     if (!this.started) {
       // In the lobby: a guest just leaves (their seat opens up again); if the host leaves, the room closes.
       if (slot === 0) { this.broadcast({ t: 'closed', msg: 'The host left.' }); this.reset(); return; }
-      this.slots[slot] = { kind: 'open', alliance: s.alliance };
+      this.slots[slot] = { kind: 'open', team: s.team };
       this.broadcast(this.lobbyMsg());
       return;
     }
@@ -298,7 +317,7 @@ export class RoomCore {
     if (s.conn) { const c = s.conn; s.conn = null; try { c.close(1000, 'left'); } catch (e) { /* ignore */ } }
     if (!this.started) {
       if (slot === 0) { this.broadcast({ t: 'closed', msg: 'The host left.' }); this.reset(); return; }
-      this.slots[slot] = { kind: 'open', alliance: s.alliance };
+      this.slots[slot] = { kind: 'open', team: s.team };
       this.broadcast(this.lobbyMsg());
       return;
     }

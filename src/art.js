@@ -1169,6 +1169,61 @@ export const BUILDING_ART = {
     stall(ctx, 58, 60, 84, 82, '#3f7a4a', '#ece3cc', ['#8a6440', '#b9b2a4', '#2a2a2a']);
   },
 
+  // One section of bridge: a plank deck on posts (a concrete deck from the Modern Age on).
+  // Sections are drawn edge to edge so a line of them reads as one bridge.
+  bridge(ctx, team) {
+    const Z = 5;
+    const modern = STYLE >= 2;
+    // soft shadow on the water / ground below
+    diamond(ctx, 2, 2, 34, 34);
+    ctx.fillStyle = 'rgba(0,0,0,0.22)';
+    ctx.fill();
+    // posts under the corners
+    for (const [x, y] of [[2, 30], [30, 30], [30, 2]]) {
+      const b = P(x, y, -3), t = P(x, y, Z);
+      ctx.fillStyle = modern ? '#8e9296' : '#4a321e';
+      ctx.fillRect(t[0] - 1.6, t[1], 3.2, b[1] - t[1]);
+    }
+    // deck edges
+    wallL(ctx, 0, 32, 32, Z, (c, w, h) => { c.fillStyle = modern ? '#9a9ea2' : '#6a4a2c'; c.fillRect(0, 0, w, h); c.fillStyle = 'rgba(0,0,0,0.25)'; c.fillRect(0, h - 1, w, 1); });
+    wallR(ctx, 0, 32, 32, Z, (c, w, h) => { c.fillStyle = modern ? '#7c8084' : '#563a22'; c.fillRect(0, 0, w, h); }, 0.15);
+    // deck
+    diamond(ctx, 0, 0, 32, 32, Z);
+    ctx.save();
+    ctx.clip();
+    const top = P(0, 0, Z), right = P(32, 0, Z), bottom = P(32, 32, Z), left = P(0, 32, Z);
+    ctx.fillStyle = modern ? '#b4b8bc' : '#9a7048';
+    ctx.fillRect(left[0], top[1], right[0] - left[0], bottom[1] - top[1]);
+    const r = rand(team.length * 7 + 3);
+    if (modern) {
+      ctx.fillStyle = 'rgba(0,0,0,0.12)';
+      for (let i = 4; i < 32; i += 8) { const a = P(i, 0, Z), b = P(i, 32, Z); ctx.beginPath(); ctx.moveTo(...a); ctx.lineTo(...b); ctx.lineWidth = 0.6; ctx.strokeStyle = 'rgba(0,0,0,0.15)'; ctx.stroke(); }
+      const a = P(16, 0, Z), b = P(16, 32, Z);
+      ctx.strokeStyle = 'rgba(240,220,120,0.7)'; ctx.setLineDash([3, 3]); ctx.lineWidth = 0.8;
+      ctx.beginPath(); ctx.moveTo(...a); ctx.lineTo(...b); ctx.stroke(); ctx.setLineDash([]);
+    } else {
+      // planks: alternating shades with dark gaps, running across both ways so any line direction looks right
+      for (let i = 0; i < 32; i += 4) {
+        const a = P(i, 0, Z), b = P(i, 32, Z), c = P(i + 4, 32, Z), d = P(i + 4, 0, Z);
+        ctx.fillStyle = `rgba(${r() < 0.5 ? '255,235,200' : '40,24,12'},${0.06 + r() * 0.1})`;
+        ctx.beginPath(); ctx.moveTo(...a); ctx.lineTo(...b); ctx.lineTo(...c); ctx.lineTo(...d); ctx.fill();
+        ctx.strokeStyle = 'rgba(40,24,12,0.55)'; ctx.lineWidth = 0.6;
+        ctx.beginPath(); ctx.moveTo(...a); ctx.lineTo(...b); ctx.stroke();
+      }
+      ctx.fillStyle = 'rgba(30,20,10,0.6)';
+      for (let i = 0; i < 6; i++) { const q = P(2 + r() * 28, 2 + r() * 28, Z); ctx.fillRect(q[0], q[1], 0.8, 0.8); } // nails
+    }
+    ctx.restore();
+    // little corner posts with a team-coloured band
+    for (const [x, y] of [[1, 1], [31, 1], [31, 31], [1, 31]]) {
+      const b = P(x, y, Z), t = P(x, y, Z + 6);
+      ctx.fillStyle = modern ? '#6c7074' : '#5a3e26';
+      ctx.fillRect(t[0] - 1, t[1], 2, b[1] - t[1]);
+      ctx.fillStyle = TEAM_RGB[team].main;
+      ctx.fillRect(t[0] - 1, t[1] + 1, 2, 1.4);
+    }
+  },
+
   // A one-tile block of curtain wall; neighbouring blocks join up into a continuous wall.
   wall(ctx, team) {
     isoShadow(ctx, 0, 0, 32, 32, 22);

@@ -79,11 +79,11 @@ const NEIGHBOURS_8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1
 const TEAM_CODE = { player: 1, enemy: 2, green: 3, yellow: 4 };
 
 export class GameMap {
-  // teams: which sides get a starting base (Blue and Red unless told otherwise).
-  constructor(w, h, seed, type = 'continental', teams = ['player', 'enemy']) {
+  // starts: the centre tile of each side's Town Centre (Blue's and Red's 1 v 1 spots unless told otherwise).
+  constructor(w, h, seed, type = 'continental', starts = null) {
     this.w = w;
     this.h = h;
-    this.starts = teams.map((t) => startFor(t, w, h));
+    this.starts = starts || [startFor('player', w, h), startFor('enemy', w, h)];
     this.seed = seed;
     this.type = MAP_TYPES[type] ? type : 'continental';
     this.tiles = new Uint8Array(w * h);
@@ -91,6 +91,7 @@ export class GameMap {
     this.blocked = new Uint8Array(w * h);    // 1 = a solid building stands here
     this.gateTeam = new Uint8Array(w * h);   // gates: only their owner (1 Blue, 2 Red, 3 Green, 4 Yellow) may walk through
     this.buildings = new Array(w * h).fill(null);
+    this.bridge = new Uint8Array(w * h);     // 1 = a finished bridge: walkable whatever is underneath
     this.elev = new Float32Array(w * h);     // land height — low land floods first when the sea rises
     this.seaLevel = MAP_TYPES[this.type].sea;
     this.onTileChanged = null;               // called when a tile changes (used up, burnt, flooded…)
@@ -201,7 +202,7 @@ export class GameMap {
   // A winding river across the map, between the two bases, with three shallow fords.
   carveRiver(rng) {
     if (this.starts.length > 2) { this.carveCrossRivers(rng); return; }
-    const [A, B] = [startFor('player', this.w, this.h), startFor('enemy', this.w, this.h)];
+    const [A, B] = this.starts;
     const mid = (A.x + A.y + B.x + B.y) / 2; // x + y along the river
     const ph1 = rng() * 6.28;
     const ph2 = rng() * 6.28;
@@ -290,7 +291,7 @@ export class GameMap {
   isWalkable(x, y, team) {
     if (!this.inBounds(x, y)) return false;
     const i = y * this.w + x;
-    if (!TERRAIN_INFO[this.tiles[i]].walkable || this.blocked[i]) return false;
+    if ((!TERRAIN_INFO[this.tiles[i]].walkable && !this.bridge[i]) || this.blocked[i]) return false;
     const g = this.gateTeam[i];
     return !g || (team !== undefined && TEAM_CODE[team] === g);
   }
@@ -408,7 +409,20 @@ export class GameMap {
     return true;
   }
 
+  // Bridges can go where nothing else can: over water, rock, coal, trees and bushes.
+  canPlaceBridge(x, y) {
+    if (!this.inBounds(x, y) || this.buildings[y * this.w + x]) return false;
+    const t = this.tiles[y * this.w + x];
+    return t === TERRAIN.WATER || t === TERRAIN.STONE || t === TERRAIN.COAL || t === TERRAIN.FOREST || t === TERRAIN.BERRIES;
+  }
+
+  // A bridge opens up (when finished) or closes (when destroyed).
+  setBridge(b, on) {
+    for (let j = b.ty; j < b.ty + b.h; j++) for (let i = b.tx; i < b.tx + b.w; i++) if (this.inBounds(i, j)) this.bridge[j * this.w + i] = on ? 1 : 0;
+  }
+
   placeBuilding(b) {
+    if (b.def.bridge && b.complete) this.setBridge(b, true);
     for (let j = b.ty; j < b.ty + b.h; j++) {
       for (let i = b.tx; i < b.tx + b.w; i++) {
         const k = j * this.w + i;
@@ -420,6 +434,7 @@ export class GameMap {
   }
 
   removeBuilding(b) {
+    if (b.def.bridge) this.setBridge(b, false);
     for (let j = b.ty; j < b.ty + b.h; j++) {
       for (let i = b.tx; i < b.tx + b.w; i++) {
         const k = j * this.w + i;

@@ -74,6 +74,7 @@ export function serialize(w) {
     seed: w.map.seed,
     difficulty: w.difficulty,
     setup: w.setup,
+    rules: w.rules,
     me: w.me,
     mapType: w.mapType,
     market: { ...w.market },

@@ -36,12 +36,12 @@ The `_headers` file tells Cloudflare not to cache the game code too hard, so upd
 1. Main menu → **Play Online**, type your name.
 2. One of you presses **Host a Game** and sends the others the 5-letter code.
 3. Friends type the code and press **Join** to take a seat, or **Watch** to spectate without playing.
-4. The host sets up the four seats (Blue, Red, Green, Yellow). Each seat can be **open** for a person, a **computer player** (Easy / Normal / Hard) or **closed**. The host also picks a **team** for each seat. Some examples:
+4. The host sets up the four seats (Blue, Red, Green, Yellow), using a **quick set-up** button (1 v 1, 1 v 2, 1 v 3, 2 v 1, 2 v 2, 3 v 1, 1v1v1, 1v1v1v1) or seat by seat. Each seat can be **open** for a person, a **computer player** (Easy / Normal / Hard) or **closed**, with a **team** (1–4, or – for on its own). Some examples:
    - **1 v 1**: two people, the other seats closed.
    - **2 v 2**: Blue + Green on Team 1, Red + Yellow on Team 2. Any seat can be a person or the computer.
    - **Co-op**: two or three people on one team against computer players.
    - **Free-for-all**: everyone on a different team.
-5. Pick the map and fog of war, then **Start Game**.
+5. On the **Map & settings** tab pick the map and the game settings (same as single player), then **Start Game**. Everyone sees the settings.
 
 In game: **Enter** opens chat. The number at the top right is your connection's round trip to the server. The list under the climate panel shows every side, who's an ally, and who's been knocked out. The **Menu** doesn't pause an online game. Use it to **Resign**, or to **Leave** (leaving counts as resigning). If your side is knocked out you can keep watching. Spectators can click a side in the list to follow it.
 
@@ -57,12 +57,27 @@ Online play only works on the Cloudflare site. It won't work when you run the ga
 
 ## Menus & saving
 
-- **Main menu:** New Game: choose **1 v 1**, **2 v 2** (you plus a computer ally), or a **3- or 4-way free-for-all**, how good the computer players are (**Easy / Normal / Hard**), the **map** (each has a description), and **fog of war** on/off. Also Play Online, Load Game, Replays, How to Play and Settings.
+- **Main menu:** New Game sets up a game like the Age of Empires II lobby:
+  - **Quick set-ups:** 1 v 1, 1 v 2, 1 v 3, 2 v 1, 2 v 2, 3 v 1, 1v1v1 and 1v1v1v1.
+  - **Or set each seat yourself.** Blue, Red, Green and Yellow can each be **You**, a **Computer** (Easy / Normal / Hard, set per seat or all at once) or **Closed**. Click a colour to play as that colour.
+  - **Teams:** give each seat a team: **Team 1–4**, or **–** for on its own. Same number = allies. Allies start in neighbouring corners.
+  - On the **Map & settings** tab, pick the **map** (each has a description) and the game settings. Highlighted settings are different from normal:
+    - **Map size:** Auto, Tiny 48, Small 64, Medium 76, Large 88 or Huge 100 tiles square. Auto is Small for 2 sides and Large for 3–4.
+    - **Resources:** Low, Standard, High or Very high at the start.
+    - **Starting age:** Coal, Industrial or Modern.
+    - **Population limit:** 50–300.
+    - **Reveal map:** Normal fog, Explored (you know the land but not where armies are), or All visible.
+    - **Peace time:** None, or 5, 10 or 20 minutes in which nobody can attack anybody.
+    - **Victory:** Standard, or Conquest (only knocking out every rival wins; no Climate Restoration win).
+    - **Climate:** Gentle, Normal or Harsh (how hard pollution heats the planet).
+  - The main menu also has Play Online, Load Game, Replays, How to Play and Settings.
 - Games with 3–4 sides use a bigger map (88 × 88 tiles instead of 64 × 64), with a town in each corner. With more sides the planet warms faster, but not twice as fast: each side's pollution counts a bit less.
 - **In game:** press **Esc** (with nothing selected), **F10** or the **Menu** button to pause. From there you can **save** to one of 3 slots, **load**, read the help, or quit to the main menu.
 - Saves are kept in your browser's storage on this computer.
 - **Replays:** every new game is recorded. When it ends, press **Watch Replay**, or open **Replays** on the main menu to watch your last 6 games. A replay is tiny: just the map settings and the orders you gave, with the time each one happened. The banner shows whether playback is still "in sync" (a replay recorded with an older version of the game may drift). Games continued from a save aren't recorded.
 - **Settings** (main menu or in-game menu): master, music, sound-effects and ambience volume, and **Screen effects** (the soft vignette and colour grading; turn them off on slower computers).
+- **Bridges:** with workers selected, open the Military & science build page and drag a **Bridge** across water, rock, coal or trees (15 wood per section). Workers build from the bank outwards, and each section opens up as it's finished. Anyone can cross a bridge, enemies too, and bridges survive rising seas.
+- **Getting around:** people walk in straight lines where they can, instead of zig-zagging tile by tile. They squeeze diagonally past a corner (between a house and a tree, say) wherever there's visibly room.
 - **Delete:** select your own units or a building and press **Delete** (or the **✕ Delete** button under the portrait). A foundation nobody has started building gives its cost back. Your Town Centre asks you to press twice.
 - Saves from before v13 can't be loaded (games can now have up to four sides).
 
@@ -236,6 +251,8 @@ src/scenes/UIScene.js   resource bar, command panel, diamond minimap, climate pa
 - [x] Phase 17 – Multiplayer groundwork: the game is deterministic (seeded random numbers, fixed 50 ms ticks with smooth drawing in between, every unit and building has an id) and every player action is a "command" that runs on the next tick. Replays record those commands plus a state fingerprint every 2 seconds, and playback checks the fingerprints match
 - [x] Phase 18 – Online 1v1: a lobby with a short invite code, a free Cloudflare Worker + Durable Object relaying commands between players, lockstep networking (both games run the same commands on the same tick), sync checks, reconnecting / rejoining after a refresh, resigning, chat and ping display
 - [x] Phase 19 – Bigger matches: up to 4 sides (1 v 1, 2 v 2, 3- and 4-way free-for-all, co-op against the computer), alliances with shared vision, a bigger 4-corner map, online lobby with 4 seats (person / computer / closed) and team picks, spectating, a sides panel. Also: Lumber Camp / Mining Camp / Mill instead of the Storage Shed, deleting units and buildings, better unit art (faces, tabards, outlines), richer ground (flowers, tufts, colour patches) and screen effects
+- [x] Phase 19½ – AoE2-style game set-up: quick set-ups (1v1, 1v2, 1v3, 2v1, 2v2, 3v1, 1v1v1, 1v1v1v1), every seat set to you / a computer (own level) / closed, team numbers 1–4 or "–", play as any colour, allies start in neighbouring corners — the same in the online lobby
+- [x] Phase 19¾ – Game settings (map size, resources, starting age, population, reveal map, peace time, victory, climate) for single player and online, bridges, smoother movement that squeezes through visible gaps
 - [ ] Phase 20 – Playtesting feedback
 
 ## How the simulation works (for multiplayer)

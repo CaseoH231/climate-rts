@@ -1,8 +1,8 @@
 // Units: workers and soldiers. Workers can gather resources and construct buildings.
-import { findPath } from './pathfinding.js';
+import { findPath, smoothPath } from './pathfinding.js';
 import { unitKey, ART_RES, unitTier, ensureUnitTex } from './art.js';
 import { toIso } from './iso.js';
-import { TERRAIN } from './config.js';
+import { TERRAIN, TILE } from './config.js';
 
 // attack = damage per hit, range in pixels, cooldown in seconds between hits,
 // sight = how far idle units notice enemies, vsBuilding = damage multiplier against buildings.
@@ -207,12 +207,13 @@ export class Unit {
   }
 
   // ---------- Walking ----------
-  walkTo(goal) {
+  walkTo(goal, raw = false) {
     const t = this.tile;
     const p = findPath(this.map, t.x, t.y, goal.x, goal.y, this.team);
     if (p === null) return false;
     this.dest = goal;
-    this.path = p.map((n) => this.map.tileCenter(n.x, n.y));
+    const pts = p.map((n) => this.map.tileCenter(n.x, n.y));
+    this.path = raw ? pts : smoothPath(this.map, this.x, this.y, pts, this.team, TILE);
     if (!this.path.length) this.path = [this.map.tileCenter(t.x, t.y)];
     return true;
   }
@@ -363,9 +364,16 @@ export class Unit {
     if (!this.path.length) return;
     const target = this.path[0];
     const nt = this.map.worldToTile(target.x, target.y);
-    if (!this.map.isWalkable(nt.x, nt.y, this.team) && this.dest) {
+    // (check the next waypoint, and the ground just ahead — waypoints can be a few tiles apart)
+    const ahead = Math.hypot(target.x - this.x, target.y - this.y) || 1;
+    const at = this.map.worldToTile(this.x + ((target.x - this.x) / ahead) * 12, this.y + ((target.y - this.y) / ahead) * 12);
+    const aheadBlocked = !this.map.isWalkable(at.x, at.y, this.team) && this.map.isWalkable(this.tile.x, this.tile.y, this.team);
+    if ((!this.map.isWalkable(nt.x, nt.y, this.team) || aheadBlocked) && this.dest) {
       // Something was built in the way — find a new route.
-      if (!this.walkTo(this.dest)) this.path = [];
+      // (if we just did this and it didn't help, follow the plain tile-by-tile route instead)
+      const raw = this.repathTick === this.scene.tick - 1 || this.repathTick === this.scene.tick;
+      this.repathTick = this.scene.tick;
+      if (!this.walkTo(this.dest, raw)) this.path = [];
       return;
     }
     const dx = target.x - this.x;

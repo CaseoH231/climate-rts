@@ -5,7 +5,7 @@ import { BUILDING_TYPES, ERAS } from '../buildings.js';
 import { generateArt, buildingKey, unitKey, buildingTexInfo, BUILDING_POINTS, ART_RES } from '../art.js';
 import { toIso, ISO_W, ISO_H, setWorldSize } from '../iso.js';
 import { panel, button, volumeRows, scrollText, htmlInput, FONT_SERIF, FONT_SANS, UI_COL } from '../ui.js';
-import { MODES, soloSetup, setupFromSlots, describeSetup } from '../setup.js';
+import { MODES, PRESETS, presetSeats, seatsSetup, seatsProblem, describeSetup, RULES, cleanRules, describeRules } from '../setup.js';
 import { Net, newCode, cleanCode, playerName, setPlayerName, lastGame, forgetLastGame, onlineAvailable } from '../net.js';
 import { audio } from '../audio.js';
 import { listSaves, readSave } from '../save.js';
@@ -85,7 +85,7 @@ export default class MenuScene extends Phaser.Scene {
     audio.startMusic('calm');
     this.input.setDefaultCursor(cursors().arrow);
     makeCanvas(this, 'crest', 80, 80, drawCrest, 2);
-    this.options = { difficulty: 'normal', map: 'continental', fog: true, mode: '1v1' };
+    this.options = this.options || { difficulty: 'normal', map: 'continental', mode: '1v1', seats: presetSeats('1v1'), rules: cleanRules({}), tab: 'players' };
 
     // --- Background: paint a corner of a map and put a little town on it ---
     if (!this.textures.exists('menu_terrain')) {
@@ -227,56 +227,118 @@ export default class MenuScene extends Phaser.Scene {
       for (const o of volumeRows(this, (w - PW) / 2 + 30, top + 66, PW - 60, D + 1)) this.addUI(o);
       btn(top + 318, 'Back', () => this.show('main'), { w: 200 });
     } else if (view === 'new') {
-      const NW = 500;
-      const PH = 548;
+      // An AoE2-style game set-up, on two tabs: who's playing, then the map and the rules.
+      const o = this.options;
+      o.rules = cleanRules(o.rules);
+      const NW = 640;
+      const PH = 600;
       const x0 = (w - NW) / 2;
-      top = Math.max(8, (h - PH) / 2);
+      top = Math.max(4, (h - PH) / 2);
       this.addUI(panel(this, x0, top, NW, PH, D));
-      const label = (y, str) => this.addUI(this.add.text(w / 2, y, str, { fontFamily: FONT_SERIF, fontSize: '18px', color: UI_COL.text, stroke: '#000', strokeThickness: 3 }).setOrigin(0.5, 0).setDepth(D + 1));
-      const note = (y) => this.addUI(this.add.text(w / 2, y, '', {
-        fontFamily: FONT_SANS, fontSize: '13px', fontStyle: 'italic', color: UI_COL.dim, stroke: '#000', strokeThickness: 2,
-        align: 'center', wordWrap: { width: NW - 50 }, lineSpacing: 2,
-      }).setOrigin(0.5, 0).setDepth(D + 1));
-      // a row of choice buttons; `desc` (optional) shows the chosen one's description
-      const choices = (y, entries, key, bw, desc, size = '14px') => {
-        const gap = 8;
-        const total = entries.length * bw + (entries.length - 1) * gap;
-        const btns = entries.map(([k, text, d], i) => {
-          const b = this.addUI(button(this, (w - total) / 2 + i * (bw + gap), y, bw, 36, text, () => {
-            this.options[key] = k;
-            btns.forEach(([kk, bb]) => bb.setSelected(kk === k));
-            if (desc) desc.setText(d);
-          }, { depth: D + 1, size }));
-          b.setSelected(k === this.options[key]);
-          return [k, b];
+      const T = (x, y, str, style = {}, ox = 0.5) => this.addUI(this.add.text(x, y, str, {
+        fontFamily: FONT_SANS, fontSize: '14px', color: UI_COL.text, stroke: '#000', strokeThickness: 2, ...style,
+      }).setOrigin(ox, 0).setDepth(D + 1));
+      const label = (y, str) => T(w / 2, y, str, { fontFamily: FONT_SERIF, fontSize: '18px', strokeThickness: 3 });
+      // tabs
+      [['players', 'Players & teams'], ['rules', 'Map & settings']].forEach(([k, name], i) => {
+        this.addUI(button(this, x0 + 20 + i * 306, top + 12, 294, 36, name, () => { o.tab = k; this.show('new'); }, { depth: D + 1, size: '16px' }))
+          .setSelected(o.tab === k);
+      });
+      let y = top + 62;
+      const problem = seatsProblem(o.seats);
+      if (o.tab !== 'rules') {
+        // --- quick set-ups ---
+        const keys = Object.keys(PRESETS);
+        const bw = (NW - 40 - (keys.length - 1) * 6) / keys.length;
+        keys.forEach((k, i) => {
+          const b = this.addUI(button(this, x0 + 20 + i * (bw + 6), y, bw, 32, PRESETS[k].name, () => {
+            o.mode = k;
+            o.seats = presetSeats(k, o.difficulty);
+            this.show('new');
+          }, { depth: D + 1, size: '13px' }));
+          b.setSelected(o.mode === k);
         });
-        if (desc) desc.setText((entries.find(([k]) => k === this.options[key]) || entries[0])[2]);
-      };
-      let y = top + 18;
-      label(y, 'Game');
-      const modeDesc = note(y + 72);
-      choices(y + 30, Object.entries(MODES).map(([k, m]) => [k, m.name.replace('3-way free-for-all', '3-way FFA').replace('4-way free-for-all', '4-way FFA'), m.desc]), 'mode', 110, modeDesc);
-      y += 104;
-      label(y, 'Computer players');
-      choices(y + 30, Object.entries(DIFFICULTY).map(([k, d]) => [k, d.name, '']), 'difficulty', 130, null, '16px');
-      y += 84;
-      label(y, 'Map');
-      if (!MAP_TYPES[this.options.map]) this.options.map = 'continental';
-      const mapDesc = note(y + 72);
-      choices(y + 30, Object.entries(MAP_TYPES).map(([k, t]) => [k, t.name, t.desc]), 'map', 108, mapDesc, '13px');
-      y += 142;
-      label(y, 'Fog of war');
-      choices(y + 30, [[true, 'On', ''], [false, 'Off', '']], 'fog', 160, null, '16px');
-      y += 84;
-      btn(y, 'Start Game', () => this.startGame());
-      btn(y + 54, 'Back', () => this.show('main'), { w: 200 });
+        T(w / 2, y + 38, PRESETS[o.mode] ? PRESETS[o.mode].desc : 'Your own set-up.', { fontStyle: 'italic', color: UI_COL.dim, fontSize: '13px' });
+        y += 64;
+        // --- the four seats ---
+        const COLORS = ['#7d9fd4', '#d98a7e', '#7cc486', '#e2c25e'];
+        const SIDE = ['Blue', 'Red', 'Green', 'Yellow'];
+        const LEVEL = { easy: 'Easy', normal: 'Normal', hard: 'Hard' };
+        const kinds = ['ai:normal', 'ai:hard', 'ai:easy', 'closed'];
+        const changed = () => { o.mode = 'custom'; this.show('new'); };
+        T(x0 + 150, y, 'Player', { color: UI_COL.dim, fontSize: '12px' }, 0);
+        T(x0 + NW - 100, y, 'Team', { color: UI_COL.dim, fontSize: '12px' });
+        o.seats.forEach((st, i) => {
+          const yy = y + 18 + i * 42;
+          const closed = st.kind === 'closed';
+          // the colour: click it to play as this side
+          this.addUI(button(this, x0 + 20, yy, 110, 36, SIDE[i], () => {
+            if (st.kind === 'you') return;
+            const mine = o.seats.findIndex((x) => x.kind === 'you');
+            const prev = { ...st };
+            o.seats[i] = { ...o.seats[mine], kind: 'you', team: prev.kind === 'closed' ? o.seats[mine].team : prev.team };
+            o.seats[mine] = { kind: 'ai', ai: o.difficulty, team: o.seats[mine].team };
+            changed();
+          }, { depth: D + 1, size: '15px' })).setSelected(st.kind === 'you');
+          this.addUI(this.add.rectangle(x0 + 30, yy + 18, 10, 10, parseInt(COLORS[i].slice(1), 16), closed ? 0.3 : 1).setStrokeStyle(1, 0x000000).setDepth(D + 2));
+          if (st.kind === 'you') {
+            T(x0 + 150, yy + 9, 'You', { fontFamily: FONT_SERIF, fontSize: '17px', color: UI_COL.gold }, 0);
+          } else {
+            const cur = st.kind === 'ai' ? `ai:${st.ai || 'normal'}` : 'closed';
+            const text = st.kind === 'ai' ? `Computer — ${LEVEL[st.ai] || 'Normal'}` : 'Closed';
+            this.addUI(button(this, x0 + 140, yy, 290, 36, text, () => {
+              const [kind, ai] = kinds[(kinds.indexOf(cur) + 1) % kinds.length].split(':');
+              o.seats[i] = { ...st, kind, ai };
+              changed();
+            }, { depth: D + 1, size: '14px' }));
+          }
+          if (!closed) {
+            this.addUI(button(this, x0 + NW - 150, yy, 100, 36, st.team ? `Team ${st.team}` : '–', () => {
+              o.seats[i] = { ...st, team: ((st.team || 0) + 1) % 5 };
+              changed();
+            }, { depth: D + 1, size: '15px' }));
+          }
+        });
+        y += 18 + 4 * 42 + 2;
+        // set every computer player's level at once
+        T(x0 + 150, y + 9, 'All computers:', { color: UI_COL.dim, fontSize: '13px' }, 0);
+        [['easy', 'Easy'], ['normal', 'Normal'], ['hard', 'Hard']].forEach(([lvl, name], i) => {
+          this.addUI(button(this, x0 + 260 + i * 92, y + 2, 86, 30, name, () => {
+            o.difficulty = lvl;
+            o.seats = o.seats.map((x) => (x.kind === 'ai' ? { ...x, ai: lvl } : x));
+            this.show('new');
+          }, { depth: D + 1, size: '13px' })).setSelected(o.seats.some((x) => x.kind === 'ai') && o.seats.every((x) => x.kind !== 'ai' || x.ai === lvl));
+        });
+        y += 44;
+        T(w / 2, y, problem || describeSetup(seatsSetup(o.seats)), { fontFamily: FONT_SERIF, fontSize: '15px', color: problem ? '#e8b080' : UI_COL.gold });
+        T(w / 2, y + 22, 'Click a colour to play as it. Same team number = allies. "–" = on their own.', { color: UI_COL.dim, fontSize: '12px', fontStyle: 'italic' });
+      } else {
+        // --- map ---
+        label(y - 4, 'Map');
+        if (!MAP_TYPES[o.map]) o.map = 'continental';
+        const mapKeys = Object.keys(MAP_TYPES);
+        const mw = (NW - 40 - (mapKeys.length - 1) * 8) / mapKeys.length;
+        mapKeys.forEach((k, i) => {
+          this.addUI(button(this, x0 + 20 + i * (mw + 8), y + 24, mw, 32, MAP_TYPES[k].name, () => { o.map = k; this.show('new'); }, { depth: D + 1, size: '14px' }))
+            .setSelected(o.map === k);
+        });
+        T(w / 2, y + 62, MAP_TYPES[o.map].desc, { fontStyle: 'italic', color: UI_COL.dim, fontSize: '13px', wordWrap: { width: NW - 60 }, align: 'center', lineSpacing: 2 });
+        y += 120;
+        label(y, 'Settings');
+        this.rulesGrid(x0 + 20, y + 30, NW - 40, o.rules, (k, v) => { o.rules[k] = v; this.show('new'); }, D);
+      }
+      // start / back
+      const by = top + PH - 56;
+      if (problem && o.tab === 'rules') T(w / 2, by - 22, problem, { color: '#e8b080', fontSize: '12px' });
+      this.addUI(button(this, x0 + 20, by, 400, 42, 'Start Game', () => this.startGame(), { depth: D + 1 })).setEnabled(!problem);
+      this.addUI(button(this, x0 + 432, by, 188, 42, 'Back', () => this.show('main'), { depth: D + 1, size: '16px' }));
     } else if (view === 'load') {
       const saves = listSaves();
       this.addUI(panel(this, (w - PW) / 2, top, PW, 90 + saves.length * 54 + 40, D));
       this.addUI(this.add.text(w / 2, top + 22, 'Load Game', { fontFamily: FONT_SERIF, fontSize: '22px', color: UI_COL.gold, stroke: '#000', strokeThickness: 4 }).setOrigin(0.5, 0).setDepth(D + 1));
       saves.forEach((s, i) => {
         const label = s.empty ? `Slot ${s.slot} — ${s.old ? 'old save (from before v13)' : 'empty'}`
-          : `Slot ${s.slot} — ${fmtTime(s.gameTime)}, ${ERAS[s.era].name}, ${MODES[s.mode] ? MODES[s.mode].name : '1 v 1'}, ${DIFFICULTY[s.difficulty]?.name || ''}`;
+          : `Slot ${s.slot} — ${fmtTime(s.gameTime)}, ${ERAS[s.era].name}, ${MODES[s.mode] ? MODES[s.mode].name : s.mode === 'custom' ? 'custom game' : '1 v 1'}, ${DIFFICULTY[s.difficulty]?.name || ''}`;
         btn(top + 66 + i * 54, label, () => {
           const data = readSave(s.slot);
           if (data) this.scene.start('GameScene', { load: data });
@@ -343,80 +405,86 @@ export default class MenuScene extends Phaser.Scene {
     } else if (view === 'lobby') {
       const net = this.net;
       if (!net) { this.show('online'); return; }
-      const OW = 620;
-      const PH = 600;
+      const OW = 640;
+      const PH = 604;
       const x0 = (w - OW) / 2;
       top = Math.max(8, (h - PH) / 2);
       const host = net.role === 'host' && net.slot === 0;
+      const tab = this.lobbyTab || 'seats';
       this.addUI(panel(this, x0, top, OW, PH, D));
       const T = (x, y, str, style = {}, ox = 0.5) => this.addUI(this.add.text(x, y, str, {
         fontFamily: FONT_SANS, fontSize: '14px', color: UI_COL.text, stroke: '#000', strokeThickness: 2, ...style,
       }).setOrigin(ox, 0).setDepth(D + 1));
-      T(w / 2, top + 14, 'Game code', { fontFamily: FONT_SERIF, fontSize: '15px', color: UI_COL.dim });
-      T(w / 2, top + 32, net.code.split('').join(' '), { fontFamily: FONT_SERIF, fontSize: '38px', color: UI_COL.gold, strokeThickness: 5 });
+      T(w / 2, top + 12, 'Game code', { fontFamily: FONT_SERIF, fontSize: '15px', color: UI_COL.dim });
+      T(w / 2, top + 30, net.code.split('').join(' '), { fontFamily: FONT_SERIF, fontSize: '36px', color: UI_COL.gold, strokeThickness: 5 });
       const status = !net.connected && net.slot === null && !net.spectator ? 'Connecting…'
-        : host ? 'Send this code to your friends. Set up the seats, then start.'
+        : host ? 'Send this code to your friends. Set up the seats and settings, then start.'
           : net.spectator ? 'You\'re watching. The game shows up here when the host starts it.' : 'Waiting for the host to start the game…';
-      T(w / 2, top + 82, status, { fontStyle: 'italic', color: UI_COL.dim });
-      // --- the four seats ---
-      const COLORS = ['#7d9fd4', '#d98a7e', '#7cc486', '#e2c25e'];
-      const SIDE = ['Blue', 'Red', 'Green', 'Yellow'];
-      const AI_NAMES = { easy: 'Easy', normal: 'Normal', hard: 'Hard' };
-      const cycle = ['open', 'ai:normal', 'ai:hard', 'ai:easy', 'closed'];
-      (net.slots.length ? net.slots : [0, 1, 2, 3].map((i) => ({ slot: i, kind: i ? 'closed' : 'human', alliance: i }))).forEach((st, i) => {
-        const y = top + 112 + i * 46;
-        const closed = st.kind === 'closed';
-        this.addUI(this.add.rectangle(x0 + 30, y + 18, 14, 14, parseInt(COLORS[i].slice(1), 16), closed ? 0.3 : 1).setStrokeStyle(1, 0x000000).setDepth(D + 1));
-        T(x0 + 44, y + 9, SIDE[i], { fontFamily: FONT_SERIF, fontSize: '16px', color: closed ? UI_COL.dim : COLORS[i] }, 0);
-        let who;
-        if (st.kind === 'human') who = `${st.name}${i === net.slot ? '  (you)' : ''}${i === 0 ? '  — host' : ''}${st.connected === false ? '  · reconnecting…' : ''}`;
-        else if (st.kind === 'ai') who = `Computer (${AI_NAMES[st.ai] || 'Normal'})`;
-        else if (st.kind === 'open') who = 'Open — waiting for someone to join';
-        else who = 'Closed';
-        if (host && i > 0 && st.kind !== 'human') {
-          const cur = st.kind === 'ai' ? `ai:${st.ai || 'normal'}` : st.kind;
-          this.addUI(button(this, x0 + 120, y, 290, 36, who, () => {
-            const next = cycle[(cycle.indexOf(cur) + 1) % cycle.length];
-            const [kind, ai] = next.split(':');
-            net.send({ t: 'slot', i, kind, ai });
-          }, { depth: D + 1, size: '14px' }));
-        } else {
-          T(x0 + 128, y + 10, who, { fontSize: '15px', color: st.kind === 'human' || st.kind === 'ai' ? UI_COL.text : UI_COL.dim }, 0);
-        }
-        if (!closed) {
-          const teamLabel = `Team ${st.alliance + 1}`;
-          if (host) {
-            this.addUI(button(this, x0 + OW - 150, y, 120, 36, teamLabel, () => net.send({ t: 'slot', i, alliance: (st.alliance + 1) % 4 }), { depth: D + 1, size: '14px' }));
-          } else T(x0 + OW - 90, y + 10, teamLabel, { fontSize: '15px', color: UI_COL.dim });
-        }
+      T(w / 2, top + 76, status, { fontStyle: 'italic', color: UI_COL.dim, fontSize: '13px' });
+      [['seats', 'Players & teams'], ['rules', 'Map & settings']].forEach(([k, name], i) => {
+        this.addUI(button(this, x0 + 20 + i * 306, top + 100, 294, 34, name, () => { this.lobbyTab = k; this.show('lobby'); }, { depth: D + 1, size: '15px' }))
+          .setSelected(tab === k);
       });
-      // who's on which side, in words
-      const live = (net.slots || []).filter((st) => st.kind === 'human' || st.kind === 'ai' || st.kind === 'open');
-      const preview = live.length ? describeSetup({ teams: live.map((st) => ({ id: ['player', 'enemy', 'green', 'yellow'][st.slot], alliance: st.alliance })) }) : '';
-      T(w / 2, top + 300, preview + (net.watchers && net.watchers.length ? `     ·     Watching: ${net.watchers.join(', ')}` : ''), { fontFamily: FONT_SERIF, fontSize: '15px', color: UI_COL.gold });
-      // --- map & fog ---
       const st = net.settings || {};
-      const mapDesc = MAP_TYPES[st.mapType] ? MAP_TYPES[st.mapType].desc : '';
-      if (host) {
+      if (tab === 'seats') {
+        if (host) {
+          const keys = Object.keys(PRESETS);
+          const bw = (OW - 40 - (keys.length - 1) * 6) / keys.length;
+          keys.forEach((k, i) => this.addUI(button(this, x0 + 20 + i * (bw + 6), top + 146, bw, 28, PRESETS[k].name, () => {
+            net.send({ t: 'preset', seats: PRESETS[k].seats.map((x) => ({ used: x.kind !== 'closed', team: x.team })) });
+          }, { depth: D + 1, size: '12px' })));
+        }
+        // --- the four seats ---
+        const COLORS = ['#7d9fd4', '#d98a7e', '#7cc486', '#e2c25e'];
+        const SIDE = ['Blue', 'Red', 'Green', 'Yellow'];
+        const AI_NAMES = { easy: 'Easy', normal: 'Normal', hard: 'Hard' };
+        const cycle = ['open', 'ai:normal', 'ai:hard', 'ai:easy', 'closed'];
+        (net.slots.length ? net.slots : [0, 1, 2, 3].map((i) => ({ slot: i, kind: i ? 'closed' : 'human', team: i < 2 ? i + 1 : 0 }))).forEach((seat, i) => {
+          const y = top + 184 + i * 44;
+          const closed = seat.kind === 'closed';
+          this.addUI(this.add.rectangle(x0 + 30, y + 18, 14, 14, parseInt(COLORS[i].slice(1), 16), closed ? 0.3 : 1).setStrokeStyle(1, 0x000000).setDepth(D + 1));
+          T(x0 + 44, y + 9, SIDE[i], { fontFamily: FONT_SERIF, fontSize: '16px', color: closed ? UI_COL.dim : COLORS[i] }, 0);
+          let who;
+          if (seat.kind === 'human') who = `${seat.name}${i === net.slot ? '  (you)' : ''}${i === 0 ? '  — host' : ''}${seat.connected === false ? '  · reconnecting…' : ''}`;
+          else if (seat.kind === 'ai') who = `Computer (${AI_NAMES[seat.ai] || 'Normal'})`;
+          else if (seat.kind === 'open') who = 'Open — waiting for someone to join';
+          else who = 'Closed';
+          if (host && i > 0 && seat.kind !== 'human') {
+            const cur = seat.kind === 'ai' ? `ai:${seat.ai || 'normal'}` : seat.kind;
+            this.addUI(button(this, x0 + 120, y, 290, 36, who, () => {
+              const next = cycle[(cycle.indexOf(cur) + 1) % cycle.length];
+              const [kind, ai] = next.split(':');
+              net.send({ t: 'slot', i, kind, ai });
+            }, { depth: D + 1, size: '14px' }));
+          } else {
+            T(x0 + 128, y + 10, who, { fontSize: '15px', color: seat.kind === 'human' || seat.kind === 'ai' ? UI_COL.text : UI_COL.dim }, 0);
+          }
+          if (!closed) {
+            const teamLabel = seat.team ? `Team ${seat.team}` : '–';
+            if (host) {
+              this.addUI(button(this, x0 + OW - 150, y, 120, 36, teamLabel, () => net.send({ t: 'slot', i, team: ((seat.team || 0) + 1) % 5 }), { depth: D + 1, size: '14px' }));
+            } else T(x0 + OW - 90, y + 10, teamLabel, { fontSize: '15px', color: UI_COL.dim });
+          }
+        });
+        const preview = net.slots && net.slots.length ? describeSetup(seatsSetup(net.slots.map((x) => (x.kind === 'open' ? { ...x, kind: 'human' } : x)))) : '';
+        // (a "can't start yet" message from the room takes this line's place)
+        T(w / 2, top + 366, this.netNotice || preview + (net.watchers && net.watchers.length ? `     ·     Watching: ${net.watchers.join(', ')}` : ''),
+          { fontFamily: FONT_SERIF, fontSize: this.netNotice ? '13px' : '15px', color: this.netNotice ? '#e8b080' : UI_COL.gold, wordWrap: { width: OW - 40 }, align: 'center' });
+        T(w / 2, top + 396, `${MAP_TYPES[st.mapType] ? MAP_TYPES[st.mapType].name : ''} map  ·  ${describeRules(cleanRules(st))}`, { color: UI_COL.dim, fontSize: '13px', wordWrap: { width: OW - 40 }, align: 'center' });
+      } else {
+        // --- map & settings ---
         const keys = Object.keys(MAP_TYPES);
         keys.forEach((k, i) => {
-          const b = this.addUI(button(this, x0 + 24 + i * ((OW - 48) / keys.length), top + 330, (OW - 48) / keys.length - 8, 34, MAP_TYPES[k].name, () => {
-            net.send({ t: 'settings', mapType: k, fog: st.fog !== false });
+          const b = this.addUI(button(this, x0 + 24 + i * ((OW - 48) / keys.length), top + 146, (OW - 48) / keys.length - 8, 32, MAP_TYPES[k].name, () => {
+            if (host) net.send({ t: 'settings', mapType: k });
           }, { depth: D + 1, size: '14px' }));
           b.setSelected(st.mapType === k);
+          if (!host) b.setEnabled(st.mapType === k);
         });
-      } else {
-        T(w / 2, top + 336, `Map: ${MAP_TYPES[st.mapType] ? MAP_TYPES[st.mapType].name : '—'}   ·   Fog of war: ${st.fog !== false ? 'on' : 'off'}`, { fontSize: '15px' });
+        T(w / 2, top + 184, MAP_TYPES[st.mapType] ? MAP_TYPES[st.mapType].desc : '', { fontStyle: 'italic', color: UI_COL.dim, fontSize: '13px', wordWrap: { width: OW - 60 }, align: 'center' });
+        this.rulesGrid(x0 + 20, top + 250, OW - 40, cleanRules(st), host ? (k, v) => net.send({ t: 'settings', [k]: v }) : null, D);
       }
-      T(w / 2, top + 372, mapDesc, { fontStyle: 'italic', color: UI_COL.dim, fontSize: '13px', wordWrap: { width: OW - 60 }, align: 'center' });
-      if (host) {
-        const fog = this.addUI(button(this, x0 + (OW - 220) / 2, top + 440, 220, 34, `Fog of war: ${st.fog !== false ? 'on' : 'off'}`, () => {
-          net.send({ t: 'settings', mapType: st.mapType, fog: st.fog === false });
-        }, { depth: D + 1, size: '14px' }));
-        fog.setSelected(st.fog !== false);
-        btn(top + 486, 'Start Game', () => net.send({ t: 'start' }));
-      }
-      if (this.netNotice) T(w / 2, top + (host ? 532 : 470), this.netNotice, { color: '#e8b080', wordWrap: { width: OW - 60 }, align: 'center' });
+      if (host) btn(top + PH - 108, 'Start Game', () => net.send({ t: 'start' }));
       btn(top + PH - 56, 'Leave', () => this.leaveOnline(), { w: 200 });
     } else if (view === 'help') {
       const PH = Math.min(440, h - top - 10);
@@ -428,9 +496,33 @@ export default class MenuScene extends Phaser.Scene {
     }
   }
 
+  // The game settings as a grid of "Label  [value]" buttons (click to cycle). onChange null = read-only.
+  rulesGrid(x, y, width, rules, onChange, D) {
+    const colW = (width - 16) / 2;
+    Object.entries(RULES).forEach(([k, def], i) => {
+      const cx = x + (i % 2) * (colW + 16);
+      const cy = y + Math.floor(i / 2) * 44;
+      this.addUI(this.add.text(cx, cy + 10, def.label, { fontFamily: FONT_SERIF, fontSize: '15px', color: UI_COL.text, stroke: '#000', strokeThickness: 3 }).setDepth(D + 1));
+      const idx = def.options.findIndex(([v]) => v === rules[k]);
+      const text = def.options[Math.max(0, idx)][1];
+      const b = this.addUI(button(this, cx + colW - 150, cy, 150, 36, text, () => {
+        if (!onChange) return;
+        const next = def.options[(idx + 1) % def.options.length][0];
+        onChange(k, next);
+      }, { depth: D + 1, size: '14px' }));
+      if (!onChange) b.setEnabled(false);
+      else b.setSelected(rules[k] !== def.def);
+    });
+    const rows = Math.ceil(Object.keys(RULES).length / 2);
+    this.addUI(this.add.text(x + width / 2, y + rows * 44 + 4, onChange ? 'Click a setting to change it. Highlighted = different from normal.' : 'Only the host can change these.', {
+      fontFamily: FONT_SANS, fontSize: '12px', fontStyle: 'italic', color: UI_COL.dim, stroke: '#000', strokeThickness: 2,
+    }).setOrigin(0.5, 0).setDepth(D + 1));
+  }
+
   // ---------- Online lobby ----------
   connectOnline(code, role) {
     if (this.net) this.net.close();
+    this.lobbyTab = 'seats';
     this.netMsg = '';
     this.netNotice = '';
     const net = new Net(code, role);
@@ -472,8 +564,12 @@ export default class MenuScene extends Phaser.Scene {
 
   startGame() {
     const seed = Math.floor(Math.random() * 1e9);
-    const setup = soloSetup(this.options.mode, this.options.difficulty);
-    this.scene.start('GameScene', { seed, mapType: this.options.map, difficulty: this.options.difficulty, fog: this.options.fog, setup });
+    const o = this.options;
+    if (seatsProblem(o.seats)) return;
+    const setup = seatsSetup(o.seats, o.mode);
+    const levels = setup.teams.filter((t) => t.ai).map((t) => t.ai);
+    const difficulty = levels.includes('hard') ? 'hard' : levels.includes('normal') ? 'normal' : 'easy';
+    this.scene.start('GameScene', { seed, mapType: o.map, difficulty, setup, rules: cleanRules(o.rules) });
   }
 
   update(time, delta) {

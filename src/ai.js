@@ -163,7 +163,7 @@ export class EnemyAI {
 
     // 8. Attack waves.
     for (const u of [...this.assault]) if (u.dead) this.assault.delete(u);
-    if (w.gameTime >= this.nextWave) {
+    if (w.gameTime >= this.nextWave && !w.atPeace()) {
       const home = army.filter((u) => !this.assault.has(u));
       if (home.length >= this.waveSize) {
         // Send the wave (keep any extras at home to defend).

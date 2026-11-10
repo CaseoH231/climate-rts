@@ -1,4 +1,5 @@
-// A* pathfinding on the tile grid (8 directions, no cutting corners past obstacles).
+// A* pathfinding on the tile grid (8 directions). People can squeeze diagonally past one blocked corner
+// (between a house and a tree, say) but not through a gap where two obstacles touch corner to corner.
 
 const SQRT2 = Math.SQRT2;
 const DIRS = [
@@ -46,6 +47,40 @@ class MinHeap {
 // Returns an array of tiles [{x,y}, ...] from (but not including) the start to the goal,
 // or null if the goal can't be reached. `team` may pass through its own gates.
 // With `ignoreWalls`, walls and gates count as open ground (to find out which wall is in the way).
+// Straighten a tile path: skip waypoints whenever a straight line to a later one stays on open ground,
+// so people walk directly instead of zig-zagging from tile centre to tile centre.
+// pts are pixel points; (x0, y0) is where the walker is now.
+export function smoothPath(map, x0, y0, pts, team, tile) {
+  if (pts.length < 2) return pts;
+  const clear = (ax, ay, bx, by) => {
+    const d = Math.hypot(bx - ax, by - ay);
+    const n = Math.ceil(d / (tile / 4));
+    for (let i = 1; i < n; i++) {
+      const x = ax + ((bx - ax) * i) / n;
+      const y = ay + ((by - ay) * i) / n;
+      // keep a little clearance from blocked tiles (check a small box around the point)
+      for (const [ox, oy] of [[0, 0], [5, 5], [-5, -5], [5, -5], [-5, 5]]) {
+        if (!map.isWalkable(Math.floor((x + ox) / tile), Math.floor((y + oy) / tile), team)) return false;
+      }
+    }
+    return true;
+  };
+  const out = [];
+  let ax = x0;
+  let ay = y0;
+  let i = 0;
+  while (i < pts.length) {
+    // the furthest waypoint (up to 10 ahead) we can walk to in a straight line
+    let j = Math.min(pts.length - 1, i + 10);
+    while (j > i && !clear(ax, ay, pts[j].x, pts[j].y)) j--;
+    out.push(pts[j]);
+    ax = pts[j].x;
+    ay = pts[j].y;
+    i = j + 1;
+  }
+  return out;
+}
+
 export function findPath(map, sx, sy, gx, gy, team, ignoreWalls = false) {
   const walk = ignoreWalls
     ? (x, y) => map.isWalkable(x, y, team) || map.isWallTile(x, y)
@@ -90,7 +125,7 @@ export function findPath(map, sx, sy, gx, gy, team, ignoreWalls = false) {
     for (const [dx, dy, cost] of DIRS) {
       const nx = cx + dx, ny = cy + dy;
       if (!walk(nx, ny)) continue;
-      if (dx && dy && (!walk(cx + dx, cy) || !walk(cx, cy + dy))) continue;
+      if (dx && dy && !walk(cx + dx, cy) && !walk(cx, cy + dy)) continue;
       const ni = ny * W + nx;
       if (closed[ni]) continue;
       const ng = g[cur] + cost;

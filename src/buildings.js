@@ -50,6 +50,10 @@ export const BUILDING_TYPES = {
     name: 'Mill', w: 2, h: 2, hp: 300, cost: { wood: 75 }, buildTime: 12, era: 0,
     dropOff: ['food'], desc: 'Workers drop off food here. Build it among your farms or near berry bushes.',
   },
+  bridge: {
+    name: 'Bridge', w: 1, h: 1, hp: 180, cost: { wood: 15 }, buildTime: 5, era: 0, line: true, bridge: true, walkable: true,
+    desc: 'Drag a line across water, rock, coal or trees. Each section opens up as it is finished, so workers build out from the edge. Anyone can cross.',
+  },
   barracks: {
     name: 'Barracks', w: 3, h: 3, hp: 500, cost: { wood: 125, stone: 50 }, buildTime: 22, era: 0,
     trains: ['soldier', 'archer', 'scout', 'rifleman', 'medic', 'cannon', 'armoured_car', 'e_tank'], desc: 'Trains your army.',
@@ -141,7 +145,7 @@ export const BUILDING_TYPES = {
 export const WORKER_PAGES = [
   ['house', 'apartments', 'farm', 'mill', 'lumber_camp', 'mining_camp', 'fishing_dock', 'market', 'trees', 'office', 'factory'],
   ['wind_turbine', 'power_plant', 'hydro_dam', 'solar', 'geothermal', 'carbon_capture'],
-  ['barracks', 'tower', 'wall', 'gate', 'radar', 'workshop', 'restoration'],
+  ['barracks', 'tower', 'wall', 'gate', 'bridge', 'radar', 'workshop', 'restoration'],
 ];
 export const WORKER_PAGE_NAMES = ['Town & economy', 'Energy', 'Military & science'];
 export const WORKER_BUILDS = WORKER_PAGES.flat();
@@ -246,6 +250,7 @@ export class Building {
     this.progress = Math.min(1, this.progress + dt / 1000 / this.def.buildTime);
     this.hp = Math.max(this.hp, Math.ceil(this.maxHp * (0.1 + 0.9 * this.progress)));
     this.redraw();
+    if (this.complete && this.def.bridge) this.map.setBridge(this, true); // now people can walk on it
     return this.complete;
   }
 

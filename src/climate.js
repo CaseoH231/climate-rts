@@ -1,4 +1,5 @@
 // The climate: CO₂ in the air, global temperature, and the disasters that get worse as it heats up.
+import { CLIMATE_PRESSURE } from './setup.js';
 import { TILE, TERRAIN, CLIMATE } from './config.js';
 import { toIso } from './iso.js';
 
@@ -35,6 +36,7 @@ export class Climate {
     // With more than two sides there's more pollution to go round, so each side's share counts a bit less
     // (four sides warm the planet about 40% faster than two, instead of twice as fast).
     if (ppm > 0) ppm *= Math.sqrt(2 / Math.max(2, this.world.teamIds.length));
+    if (ppm > 0) ppm *= CLIMATE_PRESSURE[this.world.rules ? this.world.rules.climate : 'normal'] || 1; // game setting
     this.co2 = Math.max(CLIMATE.baseCO2, this.co2 + ppm);
     if (ppm > 0) this.emittedTotal += ppm;
   }
@@ -267,7 +269,7 @@ export class Climate {
     const lost = new Set();
     for (const t of flooded) {
       const b = this.map.buildingAt(t.x, t.y);
-      if (b) lost.add(b);
+      if (b && !b.def.bridge) lost.add(b); // bridges stay standing as the water rises
       const k = t.y * this.map.w + t.x;
       this.fires.delete(k);
       this.ash.delete(k);

@@ -1,13 +1,15 @@
 // Text for the "How to Play" screens.
 export const HOW_TO_PLAY = [
   'Goal: knock out every rival side by destroying its Town Centre — or reach the Green Age and keep the Climate Restoration Project standing for 3 minutes. If the planet reaches +5°C, everyone loses.',
-  'Games: 1 v 1, 2 v 2 (you and a computer ally), or a 3- or 4-way free-for-all. Allies share what they can see.',
+  'Games: set up to four seats like in AoE2: you, computer players or closed, each on a team (1–4, or – for nobody\'s ally). Try 1 v 2, 1 v 3, 2 v 2 or 1v1v1v1. Allies share what they can see and start next to each other.',
   '',
   'Select: left-click, or drag a box. Double-click (or Ctrl+click) a unit to select all of that type on screen.',
   'Orders: right-click to move, gather, build or attack.',
   'Workers: right-click trees, stone, berries or coal to gather. Use the command grid (keys Q–Y, Z–N) to build. N flips pages: energy, then military & science.',
   'Drop-off camps: workers carry wood to a Lumber Camp, stone and coal to a Mining Camp, food to a Mill (or anything to the Town Centre). Build camps right next to what they gather.',
   'Delete: select your own units or a building and press Delete (or the ✕ Delete button). Your Town Centre asks twice.',
+  'Bridges (Military & science page): drag a line across water, rock, coal or trees. Workers build from the bank outwards. Anyone can cross.',
+  'Settings: New Game → Map & settings sets map size, resources, starting age, population, reveal map, peace time, victory and climate.',
   'Town Centre: trains workers, researches upgrades and advances your age. Barracks train your army.',
   'Rally point: select a Town Centre or Barracks and right-click the ground. Right-click a resource and new workers go straight to work.',
   'Groups: Ctrl+1–9 (or Alt+1–9) saves your selection, 1–9 selects it, press twice to jump there.',

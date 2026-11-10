@@ -900,7 +900,8 @@ export default class UIScene extends Phaser.Scene {
       const T = w.teams[r.t];
       const you = r.t === w.self && !(w.net && w.net.spectator) && !w.replay;
       const viewing = w.canSwitchView && r.t === w.me;
-      r.name.setText(`${w.teamName(r.t).replace(' (computer)', ' (AI)')}${you ? ' (you)' : ''}`);
+      const nm = w.teamName(r.t).replace(' (computer)', ' (AI)');
+      r.name.setText(`${nm}${you && nm !== 'You' ? ' (you)' : ''}`);
       r.name.setColor(viewing ? COL.gold : COL.text);
       const rel = r.t === w.self ? '' : w.isAlly(r.t, w.self) ? 'ally' : 'enemy';
       const army = w.units.filter((u) => u.team === r.t && u.isMilitary).length;
@@ -1123,7 +1124,8 @@ export default class UIScene extends Phaser.Scene {
     }
     const pop = `${w.popUsed} / ${w.popCap}`;
     if (this.popText.text !== pop) this.popText.setText(pop);
-    const era = ERAS[w.eraOf(this.world.me)].name + (w.paused && !w.net ? '   (paused)' : '');
+    const peace = w.atPeace && w.atPeace() ? `   ·   🕊 Peace ${fmtTime(w.peaceUntil - w.gameTime)}` : '';
+    const era = ERAS[w.eraOf(this.world.me)].name + peace + (w.paused && !w.net ? '   (paused)' : '');
     if (this.eraText.text !== era) this.eraText.setText(era);
     const clock = fmtTime(w.gameTime);
     if (this.clockText.text !== clock) this.clockText.setText(clock);
