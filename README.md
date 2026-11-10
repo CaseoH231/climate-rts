@@ -87,6 +87,7 @@ Online play only works on the Cloudflare site. It won't work when you run the ga
 - **Blows land on the thing being worked.** A worker takes a short step to stand right beside the nearest tree trunk, rock, bush or building wall, so the axe bites the trunk, the pick hits the rock and the hand reaches into the bush. Workers sharing a tree spread out around it, and farmers work their way along the rows. Each blow has its own effect: wood chips and falling leaves, rock chips and sparks, coal dust, a berry dropped into the basket, clods of soil, sawdust.
 - **Loads are carried home on the shoulder:** a bundle of logs, a stone block, a sack of coal, a basket of berries, a haunch of venison or a sheaf of wheat.
 - All of this is just for show: it never changes the game, so replays and online games stay in sync.
+- **Look (v18 visual overhaul):** closer to AoE2 than a cartoon. People are smaller next to buildings, with realistic proportions (slimmer build, longer legs, smaller heads) and soft edges instead of thick black outlines, and the team colour shows clearly on their clothes. **Trees are proper sprites**: tall, detailed oaks and pines lit from the upper left, which people walk behind, which shake when chopped, and which thin out tree by tree as a forest is cut. The grass is a deeper, earthier green with blade-level texture and bare patches. Stone deposits are faceted rocks with loose gravel, coal lies in dusty scattered heaps, buildings stand on trodden earth, and the whole screen has a slightly muted, warm colour grade (turn it off with Screen effects in Settings).
 
 ## Fog of war
 
@@ -219,6 +220,7 @@ src/replay.js           storing and listing replays
 src/net.js              the connection to an online game (reconnects by itself)
 src/setup.js            who is in a game: sides, alliances, computer players (1 v 1, 2 v 2, free-for-all, freeplay)
 src/practice.js         Freeplay: gather rates, milestones and personal bests
+src/trees.js            tree sprites: drawing the oaks and pines, and keeping them in step with the forests
 worker/index.js         the Cloudflare Worker: serves the game, opens online rooms
 worker/room-core.js     an online room: game codes, 4 seats, spectators, the turn clock, relaying orders, sync checks, chat
 wrangler.jsonc          Cloudflare settings (website + Worker + Durable Object)
@@ -263,6 +265,7 @@ src/scenes/UIScene.js   resource bar, command panel, diamond minimap, climate pa
 - [x] Phase 19¾ – Game settings (map size, resources, starting age, population, reveal map, peace time, victory, climate) for single player and online, bridges, smoother movement that squeezes through visible gaps
 - [x] Phase 20 – Polish: better animations (smoother walking, tool swings, sword wind-ups, flinches, falls, building completion), tributes between sides, and a Freeplay practice mode with an economy panel, milestones and personal bests
 - [x] Phase 20½ – Animation overhaul: a tool and working poses for each job, workers lining up with the exact tree / rock / bush / wall they're working, per-job hit effects, carried loads, spear throws
+- [x] Phase 20¾ – Visual overhaul: AoE2-style proportions and colours, tree sprites, textured ground, rocks, earth under buildings
 - [ ] Phase 21 – Gore update: an optional blood & gore setting (off by default) — blood spatter on hits, bodies that stay on the battlefield longer, more dramatic deaths, scorch marks from explosions
 - [ ] Phase 22 – Playtesting feedback
 

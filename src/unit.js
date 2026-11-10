@@ -1,6 +1,6 @@
 // Units: workers and soldiers. Workers can gather resources and construct buildings.
 import { findPath, smoothPath } from './pathfinding.js';
-import { unitKey, ART_RES, unitTier, ensureUnitTex, ensureJobTex, jobContact, ensureCarryTex } from './art.js';
+import { unitKey, ART_RES, UNIT_SPRITE_SCALE, unitTier, ensureUnitTex, ensureJobTex, jobContact, ensureCarryTex } from './art.js';
 import { toIso } from './iso.js';
 import { TERRAIN, TILE } from './config.js';
 
@@ -105,11 +105,11 @@ export class Unit {
     this.walkPhase = Math.random() * 6;
 
     const big = def.vehicle || def.mounted;
-    const shadow = scene.add.ellipse(0, 1, big ? 34 : 18, big ? 12 : 8, 0x000000, 0.32);
-    this.ring = scene.add.ellipse(0, 1, big ? 42 : 26, big ? 16 : 12).setStrokeStyle(1.5, 0xe0d8b0, 0.9).setVisible(false);
+    const shadow = scene.add.ellipse(0, 1, big ? 26 : 13, big ? 9 : 5.5, 0x000000, 0.3);
+    this.ring = scene.add.ellipse(0, 1, big ? 34 : 20, big ? 13 : 9).setStrokeStyle(1.5, 0xe0d8b0, 0.9).setVisible(false);
     this.tier = unitTier(type, ups);
     ensureUnitTex(scene, type, team, this.tier);
-    this.sprite = scene.add.image(0, 0, unitKey(type, team, 0, this.tier)).setOrigin(0.5, def.mounted ? 0.9 : big ? 0.72 : 0.86).setScale(1 / ART_RES);
+    this.sprite = scene.add.image(0, 0, unitKey(type, team, 0, this.tier)).setOrigin(0.5, def.mounted ? 0.9 : big ? 0.72 : 0.86).setScale(UNIT_SPRITE_SCALE);
     this.frame = 0;
     this.baseScale = this.sprite.scaleY;
     this.strikeT = 0;   // (visual) how long to keep showing the strike pose
@@ -127,8 +127,8 @@ export class Unit {
     this.body = body;
 
     ensureCarryTex(scene);
-    this.carryIcon = scene.add.image(-8, -24, 'carry_wood').setScale(1 / ART_RES).setVisible(false);
-    const barY = big ? -30 : -38; // above the head (units are drawn at UNIT_SCALE)
+    this.carryIcon = scene.add.image(-5, -20, 'carry_wood').setScale(UNIT_SPRITE_SCALE).setVisible(false);
+    const barY = big ? -24 : -32; // above the head (units are drawn at UNIT_SCALE)
     this.hpBg = scene.add.rectangle(-11, barY, 22, 4, 0x000000, 0.65).setOrigin(0, 0.5).setVisible(false);
     this.hpFill = scene.add.rectangle(-10, barY, 20, 2, 0x8fb04a).setOrigin(0, 0.5).setVisible(false);
 
@@ -400,8 +400,8 @@ export class Unit {
     if (ci.visible) {
       const flip = this.sprite.flipX;
       ci.setFlipX(flip);
-      ci.x = flip ? 7.5 : -7.5;
-      ci.y = -24 + this.sprite.y;
+      ci.x = flip ? 5 : -5;
+      ci.y = -20 + this.sprite.y;
     }
   }
 
@@ -525,6 +525,7 @@ export class Unit {
         const c = jobContact(this.job, this.tier);
         const flip = this.sprite.flipX ? -1 : 1;
         this.scene.fx.workHit(kind, { x: this.isoX + flip * c.x, y: this.isoY + c.y }, this, this.workTarget);
+        if (kind === 'wood' && this.scene.trees && this.workTarget && o) this.scene.trees.shake(o.tx, o.ty, this.workTarget);
       }
     }
     // farmers move on along the rows every few strokes

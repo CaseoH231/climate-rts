@@ -4,6 +4,57 @@ import { UNIT_TYPES } from './unit.js';
 import { buildingKey, buildingTexInfo, BUILDING_POINTS, ART_RES, ensureBuildingTex } from './art.js';
 import { toIso } from './iso.js';
 
+// A patch of bare, trodden earth for a w×h building, with a ragged edge that fades into the grass.
+function groundTex(scene, w, h) {
+  const key = `bground_${w}x${h}`;
+  const o = toIso(0, 0);
+  const ax = toIso(TILE, 0).x - o.x, ay = toIso(TILE, 0).y - o.y;
+  const bx = toIso(0, TILE).x - o.x, by = toIso(0, TILE).y - o.y;
+  const at = (u, v) => ({ x: u * ax + v * bx, y: u * ay + v * by });
+  const M = 0.38; // how far the earth spreads past the walls, in tiles
+  const corners = [at(-M, -M), at(w + M, -M), at(w + M, h + M), at(-M, h + M)];
+  const minX = Math.min(...corners.map((c) => c.x)) - 4;
+  const minY = Math.min(...corners.map((c) => c.y)) - 4;
+  const W = Math.ceil(Math.max(...corners.map((c) => c.x)) - minX + 8);
+  const H = Math.ceil(Math.max(...corners.map((c) => c.y)) - minY + 8);
+  if (!scene.textures.exists(key)) {
+    const tex = scene.textures.createCanvas(key, W, H);
+    const ctx = tex.getContext();
+    let seed = w * 7919 + h * 104729;
+    const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+    // a few rings from the outside in: faint and ragged at the edge, solid in the middle
+    for (const [m, alpha] of [[M, 0.22], [M * 0.7, 0.3], [M * 0.35, 0.38], [0.05, 0.42]]) {
+      const pts = [];
+      const per = 10;
+      const edge = [[-m, -m, w + m, -m], [w + m, -m, w + m, h + m], [w + m, h + m, -m, h + m], [-m, h + m, -m, -m]];
+      for (const [u0, v0, u1, v1] of edge) {
+        for (let i = 0; i < per; i++) {
+          const t = i / per;
+          const j = (rnd() - 0.5) * 0.22;
+          const p = at(u0 + (u1 - u0) * t + j, v0 + (v1 - v0) * t - j);
+          pts.push([p.x - minX, p.y - minY]);
+        }
+      }
+      ctx.fillStyle = `rgba(108,88,60,${alpha})`;
+      ctx.beginPath();
+      pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+      ctx.closePath();
+      ctx.fill();
+    }
+    // gravel, pebbles and tufts
+    const n = Math.round(W * H / 40);
+    for (let i = 0; i < n; i++) {
+      const p = at(-M * 0.6 + rnd() * (w + M * 1.2), -M * 0.6 + rnd() * (h + M * 1.2));
+      const x = p.x - minX, y = p.y - minY;
+      const k = rnd();
+      ctx.fillStyle = k < 0.45 ? 'rgba(70,56,38,0.5)' : k < 0.85 ? 'rgba(150,132,100,0.45)' : 'rgba(84,104,52,0.5)';
+      ctx.fillRect(x, y, 1 + rnd(), 1);
+    }
+    tex.refresh();
+  }
+  return { key, ox: -minX, oy: -minY };
+}
+
 // Local isometric point inside a building (footprint grid px + height) → container coordinates.
 const P = (x, y, z = 0) => ({ x: x - y, y: (x + y) / 2 - z });
 
@@ -222,6 +273,11 @@ export class Building {
     this.overlay = scene.add.graphics();
     this.ui = scene.add.graphics();
     this.container.add([this.foundation, this.image, this.overlay, this.ui]);
+    // (for show) trodden earth around the building, so it sits in the land rather than on the grass
+    if (!def.walkable && !def.line && !def.bridge) {
+      const g = groundTex(scene, def.w, def.h);
+      this.ground = scene.add.image(iso.x - g.ox, iso.y - g.oy, g.key).setOrigin(0).setDepth(-0.5);
+    }
 
     map.placeBuilding(this);
     this.redraw();
@@ -429,6 +485,7 @@ export class Building {
   }
 
   destroy() {
+    if (this.ground) { this.ground.destroy(); this.ground = null; }
     this.map.removeBuilding(this);
     this.container.destroy();
   }

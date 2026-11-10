@@ -2,7 +2,7 @@
 import { TILE, MAP_W, MAP_H, PLAYER_START, GAME_VERSION } from '../config.js';
 import { GameMap, MAP_TYPES } from '../map.js';
 import { BUILDING_TYPES, ERAS } from '../buildings.js';
-import { generateArt, buildingKey, unitKey, buildingTexInfo, BUILDING_POINTS, ART_RES } from '../art.js';
+import { generateArt, buildingKey, unitKey, buildingTexInfo, BUILDING_POINTS, ART_RES, UNIT_SPRITE_SCALE } from '../art.js';
 import { toIso, ISO_W, ISO_H, setWorldSize } from '../iso.js';
 import { panel, button, volumeRows, scrollText, htmlInput, FONT_SERIF, FONT_SANS, UI_COL } from '../ui.js';
 import { MODES, PRESETS, presetSeats, seatsSetup, seatsProblem, describeSetup, RULES, cleanRules, describeRules } from '../setup.js';
@@ -114,7 +114,7 @@ export default class MenuScene extends Phaser.Scene {
     for (let i = 0; i < 6; i++) {
       const type = i < 4 ? 'worker' : 'soldier';
       const p = toIso((s.x - 2 + i) * TILE, (s.y + 2.5) * TILE);
-      const img = this.add.image(p.x, p.y, unitKey(type, 'player')).setOrigin(0.5, 0.86).setDepth(p.y).setScale(1 / ART_RES);
+      const img = this.add.image(p.x, p.y, unitKey(type, 'player')).setOrigin(0.5, 0.86).setDepth(p.y).setScale(UNIT_SPRITE_SCALE);
       this.walkers.push({ img, base: p, phase: i, type });
     }
     const cam = this.cameras.main;

@@ -32,6 +32,7 @@ function loadSpeed() {
 import { EnemyAI, DIFFICULTY } from '../ai.js';
 import { audio } from '../audio.js';
 import { Practice } from '../practice.js';
+import { TreeLayer } from '../trees.js';
 import { Fog } from '../fog.js';
 
 const TRIBUTE_RES = ['food', 'wood', 'stone', 'fuel'];
@@ -124,11 +125,14 @@ export default class GameScene extends Phaser.Scene {
     if (this.textures.exists('terrain')) this.textures.remove('terrain');
     this.terrainTex = this.textures.createCanvas('terrain', ISO_W, ISO_H);
     this.terrainCtx = this.terrainTex.getContext();
+    this.map.treeSprites = true; // trees are sprites, so the ground only gets their shadows
     this.map.renderAll(this.terrainCtx);
     this.terrainTex.refresh();
     this.terrainDirty = false;
     this.add.image(0, 0, 'terrain').setOrigin(0).setDepth(-1);
     this.map.onTileChanged = (x, y) => this.redrawTile(x, y);
+    this.trees = new TreeLayer(this, this.map);
+    this.map.onHarvest = (x, y) => this.trees.refresh(x, y);
 
     // --- Camera ---
     const cam = this.cameras.main;
@@ -430,8 +434,10 @@ export default class GameScene extends Phaser.Scene {
     if (!fxEnabled()) return;
     cam.postFX.addVignette(0.5, 0.5, 0.95, 0.22);
     const cm = cam.postFX.addColorMatrix();
-    cm.saturate(0.14);
-    cm.contrast(0.06, true);
+    // a slightly muted, warm, contrasty grade (closer to AoE2 than bright cartoon colours)
+    cm.saturate(-0.1);
+    cm.contrast(0.1, true);
+    cm.brightness(0.98, true);
     this.gradeFx = cm;
   }
 
@@ -522,6 +528,7 @@ export default class GameScene extends Phaser.Scene {
   // Repaint a changed tile (and its neighbours, for soft edges). Uploaded to the GPU once per frame.
   redrawTile(x, y) {
     this.map.renderRegion(this.terrainCtx, x - 1, y - 1, x + 1, y + 1);
+    if (this.trees) this.trees.refresh(x, y);
     if (this.miniDirty !== undefined) this.miniDirty = true;
     this.terrainDirty = true;
     this.events.emit('tileChanged', x, y);

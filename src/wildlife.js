@@ -1,3 +1,4 @@
+import { UNIT_SPRITE_SCALE } from './art.js';
 // Herds of deer that wander the map. They bolt away from people, and a hunted deer
 // becomes a "Hunted deer" food tile that workers butcher quickly.
 
@@ -42,7 +43,7 @@ export class Wildlife {
   }
 
   add(x, y) {
-    const sprite = this.scene.add.image(0, 0, 'deer0').setOrigin(0.5, 0.88).setScale(0.5);
+    const sprite = this.scene.add.image(0, 0, 'deer0').setOrigin(0.5, 0.88).setScale(UNIT_SPRITE_SCALE * 1.1);
     const d = { id: this.nextId++, x, y, tx: x, ty: y, wait: this.scene.rand() * 4, fleeing: 0, sprite, dead: false, phase: Math.random() * 1000 };
     this.place(d);
     this.deer.push(d);

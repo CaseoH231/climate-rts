@@ -331,6 +331,7 @@ export class GameMap {
     if (!this.resourceAt(x, y)) return 0;
     const take = Math.min(amt, this.amount[i]);
     this.amount[i] -= take;
+    if (this.onHarvest) this.onHarvest(x, y); // (for show: forests thin out tree by tree)
     if (this.amount[i] <= 0.0001) {
       this.amount[i] = 0;
       this.set(x, y, TERRAIN.GRASS);
@@ -537,7 +538,10 @@ export class GameMap {
       r += ripple; g += ripple; b += ripple;
       if (dl < 2.5) { const f = (1 - dl / 2.5) * 0.4; r = lerp(r, 196, f); g = lerp(g, 200, f); b = lerp(b, 180, f); }
     } else {
-      r = lerp(82, 112, n2); g = lerp(114, 140, n2); b = lerp(40, 54, n2);
+      // a deeper, earthier green than before, with fine blade-level texture (AoE2-style)
+      r = lerp(70, 98, n2); g = lerp(100, 124, n2); b = lerp(38, 50, n2);
+      const blade = pnoise(wx * 1.7, wy * 3.1, 2) - 0.5;
+      r += blade * 10; g += blade * 16; b += blade * 6;
       // big, gentle patches: lush blue-green in the hollows, warmer and paler on the rises
       const patch = n3 - 0.5;
       r += patch * 18; g += patch * 6; b -= patch * 10;
@@ -545,7 +549,10 @@ export class GameMap {
       const lift = Math.max(-0.12, Math.min(0.2, e - 0.55));
       r += lift * 40; g += lift * 30; b += lift * 18;
       const dry = Math.max(0, n3 - 0.55) * 1.8;
-      r = lerp(r, 142, dry); g = lerp(g, 134, dry); b = lerp(b, 68, dry);
+      r = lerp(r, 132, dry); g = lerp(g, 124, dry); b = lerp(b, 66, dry);
+      // worn patches of bare earth here and there
+      const bare = Math.max(0, pnoise(wx + 913, wy + 377, 48) - 0.7) * 3.2 * (0.7 + n1 * 0.6);
+      r = lerp(r, 122, Math.min(0.85, bare)); g = lerp(g, 100, Math.min(0.85, bare)); b = lerp(b, 66, Math.min(0.85, bare));
       const shade = this.edgeFade(wx, wy, tx, ty, t, wobble);
       if (t === TERRAIN.FOREST || t === TERRAIN.BERRIES) { r *= 1 - 0.32 * shade; g *= 1 - 0.24 * shade; b *= 1 - 0.3 * shade; }
       else if (t === TERRAIN.STONE || t === TERRAIN.COAL) { const k = 0.35 * shade; r = lerp(r, 120, k); g = lerp(g, 110, k); b = lerp(b, 86, k); }
@@ -679,9 +686,12 @@ export class GameMap {
       for (let i = 0; i < n; i++) {
         const p = at(4 + r() * 24, 4 + r() * 24);
         const size = 8 + r() * 3.5;
-        r(); r();
-        out.push({ x: p.x, y: p.y, hit: p.y - size * 0.5, top: p.y - size * 2.6, w: 2 });
+        const pine = r() < 0.35;
+        const hue = r();
+        const scale = 0.85 + ((size - 8) / 3.5) * 0.35;
+        out.push({ x: p.x, y: p.y, hit: p.y - 10, top: p.y - (pine ? 56 : 44) * scale, w: 2, pine, hue, scale, flip: hue * 7 % 1 < 0.5 });
       }
+      out.sort((a, b) => a.y - b.y);
     } else if (t === TERRAIN.STONE || t === TERRAIN.COAL) {
       const coal = t === TERRAIN.COAL;
       const n = coal ? 5 : 3;
@@ -717,11 +727,22 @@ export class GameMap {
         trees.push({ x: p.x, y: p.y, s: 8 + r() * 3.5, pine: r() < 0.35, hue: r() });
       }
       trees.sort((a, b) => a.y - b.y);
+      // The trees are sprites (see trees.js); the ground only gets their soft shadows, cast to the lower right,
+      // and some leaf litter.
       for (const tr of trees) {
-        ctx.fillStyle = 'rgba(0,0,0,0.3)';
-        ctx.beginPath();
-        ctx.ellipse(tr.x + tr.s * 0.8, tr.y + 1, tr.s * 1.1, tr.s * 0.45, 0, 0, Math.PI * 2);
-        ctx.fill();
+        const k = 0.85 + ((tr.s - 8) / 3.5) * 0.35;
+        ctx.fillStyle = 'rgba(8,16,6,0.22)';
+        ctx.beginPath(); ctx.ellipse(tr.x + 9 * k, tr.y + 2, 15 * k, 6 * k, -0.15, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = 'rgba(8,16,6,0.18)';
+        ctx.beginPath(); ctx.ellipse(tr.x + 3 * k, tr.y + 1, 8 * k, 3.4 * k, 0, 0, Math.PI * 2); ctx.fill();
+      }
+      for (let i = 0; i < 6; i++) {
+        const p = at(r() * 32, r() * 32);
+        ctx.fillStyle = r() < 0.5 ? 'rgba(92,70,40,0.45)' : 'rgba(40,60,26,0.5)';
+        ctx.fillRect(p.x, p.y, 1.5, 1);
+      }
+      if (this.treeSprites) return;
+      for (const tr of trees) {
         ctx.fillStyle = '#3b2a1a';
         ctx.fillRect(tr.x - 1, tr.y - tr.s * 1.1, 2.5, tr.s * 1.1);
         if (tr.pine) {
@@ -758,10 +779,23 @@ export class GameMap {
       const coal = t === TERRAIN.COAL;
       const c = at(16, 16);
       if (coal) {
-        ctx.fillStyle = 'rgba(20,18,16,0.4)';
-        ctx.beginPath();
-        ctx.ellipse(c.x, c.y, 22, 10, 0, 0, Math.PI * 2);
-        ctx.fill();
+        // coal dust and loose lumps scattered about (its own random numbers, so the rocks stay put)
+        const q = tileRand(tx + 1000, ty + 517);
+        for (let i = 0; i < 9; i++) {
+          const p = at(4 + q() * 24, 4 + q() * 24);
+          ctx.fillStyle = `rgba(22,20,18,${0.12 + q() * 0.14})`;
+          ctx.beginPath(); ctx.ellipse(p.x, p.y, 5 + q() * 7, 2.4 + q() * 3, q() * 0.6 - 0.3, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.fillStyle = 'rgba(18,16,14,0.7)';
+        for (let i = 0; i < 10; i++) { const p = at(3 + q() * 26, 3 + q() * 26); ctx.fillRect(p.x, p.y, 1 + q() * 1.2, 0.8 + q()); }
+      } else {
+        // loose stones and gravel around a stone deposit
+        const q = tileRand(tx + 1000, ty + 517);
+        for (let i = 0; i < 12; i++) {
+          const p = at(2 + q() * 28, 2 + q() * 28);
+          ctx.fillStyle = q() < 0.5 ? 'rgba(150,142,126,0.8)' : 'rgba(96,90,80,0.7)';
+          ctx.fillRect(p.x, p.y, 1 + q() * 1.4, 0.8 + q() * 0.8);
+        }
       }
       const n = coal ? 5 : 3;
       const rocks = [];
@@ -773,23 +807,36 @@ export class GameMap {
         for (let j = 0; j < k; j++) {
           const a = (j / k) * Math.PI * 2;
           const rr = size * (0.75 + r() * 0.35);
-          pts.push([p.x + Math.cos(a) * rr, p.y - size * 0.4 + Math.sin(a) * rr * 0.7]);
+          pts.push([p.x + Math.cos(a) * rr, p.y - size * 0.4 + Math.sin(a) * rr * 0.58]);
         }
         ctx.fillStyle = 'rgba(0,0,0,0.3)';
         ctx.beginPath();
         ctx.ellipse(p.x + 3, p.y + 1, size, size * 0.4, 0, 0, Math.PI * 2);
         ctx.fill();
-        const gr = ctx.createLinearGradient(p.x - size, p.y - size, p.x + size, p.y + size * 0.5);
-        if (coal) { gr.addColorStop(0, '#55524c'); gr.addColorStop(1, '#100f0e'); }
-        else { gr.addColorStop(0, '#d1c9b5'); gr.addColorStop(1, '#6e6656'); }
-        ctx.fillStyle = gr;
+        // the whole stone in its shaded colour…
+        ctx.fillStyle = coal ? '#1c1a18' : '#5e584d';
         ctx.beginPath();
         ctx.moveTo(pts[0][0], pts[0][1]);
         for (const q of pts) ctx.lineTo(q[0], q[1]);
         ctx.closePath();
         ctx.fill();
-        ctx.fillStyle = coal ? 'rgba(220,220,210,0.55)' : 'rgba(255,250,235,0.35)';
-        ctx.fillRect(p.x - size * 0.3, p.y - size * 0.8, coal ? 1 : 2, 1);
+        // …then flat facets catching the light from the upper left
+        const cxp = p.x - size * 0.15;
+        const cyp = p.y - size * 0.55;
+        const faces = coal ? ['#3e3a35', '#2a2724', '#4a4640'] : ['#9e9684', '#80796b', '#b0a893'];
+        for (let j = 0; j < k; j++) {
+          const a0 = pts[j];
+          const a1 = pts[(j + 1) % k];
+          const ang = Math.atan2((a0[1] + a1[1]) / 2 - cyp, (a0[0] + a1[0]) / 2 - cxp);
+          const light = -Math.cos(ang + 0.9); // facing the upper left = lit
+          if (light < -0.2) continue;
+          ctx.fillStyle = faces[light > 0.55 ? 2 : light > 0.15 ? 0 : 1];
+          ctx.beginPath(); ctx.moveTo(cxp, cyp); ctx.lineTo(a0[0], a0[1]); ctx.lineTo(a1[0], a1[1]); ctx.closePath(); ctx.fill();
+        }
+        // a crack or two, and (for coal) a glint
+        ctx.strokeStyle = coal ? 'rgba(0,0,0,0.5)' : 'rgba(60,54,44,0.55)'; ctx.lineWidth = 0.6;
+        ctx.beginPath(); ctx.moveTo(cxp, cyp); ctx.lineTo(cxp + size * (r() - 0.3) * 0.8, cyp + size * 0.6); ctx.stroke();
+        if (coal) { ctx.fillStyle = 'rgba(200,205,215,0.5)'; ctx.fillRect(cxp - 1, cyp - 0.5, 1, 1); }
       }
     } else if (t === TERRAIN.MEAT) {
       // a deer lying on its side

@@ -1575,7 +1575,7 @@ function drawJobTool(ctx) {
   T.draw(ctx);
   // where the working end ended up, back in canvas units (undo the art scale and the padding)
   const m = ctx.getTransform();
-  const res = ART_RES * UNIT_SCALE;
+  const res = UNIT_RES;
   const px = m.a * T.tip[0] + m.c * T.tip[1] + m.e;
   const py = m.b * T.tip[0] + m.d * T.tip[1] + m.f;
   if (POSE === (tool === 'spear' ? 1 : 2)) CONTACT = { x: px / res - PAD, y: py / res };
@@ -1585,7 +1585,7 @@ function drawJobTool(ctx) {
 // A point in the current drawing frame, back in plain canvas units (undoing art scale and padding).
 function toCanvas(ctx, x, y) {
   const m = ctx.getTransform();
-  const res = ART_RES * UNIT_SCALE;
+  const res = UNIT_RES;
   return { x: (m.a * x + m.c * y + m.e) / res - PAD, y: (m.b * x + m.d * y + m.f) / res };
 }
 
@@ -1635,9 +1635,11 @@ export function jobContact(job, tier = 0) {
 
 // Colour helpers for the figures: mix a #rrggbb colour towards white (amt > 0) or black (amt < 0).
 function tone(hex, amt) {
-  const n = parseInt(hex.slice(1), 16);
+  let rgb;
+  if (hex.startsWith('rgb')) rgb = hex.match(/[\d.]+/g).slice(0, 3).map(Number); // (already toned once)
+  else { const n = parseInt(hex.slice(1), 16); rgb = [n >> 16, (n >> 8) & 255, n & 255]; }
   const f = (v) => Math.round(amt >= 0 ? v + (255 - v) * amt : v * (1 + amt));
-  return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`;
+  return `rgb(${f(rgb[0])},${f(rgb[1])},${f(rgb[2])})`;
 }
 
 const SKINS = ['#c99c78', '#a8775a', '#e0b896', '#8a5e44'];
@@ -1654,16 +1656,22 @@ function figure(ctx, team, opts) {
   const trousers = opts.legs || '#4a3d30';
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
+  // realistic proportions: a slimmer build, longer legs and a smaller head than a cartoon figure
+  const HIP = 22.6;
+  ctx.save();
+  ctx.translate(16, 0);
+  ctx.scale(0.88, 1);
+  ctx.translate(-16, 0);
 
   // --- legs (the back leg is drawn darker) ---
   const leg = (x, swing) => {
     const fx = x + swing * 2.3;
     const fy = 33.4 - Math.abs(swing) * 0.5;
     ctx.fillStyle = swing > 0 ? tone(trousers, -0.25) : trousers;
-    poly(ctx, [[x - 2, 25.5], [x + 2, 25.5], [fx + 1.6, fy - 2], [fx - 1.6, fy - 2]]);
+    poly(ctx, [[x - 1.9, HIP], [x + 1.9, HIP], [fx + 1.4, fy - 2], [fx - 1.4, fy - 2]]);
     ctx.fill();
-    ctx.fillStyle = 'rgba(0,0,0,0.18)';
-    poly(ctx, [[x + 0.6, 25.5], [x + 2, 25.5], [fx + 1.6, fy - 2], [fx + 0.4, fy - 2]]);
+    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+    poly(ctx, [[x + 0.6, HIP], [x + 1.9, HIP], [fx + 1.4, fy - 2], [fx + 0.4, fy - 2]]);
     ctx.fill();
     // boot
     ctx.fillStyle = '#2a1d13';
@@ -1675,7 +1683,7 @@ function figure(ctx, team, opts) {
   const crouch = (spec && spec.crouch) || 0;
   if (crouch) {
     // bent knees: the hips drop and the legs splay
-    const hip = 25.5 + crouch;
+    const hip = HIP + crouch;
     for (const [x, kx] of [[13.4, 11.2], [18.6, 21.4]]) {
       ctx.strokeStyle = x < 16 ? tone(trousers, -0.25) : trousers; ctx.lineWidth = 3.8;
       ctx.beginPath(); ctx.moveTo(x, hip); ctx.lineTo(kx, hip + 3.4); ctx.lineTo(x + (x < 16 ? -1.2 : 1.2), 31.4); ctx.stroke();
@@ -1683,12 +1691,11 @@ function figure(ctx, team, opts) {
     }
   } else if (s >= 0) { leg(18.6, s); leg(13.4, -s); } else { leg(13.4, -s); leg(18.6, s); }
   // the upper body leans into the work (turning about the hips) and drops when crouching
+  // (the upper body is drawn 3 units higher than it's laid out, on top of the longer legs)
   ctx.save();
-  if (spec && (spec.lean || crouch)) {
-    ctx.translate(16, 26 + crouch);
-    ctx.rotate(spec.lean || 0);
-    ctx.translate(-16, -26);
-  }
+  ctx.translate(16, 26 + crouch - 3);
+  ctx.rotate((spec && spec.lean) || 0);
+  ctx.translate(-16, -26);
 
   // --- arms behind the body swing opposite to the legs ---
   const body = opts.body || c.main;
@@ -1700,7 +1707,7 @@ function figure(ctx, team, opts) {
     else if (front && POSE === 1) { hx = 24.4; hy = 13.6; }  // raised above the shoulder
     else if (front && POSE === 2) { hx = 26.4; hy = 22.2; }  // swung forward and down
     if (!front && JOB === 'forage') { hx = 9; hy = 24.6; }   // holding the basket
-    ctx.strokeStyle = front ? sleeve : tone(sleeve, -0.25);
+    ctx.strokeStyle = front ? sleeve : tone(sleeve, -0.14);
     ctx.lineWidth = 3.3;
     const bend = x + (x < 16 ? -0.8 : 0.8);
     ctx.beginPath(); ctx.moveTo(x, 16.3); ctx.quadraticCurveTo(POSE && front ? x + 1.6 : bend, POSE && front ? (16.3 + hy) / 2 : 20.5, hx, hy - 1.2); ctx.stroke();
@@ -1728,7 +1735,7 @@ function figure(ctx, team, opts) {
   if (opts.tabard !== false && plainTunic && body !== c.main) {
     // a team-coloured tabard down the front, with a pale trim
     ctx.fillStyle = vgrad(ctx, 14, 28, [c.light, c.main, c.dark]);
-    poly(ctx, [[13.2, 14.4], [18.8, 14.4], [19.4, 27.4], [16, 28.4], [12.6, 27.4]]);
+    poly(ctx, [[12.2, 14.3], [19.8, 14.3], [20.4, 27.4], [16, 28.6], [11.6, 27.4]]);
     ctx.fill();
     ctx.strokeStyle = 'rgba(232,214,160,0.75)'; ctx.lineWidth = 0.5; ctx.stroke();
   }
@@ -1771,7 +1778,11 @@ function figure(ctx, team, opts) {
   // --- front arm ---
   arm(22.8, -s, true);
 
-  // --- neck and head ---
+  // --- neck and head (drawn smaller, about the neck) ---
+  ctx.save();
+  ctx.translate(16, 14.2);
+  ctx.scale(0.76, 0.76);
+  ctx.translate(-16, -14.2);
   ctx.fillStyle = tone(skin, -0.18); ctx.fillRect(14.7, 12.6, 2.6, 2.4);
   ctx.fillStyle = rgrad(ctx, 14.6, 8.4, 0.8, 5.2, [tone(skin, 0.2), skin, tone(skin, -0.3)]);
   ctx.beginPath(); ctx.arc(16, 9.6, 4.6, 0, Math.PI * 2); ctx.fill();
@@ -1788,7 +1799,9 @@ function figure(ctx, team, opts) {
   ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.beginPath(); ctx.arc(14.6, 7.6, 1.4, 0, Math.PI * 2); ctx.fill();
 
   if (opts.head) opts.head(ctx, c);
+  ctx.restore();
   if (opts.item) opts.item(ctx, c);
+  ctx.restore();
   ctx.restore();
 }
 
@@ -1824,11 +1837,10 @@ export const UNIT_ART = {
         ctx.fillRect(10, 8, 12, 1.6);
         return;
       }
-      if (UNIT_TIER === 1) { // felt cap and leather apron
+      if (UNIT_TIER === 1) { // felt cap
         ctx.fillStyle = '#4a3a2a';
         ctx.beginPath(); ctx.arc(16, 8, 4.8, Math.PI, 0); ctx.fill();
         ctx.fillRect(16, 7, 6, 1.6);
-        ctx.fillStyle = '#7a5434'; ctx.fillRect(11, 18, 10, 8);
         return;
       }
       ctx.fillStyle = '#b3a066';
@@ -1838,7 +1850,13 @@ export const UNIT_ART = {
       ctx.fillStyle = '#9c8a55';
       ctx.fillRect(13, 3, 6, 4);
     },
-    item: (ctx) => drawJobTool(ctx),
+    item: (ctx) => {
+      if (UNIT_TIER === 1) { // a leather apron (narrow, so the team colour still shows)
+        ctx.fillStyle = '#6e4c30'; poly(ctx, [[13.6, 19.4], [18.4, 19.4], [19, 27.6], [13, 27.6]]); ctx.fill();
+        ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.fillRect(16.8, 19.4, 1.8, 8.2);
+      }
+      drawJobTool(ctx);
+    },
   }),
   soldier: (ctx, team) => figure(ctx, team, {
     armour: UNIT_TIER === 1 ? 'plate' : UNIT_TIER === 2 ? 'camo' : null,
@@ -2440,11 +2458,15 @@ export function makeCanvas(scene, key, w, h, draw, res = 1) {
 
 // People, horses and vehicles are drawn a little larger than the art grid (so they read well next to
 // buildings) and get a thin dark outline, which keeps them crisp against grass, fields and each other.
-export const UNIT_SCALE = 1.15;
-const OUTLINE = 'rgba(24,16,10,0.85)';
+// People and vehicles are shown at UNIT_SCALE × their drawing size (small next to buildings, as in
+// AoE2), but drawn at UNIT_RES pixels per unit so they stay sharp when you zoom in.
+export const UNIT_SCALE = 0.86;
+export const UNIT_RES = ART_RES * 1.5;
+export const UNIT_SPRITE_SCALE = UNIT_SCALE / UNIT_RES;
+const OUTLINE = 'rgba(28,20,12,0.42)'; // a soft dark edge rather than a cartoon outline
 export function makeUnitCanvas(scene, key, w, h, draw) {
   if (scene.textures.exists(key)) return;
-  const res = ART_RES * UNIT_SCALE;
+  const res = UNIT_RES;
   const W = Math.ceil(w * res);
   const H = Math.ceil(h * res);
   const art = document.createElement('canvas');
@@ -2462,7 +2484,7 @@ export function makeUnitCanvas(scene, key, w, h, draw) {
   sc.fillRect(0, 0, W, H);
   const tex = scene.textures.createCanvas(key, W, H);
   const ctx = tex.getContext();
-  for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, 1], [1, 1]]) ctx.drawImage(sil, dx, dy);
+  for (const [dx, dy] of [[-1, 0], [1, 0], [0, 1]]) ctx.drawImage(sil, dx, dy);
   ctx.drawImage(art, 0, 0);
   tex.refresh();
 }
