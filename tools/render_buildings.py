@@ -8,7 +8,7 @@ import bpy, bmesh, math, json, os, sys
 from mathutils import Vector
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
-OUT = os.path.join(ROOT, 'assets', 'buildings')
+OUT = os.path.join(ROOT, 'tools', 'renders', 'buildings')  # (pack_atlases.py packs these into assets/atlas)
 ART_RES, ART_TOP, TILE = 2, 110, 32
 TEAMS = {'player': 0x3f6296, 'enemy': 0x93382f, 'green': 0x3b8044, 'yellow': 0xb58c22}
 Z_SQUASH = 32 / (math.sin(math.radians(60)) * 32 * math.sqrt(2))  # the game draws heights a little shorter than a true camera would
@@ -43,10 +43,23 @@ def noisy(name, rgb, var=0.15, scale=30, bump=0.2, rough=0.85):
     return m
 
 
-def bricks(name, c1, c2, mortar, scale=6, row=0.25, width=0.5, bump=0.4, rough=0.9):
-    """Stonework or roof tiles: Blender's brick pattern, varied per brick, with mortar grooves."""
+def bricks(name, c1, c2, mortar, scale=6, row=0.25, width=0.5, bump=0.4, rough=0.9, flat=False):
+    """Stonework or roof tiles: Blender's brick pattern, varied per brick, with mortar grooves.
+    Walls and roofs are mapped with (x + y, z) so courses run level on every face; floors with (x, y)."""
     m, nt, b = principled(name, c1, rough)
-    tc = nt.nodes.new('ShaderNodeTexCoord')
+    tc0 = nt.nodes.new('ShaderNodeTexCoord')
+    sep = nt.nodes.new('ShaderNodeSeparateXYZ'); nt.links.new(tc0.outputs['Object'], sep.inputs['Vector'])
+    comb = nt.nodes.new('ShaderNodeCombineXYZ')
+    if flat:
+        nt.links.new(sep.outputs['X'], comb.inputs['X']); nt.links.new(sep.outputs['Y'], comb.inputs['Y'])
+    else:
+        add = nt.nodes.new('ShaderNodeMath'); add.operation = 'ADD'
+        nt.links.new(sep.outputs['X'], add.inputs[0]); nt.links.new(sep.outputs['Y'], add.inputs[1])
+        nt.links.new(add.outputs['Value'], comb.inputs['X']); nt.links.new(sep.outputs['Z'], comb.inputs['Y'])
+
+    class _TC:  # (so the rest of this function can keep using tc.outputs['Object'])
+        outputs = {'Object': comb.outputs['Vector']}
+    tc = _TC()
     br = nt.nodes.new('ShaderNodeTexBrick')
     br.inputs['Color1'].default_value = (*c1, 1); br.inputs['Color2'].default_value = (*c2, 1)
     br.inputs['Mortar'].default_value = (*mortar, 1); br.inputs['Scale'].default_value = scale
@@ -94,6 +107,12 @@ def make_materials(team_hex):
         'log': wood('log', lin(0x6a4a2c), scale=2),
         'logend': principled('logend', lin(0xc8a070), 0.9)[0],
         'grain': noisy('grain', lin(0xc9a443), var=0.25, scale=80, bump=0.4),
+        'slate': bricks('slate', lin(0x4c5258), lin(0x3e4348), lin(0x22262a), scale=10, row=0.16, width=0.28, bump=0.6),
+        'shingle': bricks('shingle', lin(0x5a4636), lin(0x4a3a2c), lin(0x241a12), scale=10, row=0.16, width=0.24, bump=0.6),
+        'paving': bricks('paving', lin(0xa49a86), lin(0x8e8572), lin(0x5e574a), scale=4, row=0.5, width=0.5, bump=0.3, flat=True),
+        'cream': noisy('cream', lin(0xe2d6b6), var=0.06, scale=30, bump=0.05),
+        'straw': noisy('straw', lin(0xc4a660), var=0.3, scale=90, bump=0.5),
+        'water': principled('water', lin(0x2f4e5e), 0.15)[0],
     }
 
 
@@ -111,6 +130,7 @@ def link(o, m):
 def box(c, s, m, rot=(0, 0, 0)):
     bpy.ops.mesh.primitive_cube_add(location=c, rotation=rot)
     o = bpy.context.object; o.scale = (s[0] / 2, s[1] / 2, s[2] / 2)
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)  # textures in real units
     return link(o, m)
 
 
@@ -174,28 +194,14 @@ def house(M):
     x0, x1, y0, y1 = 0.3, 1.7, -1.75, -0.25
     H = 0.62
     box(((x0 + x1) / 2, (y0 + y1) / 2, 0.06), (x1 - x0 + 0.08, y1 - y0 + 0.08, 0.12), M['stone'])
-    box(((x0 + x1) / 2, (y0 + y1) / 2, 0.12 + H / 2), (x1 - x0, y1 - y0, H), M['plaster'])
+    frame_walls(x0, x1, y0, y1, 0.12, H, M, bays=2)
     zt = 0.12 + H
-    # timber frame
-    for x in (x0, (x0 + x1) / 2, x1):
-        for y in (y0, y1):
-            box((x, y, 0.12 + H / 2), (0.05, 0.05, H), M['timber'])
-    for y in (y0, (y0 + y1) / 2, y1):
-        for x in (x0, x1):
-            box((x, y, 0.12 + H / 2), (0.05, 0.05, H), M['timber'])
     for y in (y0, y1):
-        box(((x0 + x1) / 2, y, zt - 0.02), (x1 - x0 + 0.04, 0.055, 0.05), M['timber'])
-        box(((x0 + x1) / 2, y, 0.12 + H * 0.5), (x1 - x0, 0.052, 0.035), M['timber'])
         for sx, xm in ((-1, x0 + (x1 - x0) * 0.25), (1, x0 + (x1 - x0) * 0.75)):
             box((xm, y, 0.12 + H * 0.25), (0.035, 0.052, H * 0.5), M['timber'], rot=(0, sx * 0.75, 0))
-    for x in (x0, x1):
-        box((x, (y0 + y1) / 2, zt - 0.02), (0.055, y1 - y0 + 0.04, 0.05), M['timber'])
-        box((x, (y0 + y1) / 2, 0.12 + H * 0.5), (0.052, y1 - y0, 0.035), M['timber'])
-    # windows with frames, a door, a team-coloured banner
-    for x in (x0 + 0.35, x1 - 0.35):
-        box((x, y1 + 0.02, 0.12 + H * 0.72), (0.2, 0.03, 0.16), M['window'])
-        box((x, y1 + 0.035, 0.12 + H * 0.72), (0.03, 0.02, 0.17), M['timber'])
-    box((x1 + 0.02, y0 + 0.4, 0.12 + H * 0.72), (0.03, 0.2, 0.16), M['window'])
+    # windows with shutters, a door, a team-coloured banner
+    windows([x0 + 0.35, x1 - 0.35], y1 + 0.02, 0.12 + H * 0.74, M)
+    windows([y0 + 0.4], x1 + 0.02, 0.12 + H * 0.74, M, face='x')
     box((x1 + 0.02, y1 - 0.45, 0.12 + 0.2), (0.03, 0.26, 0.4), M['dark'])
     box((x1 + 0.03, y1 - 0.45, 0.12 + 0.2), (0.02, 0.22, 0.36), M['plank'])
     box((x0 + 0.12, y1 + 0.03, 0.12 + H * 0.55), (0.14, 0.02, 0.3), M['team'])
@@ -214,21 +220,24 @@ def house(M):
 
 def lumber_camp(M):
     # an open-sided shed on posts, a plank roof, logs stacked under it and a chopping block
-    x0, x1, y0, y1 = 0.12, 0.88, -0.85, -0.18
-    zt = 0.5
+    x0, x1, y0, y1 = 0.06, 0.94, -0.94, -0.12
+    zt = 0.62
     for x in (x0, x1):
         for y in (y0, y1):
             box((x, y, zt / 2), (0.05, 0.05, zt), M['timber'])
     box(((x0 + x1) / 2, (y0 + y1) / 2, 0.03), (x1 - x0 + 0.06, y1 - y0 + 0.06, 0.06), M['plank'])
     gable_roof(x0, x1, y0, y1, zt, 0.22, M['plank'], over=0.1, thick=0.04, along='x')
-    log_pile((x0 + x1) / 2, (y0 + y1) / 2, 0.06, 3, 0.7, M)
+    log_pile((x0 + x1) / 2, (y0 + y1) / 2, 0.06, 4, 0.8, M)
+    log_pile(x1 + 0.0, y1 + 0.02, 0.0, 2, 0.4, M, axis='y')
+    box((x0 + 0.05, (y0 + y1) / 2, zt / 2), (0.03, y1 - y0, zt), M['plank'])  # back wall
+    box((x1 - 0.1, y1 + 0.06, 0.25), (0.02, 0.03, 0.18), M['metal'], rot=(0.4, 0, 0))  # an axe stuck in the block
     cyl((x1 + 0.03, y1 + 0.1, 0.06), 0.08, 0.12, M['log'], v=12)
     box((x0, y1 + 0.05, 0.3), (0.02, 0.1, 0.18), M['team'])
 
 
 def mining_camp(M):
-    x0, x1, y0, y1 = 0.12, 0.88, -0.85, -0.2
-    zt = 0.48
+    x0, x1, y0, y1 = 0.06, 0.94, -0.94, -0.14
+    zt = 0.58
     for x in (x0, x1):
         for y in (y0, y1):
             box((x, y, zt / 2), (0.055, 0.055, zt), M['timber'])
@@ -278,7 +287,207 @@ def mill(M):
     box((0.25, -1.6, 0.4), (0.02, 0.12, 0.22), M['team'])
 
 
-BUILDINGS = {'house': (house, 2, 2), 'lumber_camp': (lumber_camp, 1, 1), 'mining_camp': (mining_camp, 1, 1), 'mill': (mill, 2, 2)}
+def frame_walls(x0, x1, y0, y1, z0, H, M, bays=2):
+    """Plastered walls in a dark timber frame (posts, rails, a few braces)."""
+    box(((x0 + x1) / 2, (y0 + y1) / 2, z0 + H / 2), (x1 - x0, y1 - y0, H), M['plaster'])
+    for i in range(bays + 1):
+        x = x0 + (x1 - x0) * i / bays
+        for y in (y0, y1):
+            box((x, y, z0 + H / 2), (0.05, 0.05, H), M['timber'])
+    for i in range(bays + 1):
+        y = y0 + (y1 - y0) * i / bays
+        for x in (x0, x1):
+            box((x, y, z0 + H / 2), (0.05, 0.05, H), M['timber'])
+    for y in (y0, y1):
+        box(((x0 + x1) / 2, y, z0 + H - 0.02), (x1 - x0 + 0.04, 0.055, 0.05), M['timber'])
+        box(((x0 + x1) / 2, y, z0 + H * 0.5), (x1 - x0, 0.052, 0.035), M['timber'])
+    for x in (x0, x1):
+        box((x, (y0 + y1) / 2, z0 + H - 0.02), (0.055, y1 - y0 + 0.04, 0.05), M['timber'])
+        box((x, (y0 + y1) / 2, z0 + H * 0.5), (0.052, y1 - y0, 0.035), M['timber'])
+
+
+def windows(xs, y, z, M, face='y'):
+    for x in xs:
+        if face == 'y':
+            box((x, y, z), (0.16, 0.03, 0.14), M['window']); box((x, y + 0.015, z), (0.025, 0.02, 0.15), M['timber'])
+            for sx in (-1, 1):
+                box((x + sx * 0.12, y + 0.01, z), (0.07, 0.02, 0.16), M['plank'])  # shutters
+        else:
+            box((y, x, z), (0.03, 0.16, 0.14), M['window']); box((y + 0.015, x, z), (0.02, 0.025, 0.15), M['timber'])
+            for sx in (-1, 1):
+                box((y + 0.01, x + sx * 0.12, z), (0.02, 0.07, 0.16), M['plank'])
+
+
+def battlements(cx, cy, r, z, M, n=10, round_=True, w=None, d=None):
+    if round_:
+        cyl((cx, cy, z + 0.06), r + 0.04, 0.12, M['stone'], v=28)
+        for k in range(n):
+            a = 2 * math.pi * k / n
+            box((cx + math.cos(a) * r, cy + math.sin(a) * r, z + 0.2), (0.12, 0.12, 0.16), M['stone'], rot=(0, 0, a))
+    else:
+        box((cx, cy, z + 0.05), (w + 0.06, d + 0.06, 0.1), M['stone'])
+        for i in range(3):
+            for (px, py) in ((cx - w / 2 + 0.06 + i * (w - 0.12) / 2, cy - d / 2), (cx - w / 2 + 0.06 + i * (w - 0.12) / 2, cy + d / 2),
+                             (cx - w / 2, cy - d / 2 + 0.06 + i * (d - 0.12) / 2), (cx + w / 2, cy - d / 2 + 0.06 + i * (d - 0.12) / 2)):
+                box((px, py, z + 0.17), (0.11, 0.11, 0.15), M['stone'])
+
+
+def flag(x, y, z, M, h=0.6):
+    cyl((x, y, z + h / 2), 0.012, h, M['timber'], v=6)
+    mesh([(x, y, z + h), (x + 0.22, y + 0.22 * 0.0, z + h - 0.06), (x, y, z + h - 0.14)], [(0, 1, 2)], M['team'])
+    mesh([(x, y, z + h), (x + 0.02, y - 0.22, z + h - 0.06), (x, y, z + h - 0.14)], [(0, 1, 2)], M['team'])
+
+
+def arch_door(x, y, z, M, w=0.24, h=0.36, face='y'):
+    """An arched wooden door at (x, y) in a wall facing −y/+y ('y') or ±x ('x')."""
+    if face == 'y':
+        box((x, y, z + h / 2), (w, 0.04, h), M['dark']); box((x, y + 0.01, z + h / 2 - 0.01), (w - 0.04, 0.03, h - 0.03), M['plank'])
+        cyl((x, y + 0.005, z + h), w / 2, 0.045, M['dark'], rot=(math.pi / 2, 0, 0), v=16)
+    else:
+        box((x, y, z + h / 2), (0.04, w, h), M['dark']); box((x + 0.01, y, z + h / 2 - 0.01), (0.03, w - 0.04, h - 0.03), M['plank'])
+        cyl((x + 0.005, y, z + h), w / 2, 0.045, M['dark'], rot=(0, math.pi / 2, 0), v=16)
+
+
+def round_tower(cx, cy, r, h, M, z0=0, roof='cone'):
+    cyl((cx, cy, z0 + h / 2), r, h, M['stone'], v=24)
+    cyl((cx, cy, z0 + 0.05), r + 0.05, 0.1, M['stone'], v=24)
+    for zz in (h * 0.45, h * 0.75):  # arrow slits on the visible side
+        for a in (-0.6, 0.15):
+            ang = -math.pi / 4 + a
+            box((cx + math.cos(ang) * r, cy + math.sin(ang) * r, z0 + zz), (0.03, 0.03, 0.12), M['dark'], rot=(0, 0, ang))
+    if roof == 'cone':
+        cone((cx, cy, z0 + h + 0.4), r + 0.1, 0.01, 0.8, M['team_roof'] if 'team_roof' in M else M['slate'], v=24)
+    else:
+        battlements(cx, cy, r, z0 + h, M)
+
+
+def town_centre(M):
+    # a two-storey timber hall on a stone plinth, a round tower with a team-coloured spire, banners
+    box((1.5, -1.5, 0.07), (2.7, 2.7, 0.14), M['paving'])
+    x0, x1, y0, y1 = 0.45, 2.5, -2.45, -0.85
+    box(((x0 + x1) / 2, (y0 + y1) / 2, 0.14 + 0.2), (x1 - x0 + 0.06, y1 - y0 + 0.06, 0.4), M['stone'])
+    frame_walls(x0, x1, y0, y1, 0.54, 0.62, M, bays=3)
+    zt = 0.54 + 0.62
+    windows([x0 + 0.35, (x0 + x1) / 2, x1 - 0.35], y1 + 0.02, 0.54 + 0.4, M)
+    windows([y0 + 0.4, y1 - 0.4], x1 + 0.02, 0.54 + 0.4, M, face='x')
+    arch_door(1.5, y1 + 0.03, 0.14, M, w=0.36, h=0.5)
+    for x in (0.8, 2.2):
+        box((x, y1 + 0.05, 0.75), (0.14, 0.02, 0.42), M['team'])
+    gable_roof(x0, x1, y0, y1, zt, 0.75, M['slate'], along='x')
+    for x in (x0, x1):
+        gable_end(x, y0, y1, zt, 0.75, M['plaster'], along='x')
+    box(((x0 + x1) / 2, (y0 + y1) / 2, zt + 0.8), (x1 - x0 + 0.4, 0.08, 0.08), M['timber'])
+    M2 = dict(M); M2['team_roof'] = M['team']
+    round_tower(0.75, -0.75, 0.32, 2.3, M2)
+    flag(0.75, -0.75, 2.3 + 0.75, M)
+    # low walls with gateposts, a well, crates
+    box((2.85, -1.6, 0.2), (0.14, 1.5, 0.4), M['stone'])
+    box((1.6, -2.85, 0.2), (1.9, 0.14, 0.4), M['stone'])
+    cyl((2.75, -2.75, 0.12), 0.16, 0.24, M['stone'], v=16)
+    cyl((2.75, -2.75, 0.25), 0.12, 0.02, M['water'], v=16)
+    for (x, y) in ((0.35, -2.7), (0.55, -2.75)):
+        box((x, y, 0.08), (0.16, 0.16, 0.16), M['plank'])
+
+
+def barracks(M):
+    box((1.5, -1.5, 0.05), (2.8, 2.8, 0.1), M['paving'])
+    x0, x1, y0, y1 = 0.35, 2.65, -2.1, -0.5
+    box(((x0 + x1) / 2, (y0 + y1) / 2, 0.1 + 0.42), (x1 - x0, y1 - y0, 0.84), M['stone'])
+    zt = 0.94
+    for x in (x0 + 0.4, x0 + 0.9, x1 - 0.9, x1 - 0.4):
+        box((x, y1 + 0.02, 0.62), (0.07, 0.03, 0.18), M['dark'])  # narrow windows
+    for y in (y0 + 0.5, y1 - 0.5):
+        box((x1 + 0.02, y, 0.62), (0.03, 0.07, 0.18), M['dark'])
+    arch_door(x1 + 0.03, (y0 + y1) / 2, 0.1, M, w=0.4, h=0.5, face='x')
+    for y in ((y0 + y1) / 2 - 0.4, (y0 + y1) / 2 + 0.4):
+        box((x1 + 0.05, y, 0.6), (0.02, 0.16, 0.44), M['team'])
+    gable_roof(x0, x1, y0, y1, zt, 0.7, M['shingle'], over=0.15, along='x')
+    for x in (x0, x1):
+        gable_end(x, y0, y1, zt, 0.7, M['stone'], along='x')
+    # the yard: a weapon rack, a straw training dummy, an archery target
+    box((2.0, -2.55, 0.2), (0.6, 0.06, 0.04), M['timber'])
+    for k in range(5):
+        cyl((1.75 + k * 0.12, -2.55, 0.28), 0.012, 0.56, M['timber'], v=6)
+        cone((1.75 + k * 0.12, -2.55, 0.6), 0.025, 0.0, 0.07, M['metal'], v=6)
+    cyl((0.8, -2.55, 0.3), 0.025, 0.6, M['timber'], v=8)
+    cyl((0.8, -2.55, 0.42), 0.09, 0.26, M['straw'], v=12)
+    box((0.8, -2.55, 0.48), (0.04, 0.4, 0.04), M['timber'])
+    o = cyl((2.75, -1.5, 0.35), 0.2, 0.06, M['straw'], rot=(0, math.pi / 2 - 0.3, 0), v=20)
+    cyl((2.77, -1.5, 0.35), 0.1, 0.065, M['team'], rot=(0, math.pi / 2 - 0.3, 0), v=20)
+    flag(x1 - 0.1, y1 - 0.1, zt + 0.7, M, h=0.5)
+
+
+def tower(M):
+    round_tower(1.0, -1.0, 0.56, 2.1, M, roof='battlements')
+    arch_door(1.0 + 0.4, -1.0 - 0.4, 0.0, M, w=0.24, h=0.36)  # on the front of the tower
+    flag(1.0, -1.0, 2.25, M, h=0.6)
+    box((1.0, -1.0, 2.15), (0.5, 0.5, 0.04), M['plank'])
+
+
+def market(M):
+    box((1.5, -1.5, 0.05), (2.9, 2.9, 0.1), M['paving'])
+    # a small tiled house at the back
+    frame_walls(0.25, 1.25, -1.25, -0.25, 0.1, 0.55, M, bays=2)
+    gable_roof(0.25, 1.25, -1.25, -0.25, 0.65, 0.45, M['roof'], along='y')
+    for y in (-1.25, -0.25):
+        gable_end(y, 0.25, 1.25, 0.65, 0.45, M['plaster'], along='y')
+    windows([0.75], -0.23, 0.45, M)
+    # three striped stalls: one in the team colour, two in market colours
+    def stall(cx, cy, stripe):
+        for dx in (-0.3, 0.3):
+            for dy in (-0.22, 0.22):
+                box((cx + dx, cy + dy, 0.3), (0.035, 0.035, 0.5), M['timber'])
+        box((cx, cy, 0.3), (0.62, 0.4, 0.06), M['plank'])  # counter
+        for k in range(6):
+            mat = stripe if k % 2 == 0 else M['cream']
+            box((cx - 0.3 + (k + 0.5) * 0.1, cy, 0.58), (0.1, 0.56, 0.03), mat, rot=(0.25, 0, 0))
+        for k in range(3):  # goods
+            cyl((cx - 0.18 + k * 0.18, cy - 0.05, 0.36), 0.06, 0.06, M['grain'] if k % 2 else M['plank'], v=12)
+    yel = noisy('yel', srgb(0xc9a23a), var=0.1); grn = noisy('grn', srgb(0x4a7a44), var=0.1)
+    stall(2.1, -0.75, yel); stall(2.15, -1.95, M['team']); stall(0.95, -2.2, grn)
+    for (x, y) in ((1.6, -1.35), (1.75, -1.25)):
+        cyl((x, y, 0.2), 0.08, 0.2, M['plank'], v=12)
+    box((1.4, -2.75, 0.17), (0.18, 0.18, 0.14), M['plank'])
+
+
+def wall(M):
+    box((0.5, -0.5, 0.42), (0.86, 0.86, 0.84), M['stone'])
+    box((0.5, -0.5, 0.7), (0.88, 0.88, 0.06), M['team'])
+    battlements(0.5, -0.5, 0, 0.84, M, round_=False, w=0.86, d=0.86)
+
+
+def gate(M):
+    box((0.5, -0.5, 0.55), (0.9, 0.9, 1.1), M['stone'])
+    arch_door(0.5, -0.04, 0.0, M, w=0.42, h=0.55)
+    arch_door(0.96, -0.5, 0.0, M, w=0.42, h=0.55, face='x')
+    box((0.5, -0.5, 0.95), (0.92, 0.92, 0.06), M['team'])
+    battlements(0.5, -0.5, 0, 1.1, M, round_=False, w=0.9, d=0.9)
+    flag(0.5, -0.5, 1.25, M, h=0.5)
+
+
+def fishing_dock(M):
+    # a plank pier on posts, a hut, nets on a drying frame, barrels and a little boat
+    box((1.0, -1.0, 0.1), (1.9, 1.9, 0.06), M['plank'])
+    for x in (0.1, 1.0, 1.9):
+        for y in (-0.1, -1.0, -1.9):
+            cyl((x, y, 0.0), 0.04, 0.3, M['timber'], v=8)
+    frame_walls(0.25, 1.05, -1.0, -0.25, 0.13, 0.5, M, bays=2)
+    gable_roof(0.25, 1.05, -1.0, -0.25, 0.63, 0.35, M['shingle'], along='x')
+    for x in (0.25, 1.05):
+        gable_end(x, -1.0, -0.25, 0.63, 0.35, M['plaster'], along='x')
+    for x in (1.35, 1.75):
+        cyl((x, -0.4, 0.4), 0.015, 0.55, M['timber'], v=6)
+    net = mesh([(1.35, -0.4, 0.65), (1.75, -0.4, 0.65), (1.75, -0.4, 0.25), (1.35, -0.4, 0.25)], [(0, 1, 2, 3)], M['straw'])
+    for (x, y) in ((0.4, -1.5), (0.55, -1.6)):
+        cyl((x, y, 0.22), 0.08, 0.18, M['plank'], v=12)
+    hull = cyl((1.5, -1.6, 0.13), 0.12, 0.6, M['plank'], rot=(0, math.pi / 2, 0.4), v=12)
+    hull.scale = (0.12, 0.12, 0.3)
+    box((0.6, -0.25, 0.4), (0.02, 0.12, 0.2), M['team'])
+
+
+BUILDINGS = {'house': (house, 2, 2), 'lumber_camp': (lumber_camp, 1, 1), 'mining_camp': (mining_camp, 1, 1), 'mill': (mill, 2, 2),
+             'town_centre': (town_centre, 3, 3), 'barracks': (barracks, 3, 3), 'tower': (tower, 2, 2), 'market': (market, 3, 3),
+             'wall': (wall, 1, 1), 'gate': (gate, 1, 1), 'fishing_dock': (fishing_dock, 2, 2)}
 
 
 # ---------- scene, camera and render ----------
@@ -314,7 +523,8 @@ def setup_scene(w, h):
     cam.data.ortho_scale = cw / (32 * math.sqrt(2))
     cam.data.clip_end = 200
     sc.camera = cam
-    sc.render.engine = 'CYCLES'; sc.cycles.samples = 96; sc.cycles.use_denoising = True; sc.cycles.device = 'CPU'
+    sc.cycles.filter_width = 0.9  # crisper edges, like AoE2's pre-rendered sprites
+    sc.render.engine = 'CYCLES'; sc.cycles.samples = 128; sc.cycles.use_denoising = True; sc.cycles.device = 'CPU'
     sc.render.film_transparent = True
     sc.view_settings.view_transform = 'AgX'; sc.view_settings.look = 'AgX - Medium High Contrast'; sc.view_settings.exposure = -0.2
     sc.render.resolution_x = int(cw * ART_RES); sc.render.resolution_y = int(ch * ART_RES)

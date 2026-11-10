@@ -2,7 +2,7 @@
 import { TILE, MAP_W, MAP_H, PLAYER_START, GAME_VERSION } from '../config.js';
 import { GameMap, MAP_TYPES } from '../map.js';
 import { BUILDING_TYPES, ERAS } from '../buildings.js';
-import { generateArt, buildingKey, unitKey, buildingTexInfo, BUILDING_POINTS, ART_RES, UNIT_SPRITE_SCALE } from '../art.js';
+import { generateArt, buildingKey, unitKey, buildingTexInfo, BUILDING_POINTS, ART_RES, UNIT_SPRITE_SCALE, setJobContacts } from '../art.js';
 import { toIso, ISO_W, ISO_H, setWorldSize } from '../iso.js';
 import { panel, button, volumeRows, scrollText, htmlInput, FONT_SERIF, FONT_SANS, UI_COL } from '../ui.js';
 import { MODES, PRESETS, presetSeats, seatsSetup, seatsProblem, describeSetup, RULES, cleanRules, describeRules } from '../setup.js';
@@ -77,18 +77,29 @@ export default class MenuScene extends Phaser.Scene {
     super('MenuScene');
   }
 
-  // Load the 3D-rendered building sprites (see tools/render_buildings.py), if any have been made.
+  // Load the 3D-rendered buildings and people (tools/render_*.py → tools/pack_atlases.py): a few big sheets,
+  // cut back up into textures named exactly as the game's own, so they're used in place of the drawn ones.
   preload() {
-    if (this.textures.exists('b3d_loaded')) return;
-    this.load.json('b3d_manifest', 'assets/buildings/manifest.json');
-    this.load.on('filecomplete-json-b3d_manifest', (key, type, list) => {
-      for (const name of list || []) {
-        for (const team of ['player', 'enemy', 'green', 'yellow']) {
-          this.load.image(`b3d_${name}_${team}`, `assets/buildings/${name}_${team}.png`);
-        }
-      }
+    if (this.textures.exists('atlas_done')) return;
+    this.load.json('atlas_index', 'assets/atlas/atlas.json');
+    this.load.on('filecomplete-json-atlas_index', (key, type, index) => {
+      for (const name of (index && index.sheets) || []) this.load.image(`sheet_${name}`, `assets/atlas/${name}.png`);
+      for (const [tier, list] of Object.entries((index && index.contacts) || {})) setJobContacts(list, Number(tier));
     });
-    this.load.once('complete', () => { if (!this.textures.exists('b3d_loaded')) this.textures.addCanvas('b3d_loaded', document.createElement('canvas')); });
+    this.load.once('complete', () => {
+      const index = this.cache.json.get('atlas_index');
+      if (index && index.frames) {
+        for (const [key, [sheet, x, y, w, h]] of Object.entries(index.frames)) {
+          if (this.textures.exists(key) || !this.textures.exists(`sheet_${sheet}`)) continue;
+          const src = this.textures.get(`sheet_${sheet}`).getSourceImage();
+          const tex = this.textures.createCanvas(key, w, h);
+          tex.getContext().drawImage(src, x, y, w, h, 0, 0, w, h);
+          tex.refresh();
+        }
+        for (const name of index.sheets || []) this.textures.remove(`sheet_${name}`); // (free the big sheets)
+      }
+      this.textures.addCanvas('atlas_done', document.createElement('canvas'));
+    });
   }
 
   create() {

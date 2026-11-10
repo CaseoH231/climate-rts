@@ -1629,6 +1629,10 @@ export function ensureCarryTex(scene) {
 
 // Where each job's blow lands, relative to the feet, in screen pixels (for lining workers up).
 const CONTACTS = {};
+// The 3D-rendered workers (tools/render_units.py) come with their own measured contact points.
+export function setJobContacts(list, tier = 0) {
+  for (const [job, c] of Object.entries(list || {})) CONTACTS[`${job}|${tier}`] = c;
+}
 export function jobContact(job, tier = 0) {
   return CONTACTS[`${job}|${tier}`] || { x: 16, y: -14 };
 }

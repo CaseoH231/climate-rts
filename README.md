@@ -221,8 +221,10 @@ src/replay.js           storing and listing replays
 src/net.js              the connection to an online game (reconnects by itself)
 src/setup.js            who is in a game: sides, alliances, computer players (1 v 1, 2 v 2, free-for-all, freeplay)
 src/practice.js         Freeplay: gather rates, milestones and personal bests
-tools/render_buildings.py  makes 3D-rendered building sprites with Blender (see below)
-assets/buildings/       the rendered sprites (one per building, age and team colour) and manifest.json
+tools/render_buildings.py  3D models of the buildings, rendered with Blender (see below)
+tools/render_units.py   3D people (posed for every walking, working and fighting frame) and the scout's horse
+tools/pack_atlases.py   packs the renders into a few sheets
+assets/atlas/           the packed sheets (one for people and one for buildings per team colour) and atlas.json
 src/trees.js            tree sprites: drawing the oaks and pines, and keeping them in step with the forests
 worker/index.js         the Cloudflare Worker: serves the game, opens online rooms
 worker/room-core.js     an online room: game codes, 4 seats, spectators, the turn clock, relaying orders, sync checks, chat
@@ -270,7 +272,8 @@ src/scenes/UIScene.js   resource bar, command panel, diamond minimap, climate pa
 - [x] Phase 20½ – Animation overhaul: a tool and working poses for each job, workers lining up with the exact tree / rock / bush / wall they're working, per-job hit effects, carried loads, spear throws
 - [x] Phase 20¾ – Visual overhaul: AoE2-style proportions and colours, tree sprites, textured ground, rocks, earth under buildings
 - [x] Phase 20⅞ – Harvest stages: trees fall (away from the axe) and leave stumps, berry bushes are stripped and shrink, rocks are mined away one by one, carcasses go down to bones; workers only stand on open ground to work
-- [ ] Phase 20⁹⁄₁₀ – 3D-rendered buildings (in progress): house, lumber camp, mining camp and windmill done for the first age; the rest of the buildings and ages to follow
+- [x] Phase 20⁹⁄₁₀ – 3D-rendered Coal Age: every Coal Age building (except the farm, tree plot, bridge and wind pump) and every Coal Age unit (worker with all seven tools and its upgraded look, soldier, archer, scout on horseback), modelled and rendered in Blender
+- [ ] 3D-rendered Industrial Age, then Modern, Transition and Green Ages (one age at a time)
 - [ ] Phase 21 – Gore update: an optional blood & gore setting (off by default) — blood spatter on hits, bodies that stay on the battlefield longer, more dramatic deaths, scorch marks from explosions
 - [ ] Phase 22 – Playtesting feedback
 
@@ -282,12 +285,17 @@ src/scenes/UIScene.js   resource bar, command panel, diamond minimap, climate pa
 - **Fingerprints:** every 40 ticks the game turns the important state (positions, health, resources, CO₂, the random-number state) into one number. Two computers running the same game must get the same numbers. If not, they've "desynced".
 - **Online (lockstep):** commands go to the room on the Cloudflare server instead of straight into the game. Every 100 ms the room sends both players a numbered *turn* holding everyone's commands. A turn covers 2 ticks, and a game may not run a tick until its turn has arrived. Both games therefore run the same commands on the same tick, and the room compares their fingerprints. The room keeps every turn, so a player who rejoins replays the whole game in a few seconds and carries on.
 
-## 3D-rendered buildings
+## 3D-rendered art
 
-Some buildings are modelled in 3D and rendered into sprites, the way AoE2's art was made: real materials
-(plaster, timber, stone, roof tiles, thatch), sunlight from the upper left and soft shadows. The game uses a
-rendered sprite whenever one exists for that building, age and team colour, and the hand-drawn one otherwise.
-To re-render (needs Blender's Python module: `pip install bpy` with Python 3.11):
+Buildings and people are modelled in 3D and rendered into sprites, the way AoE2's art was made: real
+materials (plaster, timber, stonework, roof tiles, slate, thatch, mail, leather), sunlight from the upper left
+and soft shadows. The camera matches the game's projection exactly, so buildings sit on their footprints, and
+the people are posed for every frame the game uses (standing, four walking steps, the wind-up and the blow for
+each tool). Where the renders say a tool's blow lands is saved too, so workers still line up with trees and rocks.
+The game uses a rendered sprite whenever there is one, and the hand-drawn art otherwise (later ages, for now).
 
-    python tools/render_buildings.py            # every building it knows
-    python tools/render_buildings.py house mill # just these
+To re-render (needs Blender's Python module: `pip install bpy`, with Python 3.11):
+
+    python tools/render_buildings.py                      # all buildings, in all four team colours
+    python tools/render_units.py worker worker1 soldier archer scout
+    python tools/pack_atlases.py                          # pack them into assets/atlas
