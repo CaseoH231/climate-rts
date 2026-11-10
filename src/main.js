@@ -6,6 +6,7 @@ import UIScene from './scenes/UIScene.js';
 const config = {
   type: Phaser.AUTO,
   parent: 'game',
+  powerPreference: 'high-performance', // on laptops with two graphics chips, ask for the fast one
   backgroundColor: '#0b0c0d',
   scale: {
     mode: Phaser.Scale.RESIZE,

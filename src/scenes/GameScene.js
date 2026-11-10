@@ -131,6 +131,7 @@ export default class GameScene extends Phaser.Scene {
     this.terrainDirty = false;
     this.add.image(0, 0, 'terrain').setOrigin(0).setDepth(-1);
     this.map.onTileChanged = (x, y) => this.redrawTile(x, y);
+    this.terrainRect = null; // which part of the ground canvas changed since the last upload
     this.trees = new TreeLayer(this, this.map);
     // (for show) as things are gathered they run down in stages: trees fall one by one, bushes and
     // rocks shrink — repaint a tile's ground only when its stage changes
@@ -143,8 +144,7 @@ export default class GameScene extends Phaser.Scene {
       const first = !this.harvestStage.has(k);
       this.harvestStage.set(k, st);
       if (first && st === 6) return; // still untouched
-      this.map.renderRegion(this.terrainCtx, x - 1, y - 1, x + 1, y + 1);
-      this.terrainDirty = true;
+      this.repaintGround(x - 1, y - 1, x + 1, y + 1);
     };
 
     // --- Camera ---
@@ -539,8 +539,51 @@ export default class GameScene extends Phaser.Scene {
   }
 
   // Repaint a changed tile (and its neighbours, for soft edges). Uploaded to the GPU once per frame.
+  // Repaint a few tiles on the ground canvas and note the changed pixels for the next upload.
+  repaintGround(x0, y0, x1, y1) {
+    this.map.renderRegion(this.terrainCtx, x0, y0, x1, y1);
+    const pts = [toIso(x0 * TILE, y0 * TILE), toIso((x1 + 1) * TILE, y0 * TILE), toIso((x1 + 1) * TILE, (y1 + 1) * TILE), toIso(x0 * TILE, (y1 + 1) * TILE)];
+    const r = {
+      x0: Math.min(...pts.map((p) => p.x)) - 8,
+      x1: Math.max(...pts.map((p) => p.x)) + 8,
+      y0: Math.min(...pts.map((p) => p.y)) - 48, // objects stand up to ~45px above their tile
+      y1: Math.max(...pts.map((p) => p.y)) + 12,
+    };
+    const t = this.terrainRect;
+    this.terrainRect = t ? { x0: Math.min(t.x0, r.x0), x1: Math.max(t.x1, r.x1), y0: Math.min(t.y0, r.y0), y1: Math.max(t.y1, r.y1) } : r;
+    this.terrainDirty = true;
+  }
+
+  // Send only the changed region of the big ground canvas to the graphics card.
+  // (A full refresh re-uploads the whole thing — tens of MB on a huge map — causing a stutter.)
+  uploadGround() {
+    const r = this.terrainRect;
+    this.terrainRect = null;
+    const src = this.terrainTex.canvas;
+    const gl = this.game.renderer && this.game.renderer.gl;
+    const x = r && Math.max(0, Math.floor(r.x0));
+    const y = r && Math.max(0, Math.floor(r.y0));
+    const w = r && Math.min(src.width, Math.ceil(r.x1)) - x;
+    const h = r && Math.min(src.height, Math.ceil(r.y1)) - y;
+    if (!r || !gl || w > src.width / 2) { this.terrainTex.refresh(); return; } // no GL, or most of it anyway
+    if (w <= 0 || h <= 0) return;
+    try {
+      const scratch = this.groundScratch || (this.groundScratch = document.createElement('canvas'));
+      scratch.width = w; // resizing also clears it
+      scratch.height = h;
+      scratch.getContext('2d').drawImage(src, x, y, w, h, 0, 0, w, h);
+      const wrapper = this.terrainTex.source[0].glTexture;
+      gl.bindTexture(gl.TEXTURE_2D, wrapper.webGLTexture || wrapper);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, gl.RGBA, gl.UNSIGNED_BYTE, scratch);
+      gl.bindTexture(gl.TEXTURE_2D, null);
+    } catch (e) {
+      this.terrainTex.refresh();
+    }
+  }
+
   redrawTile(x, y) {
-    this.map.renderRegion(this.terrainCtx, x - 1, y - 1, x + 1, y + 1);
+    this.repaintGround(x - 1, y - 1, x + 1, y + 1);
     if (this.trees) this.trees.refresh(x, y);
     if (this.miniDirty !== undefined) this.miniDirty = true;
     this.terrainDirty = true;
@@ -1877,13 +1920,16 @@ export default class GameScene extends Phaser.Scene {
       if (this.placing) this.updateGhost();
     }
 
-    // Upload terrain changes to the graphics card (at most a few times a second).
+    // Upload terrain changes to the graphics card (at most a few times a second, and
+    // only the changed part of the big ground canvas, not all of it).
     this.terrainRefreshTimer -= delta;
     if (this.terrainDirty && this.terrainRefreshTimer <= 0) {
-      this.terrainTex.refresh();
+      this.uploadGround();
       this.terrainDirty = false;
       this.terrainRefreshTimer = 300;
     }
+    // Trees far off screen leave the display list entirely.
+    if (this.trees) this.trees.cull(cam.worldView);
     // Ambience follows the climate; fire crackle only when fires are on screen.
     this.fireCheck -= delta;
     if (this.fireCheck <= 0) {
@@ -2264,7 +2310,9 @@ export default class GameScene extends Phaser.Scene {
       else iso = toIso(u.ox + dx * a, u.oy + dy * a);
       // (plus the little visual step a worker takes to stand right at the tree / rock / wall)
       u.container.setPosition(iso.x + u.vox, iso.y + u.voy);
-      if (u.voy) u.container.setDepth(iso.y + u.voy);
+      // only re-sort the scene when a unit really moves to a new row (sorting everything is dear)
+      const q = (iso.y + u.voy) | 0;
+      if (u.depthQ !== q) { u.depthQ = q; u.container.setDepth(q); }
     }
     this.wildlife.interpolate(a);
   }

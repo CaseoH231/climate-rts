@@ -3,6 +3,7 @@
 // All of this is just for show; the forest tiles themselves are what the game uses.
 import { makeCanvas, ART_RES } from './art.js';
 import { TERRAIN, TILE } from './config.js';
+import { toIso } from './iso.js';
 import { RESOURCE_AMOUNT, TERRAIN_AMOUNT } from './config.js';
 
 const OAKS = 5;
@@ -190,6 +191,8 @@ export function treeHeight(a) {
   return (a.pine ? PINE_BASE - 4 : OAK_BASE - 8) * a.scale;
 }
 
+const CHUNK = 8; // trees are culled in 8×8-tile blocks: off-screen blocks leave the display list entirely
+
 // The tree sprites for the whole map, kept in step with the forest tiles.
 export class TreeLayer {
   constructor(scene, map) {
@@ -198,6 +201,9 @@ export class TreeLayer {
     this.sprites = new Map(); // tile index → images (one per tree, null once felled)
     this.felled = new Map();  // tile index → set of felled tree numbers
     this.lastHit = new Map(); // tile index → the tree number last chopped
+    this.chunks = new Map();  // chunk index → { set, vis, box } for culling
+    this.cw = Math.ceil(map.w / CHUNK);
+    this.lastView = null;
     ensureTreeTex(scene);
     this.starting = true;
     for (let y = 0; y < map.h; y++) for (let x = 0; x < map.w; x++) this.refresh(x, y);
@@ -223,16 +229,70 @@ export class TreeLayer {
     return Math.max(1, Math.ceil(n * frac - 0.001));
   }
 
-  makeTree(a) {
+  // ---- culling: a chunk of trees is only on the display list while it's near the screen ----
+  chunkAt(tx, ty) {
+    const ci = (ty / CHUNK | 0) * this.cw + (tx / CHUNK | 0);
+    let c = this.chunks.get(ci);
+    if (!c) {
+      const x0 = (tx / CHUNK | 0) * CHUNK * TILE;
+      const y0 = (ty / CHUNK | 0) * CHUNK * TILE;
+      const x1 = x0 + CHUNK * TILE;
+      const y1 = y0 + CHUNK * TILE;
+      const corners = [toIso(x0, y0), toIso(x1, y0), toIso(x1, y1), toIso(x0, y1)];
+      c = {
+        set: new Set(),
+        vis: true,
+        box: {
+          x0: Math.min(...corners.map((p) => p.x)) - 40,
+          x1: Math.max(...corners.map((p) => p.x)) + 40,
+          y0: Math.min(...corners.map((p) => p.y)) - 150, // room for the tallest tree
+          y1: Math.max(...corners.map((p) => p.y)) + 30,
+        },
+      };
+      this.chunks.set(ci, c);
+    }
+    return c;
+  }
+
+  adopt(img, chunk) {
+    chunk.set.add(img);
+    img.once('destroy', () => chunk.set.delete(img));
+    if (!chunk.vis) img.removeFromDisplayList();
+    return img;
+  }
+
+  // Called every frame with the camera's world view; only sweeps when the view has really moved.
+  cull(view) {
+    const lv = this.lastView;
+    if (lv && Math.abs(view.x - lv.x) < 48 && Math.abs(view.y - lv.y) < 48 && Math.abs(view.width - lv.width) < 48) return;
+    this.lastView = { x: view.x, y: view.y, width: view.width };
+    const vx0 = view.x - 32;
+    const vx1 = view.right + 32;
+    const vy0 = view.y - 32;
+    const vy1 = view.bottom + 32;
+    for (const c of this.chunks.values()) {
+      const vis = c.box.x1 > vx0 && c.box.x0 < vx1 && c.box.y1 > vy0 && c.box.y0 < vy1;
+      if (vis === c.vis) continue;
+      c.vis = vis;
+      for (const img of c.set) {
+        if (img.shaking || img.falling) continue; // mid-animation ones sort themselves out
+        if (vis) img.addToDisplayList();
+        else img.removeFromDisplayList();
+      }
+    }
+  }
+
+  makeTree(a, chunk) {
     const key = a.pine ? `tree_pine_${Math.floor(a.hue * PINES) % PINES}` : `tree_oak_${Math.floor(a.hue * OAKS) % OAKS}`;
     const oy = (a.pine ? PINE_BASE / PINE_H : OAK_BASE / OAK_H);
     const img = this.scene.add.image(a.x, a.y, key).setOrigin(0.5, oy).setScale(a.scale / ART_RES).setDepth(a.y);
     if (a.flip) img.setFlipX(true);
-    return img;
+    return this.adopt(img, chunk);
   }
 
-  makeStump(a, fade) {
+  makeStump(a, fade, chunk) {
     const img = this.scene.add.image(a.x, a.y, 'tree_stump').setOrigin(0.5, 0.85).setScale(a.scale * 0.9 / ART_RES).setDepth(a.y - 0.5);
+    if (chunk) this.adopt(img, chunk);
     // stumps weather away after a while
     this.scene.tweens.add({ targets: img, alpha: 0, delay: fade ? 45000 : 20000, duration: 4000, onComplete: () => img.destroy() });
   }
@@ -255,8 +315,9 @@ export class TreeLayer {
       return;
     }
     const anchors = this.map.objectAnchors(x, y);
+    const chunk = this.chunkAt(x, y);
     if (!list) {
-      list = anchors.map((a) => this.makeTree(a));
+      list = anchors.map((a) => this.makeTree(a, chunk));
       this.sprites.set(i, list);
       this.felled.set(i, new Set());
     }
@@ -275,7 +336,7 @@ export class TreeLayer {
       const img = list[k];
       list[k] = null;
       if (img) {
-        if (this.starting || !this.scene.renderShots) { img.destroy(); this.makeStump(anchors[k], false); }
+        if (this.starting || !this.scene.renderShots || !chunk.vis) { img.destroy(); this.makeStump(anchors[k], false, chunk); }
         else this.fall(img, anchors[k], k, i);
       }
     }
@@ -284,6 +345,8 @@ export class TreeLayer {
   // Timber! The tree topples away from the axe, lands with a thump and some leaves, then fades.
   fall(img, a, k, i) {
     const s = this.scene;
+    img.falling = true;
+    img.addToDisplayList(); // make sure it's shown even if its block was culled
     const hit = this.lastHitSide && this.lastHitSide.get(i);
     const dir = hit ? hit : (img.x % 2 < 1 ? 1 : -1);
     this.makeStump(a, true);

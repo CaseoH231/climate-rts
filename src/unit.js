@@ -133,7 +133,8 @@ export class Unit {
     this.hpFill = scene.add.rectangle(-10, barY, 20, 2, 0x8fb04a).setOrigin(0, 0.5).setVisible(false);
 
     this.container.add([shadow, this.ring, ...body, this.carryIcon, this.hpBg, this.hpFill]);
-    this.container.setDepth(iso.y);
+    this.depthQ = iso.y | 0;
+    this.container.setDepth(this.depthQ);
   }
 
   get x() { return this.px; }
@@ -146,7 +147,8 @@ export class Unit {
     this.py = y;
     const iso = toIso(x, y);
     this.container.setPosition(iso.x, iso.y);
-    this.container.setDepth(iso.y);
+    const q = iso.y | 0;
+    if (this.depthQ !== q) { this.depthQ = q; this.container.setDepth(q); }
   }
   get tile() { return this.map.worldToTile(this.x, this.y); }
   get isMoving() { return this.path.length > 0; }

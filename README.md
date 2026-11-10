@@ -274,6 +274,7 @@ src/scenes/UIScene.js   resource bar, command panel, diamond minimap, climate pa
 - [x] Phase 20⅞ – Harvest stages: trees fall (away from the axe) and leave stumps, berry bushes are stripped and shrink, rocks are mined away one by one, carcasses go down to bones; workers only stand on open ground to work
 - [x] Phase 20⁹⁄₁₀ – 3D-rendered Coal Age: every Coal Age building (except the farm, tree plot, bridge and wind pump) and every Coal Age unit (worker with all seven tools and its upgraded look, soldier, archer, scout on horseback), modelled and rendered in Blender
 - [ ] 3D-rendered Industrial Age, then Modern, Transition and Green Ages (one age at a time)
+- [x] Phase 20¹⁵⁄₁₆ – Performance: off-screen trees leave the scene in blocks, the scene is only re-sorted when something moves to a new row, fog redraws only when sight changes, and ground changes upload only the changed patch of the texture
 - [ ] Phase 21 – Gore update: an optional blood & gore setting (off by default) — blood spatter on hits, bodies that stay on the battlefield longer, more dramatic deaths, scorch marks from explosions
 - [ ] Phase 22 – Playtesting feedback
 
@@ -284,6 +285,14 @@ src/scenes/UIScene.js   resource bar, command panel, diamond minimap, climate pa
 - **Commands:** clicking a button or right-clicking doesn't change the game directly. It creates a small command like `{ k: 'train', b: 12, type: 'worker' }`, which runs at the start of the next tick. Units and buildings are named by their id number.
 - **Fingerprints:** every 40 ticks the game turns the important state (positions, health, resources, CO₂, the random-number state) into one number. Two computers running the same game must get the same numbers. If not, they've "desynced".
 - **Online (lockstep):** commands go to the room on the Cloudflare server instead of straight into the game. Every 100 ms the room sends both players a numbered *turn* holding everyone's commands. A turn covers 2 ticks, and a game may not run a tick until its turn has arrived. Both games therefore run the same commands on the same tick, and the room compares their fingerprints. The room keeps every turn, so a player who rejoins replays the whole game in a few seconds and carries on.
+
+## Performance
+
+Big maps hold thousands of tree sprites, so trees are culled in 8×8-tile blocks: a block far off screen
+leaves the display list entirely until the camera comes back. The scene is only re-sorted when a unit
+actually moves to a new screen row. The fog picture is redrawn only when what you can see has changed, and
+when the ground changes (a bush picked bare, a flood) only that patch of the big ground texture is sent to
+the graphics card instead of all of it. On laptops with two graphics chips the game asks for the fast one.
 
 ## 3D-rendered art
 

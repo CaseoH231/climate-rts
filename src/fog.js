@@ -94,7 +94,18 @@ export class Fog {
     if (this.timer > 0) return;
     this.timer = 300;
     this.recompute();
-    this.draw();
+    // only redraw the fog picture when what you can see has actually changed
+    let changed = !this.lastVisible || this.lastVisible.length !== this.visible.length;
+    if (!changed) {
+      for (let i = 0; i < this.visible.length; i++) {
+        if (this.visible[i] !== this.lastVisible[i]) { changed = true; break; }
+      }
+    }
+    if (changed) {
+      if (!this.lastVisible || this.lastVisible.length !== this.visible.length) this.lastVisible = new Uint8Array(this.visible.length);
+      this.lastVisible.set(this.visible);
+      this.draw();
+    }
     this.applyVisibility();
   }
 
