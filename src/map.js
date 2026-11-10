@@ -202,7 +202,8 @@ export class GameMap {
   // A winding river across the map, between the two bases, with three shallow fords.
   carveRiver(rng) {
     if (this.starts.length > 2) { this.carveCrossRivers(rng); return; }
-    const [A, B] = this.starts;
+    // (on your own, the river runs between you and the far corner)
+    const [A, B] = this.starts.length > 1 ? this.starts : [this.starts[0], { x: this.w - 1 - this.starts[0].x, y: this.h - 1 - this.starts[0].y }];
     const mid = (A.x + A.y + B.x + B.y) / 2; // x + y along the river
     const ph1 = rng() * 6.28;
     const ph2 = rng() * 6.28;

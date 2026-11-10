@@ -252,10 +252,50 @@ export class Effects {
     if (!u.sprite || u.flashing) return;
     u.flashing = true;
     u.sprite.setTintFill(0xffffff);
+    if (!u.def.vehicle) { // a small flinch
+      const kx = u.sprite.flipX ? 1.5 : -1.5;
+      u.sprite.x = kx;
+      this.scene.tweens.add({ targets: u.sprite, x: 0, duration: 120, ease: 'Quad.easeOut' });
+    }
     this.scene.time.delayedCall(70, () => {
       u.flashing = false;
       if (u.sprite && u.sprite.active) u.sprite.clearTint();
     });
+  }
+
+  // Wood chips / stone shards / soil flying off a tool blow.
+  chips(ix, iy, color) {
+    const s = this.scene;
+    for (let i = 0; i < 3; i++) {
+      const c = s.add.rectangle(ix, iy, 1.6 + Math.random(), 1.6 + Math.random(), color).setDepth(iy + 3);
+      const vx = (Math.random() - 0.5) * 22;
+      s.tweens.add({ targets: c, x: ix + vx, duration: 380, ease: 'Linear' });
+      s.tweens.add({
+        targets: c, y: iy - 6 - Math.random() * 6, duration: 160, ease: 'Quad.easeOut', yoyo: true,
+        onComplete: () => c.destroy(),
+      });
+    }
+  }
+
+  // A building settling as it's finished: a little drop and a ring of dust.
+  completeBounce(b) {
+    const s = this.scene;
+    if (!b.image) return;
+    const y0 = b.image.y;
+    b.image.y = y0 - 5;
+    s.tweens.add({ targets: b.image, y: y0, duration: 420, ease: 'Bounce.easeOut' });
+    const c = toIso(b.cx, b.cy);
+    const n = 6 + b.w * 2;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      const r = 12 + b.w * 14;
+      const d = s.add.image(c.x + Math.cos(a) * r, c.y + Math.sin(a) * r * 0.5, 'fx_puff')
+        .setTint(0xb3a68c).setAlpha(0.6).setScale(0.5).setDepth(c.y + 40);
+      s.tweens.add({
+        targets: d, x: d.x + Math.cos(a) * 14, y: d.y + Math.sin(a) * 7 - 6, scale: 1.6, alpha: 0,
+        duration: 700 + Math.random() * 300, onComplete: () => d.destroy(),
+      });
+    }
   }
 
   // The unit topples over and fades away (vehicles burn out instead).
@@ -272,9 +312,24 @@ export class Effects {
       s.tweens.add({ targets: img, alpha: 0, delay: 6000, duration: 3000, onComplete: () => img.destroy() });
       return;
     }
-    const dir = spr.flipX ? -1 : 1;
-    s.tweens.add({ targets: img, angle: 82 * dir, y: img.y + 2, duration: 380, ease: 'Quad.easeIn' });
-    s.tweens.add({ targets: img, alpha: 0, delay: 2500, duration: 2500, onComplete: () => img.destroy() });
+    // knocked back a step, a small hop, then down onto the ground with a puff of dust
+    const dir = spr.flipX ? 1 : -1; // fall away from the way they were facing
+    const y0 = img.y;
+    s.tweens.chain({
+      targets: img,
+      tweens: [
+        { x: img.x + dir * 3, y: y0 - 3, angle: 12 * dir, duration: 110, ease: 'Quad.easeOut' },
+        { x: img.x + dir * 6, y: y0 + 2, angle: 88 * dir, duration: 300, ease: 'Quad.easeIn' },
+        { angle: 82 * dir, y: y0 + 1, duration: 120, ease: 'Sine.easeOut' },
+      ],
+    });
+    s.time.delayedCall(410, () => {
+      for (let i = 0; i < 3; i++) {
+        const d = s.add.image(u.isoX + dir * (6 + i * 4), y0, 'fx_puff').setTint(0x9c8f78).setAlpha(0.5).setScale(0.35).setDepth(y0 + 1);
+        s.tweens.add({ targets: d, y: d.y - 5, x: d.x + (Math.random() - 0.5) * 10, scale: 1.1, alpha: 0, duration: 600, onComplete: () => d.destroy() });
+      }
+    });
+    s.tweens.add({ targets: img, alpha: 0, delay: 4000, duration: 2500, onComplete: () => img.destroy() });
   }
 
   // Floating text, e.g. "+10" over a worker dropping off wood.

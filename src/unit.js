@@ -105,6 +105,8 @@ export class Unit {
     ensureUnitTex(scene, type, team, this.tier);
     this.sprite = scene.add.image(0, 0, unitKey(type, team, 0, this.tier)).setOrigin(0.5, def.mounted ? 0.9 : big ? 0.72 : 0.86).setScale(1 / ART_RES);
     this.frame = 0;
+    this.baseScale = this.sprite.scaleY;
+    this.strikeT = 0;   // (visual) how long to keep showing the strike pose
     this.tool = null;
     const body = [this.sprite];
 
@@ -249,6 +251,7 @@ export class Unit {
 
   setFrame(f) {
     if (this.def.vehicle || f === this.frame) return;
+    if (f > 2 && (this.type === 'scout' || this.def.mounted)) f = f === 3 ? 1 : f === 4 ? 2 : 0; // riders only have 3 frames
     this.frame = f;
     this.sprite.setTexture(unitKey(this.type, this.team, f, this.tier));
   }
@@ -347,10 +350,31 @@ export class Unit {
     world.sfx(name, this.x, this.y);
   }
 
+  // Chopping / mining / hammering: raise the tool, then bring it down (with a few chips flying).
   animateWork(dt) {
+    const CYCLE = 620;
+    const before = this.workAnim % CYCLE;
     this.workAnim += dt;
-    this.sprite.rotation = Math.sin(this.workAnim / 140) * 0.12;
-    this.sprite.y = -Math.max(0, Math.sin(this.workAnim / 140)) * 1.5;
+    const t = this.workAnim % CYCLE;
+    const struck = t < before; // wrapped round: the blow lands now
+    const strike = t < 170;
+    this.setFrame(strike ? 6 : 5);
+    this.sprite.scaleY = this.baseScale;
+    this.sprite.rotation = strike ? 0.06 : -0.04;
+    this.sprite.y = strike ? 0.6 : -0.8;
+    if (struck && this.scene.renderShots && this.container.visible && this.scene.fx && this.scene.fx.chips) {
+      const o = this.order;
+      const color = o && o.kind === 'build' ? 0xb08a5a
+        : o && o.res === 'wood' ? 0xc79a5b : o && o.res === 'stone' ? 0xa8a29a : o && o.res === 'fuel' ? 0x2b2b2b : 0x8bbf5a;
+      this.scene.fx.chips(this.isoX + (this.sprite.flipX ? -9 : 9), this.isoY - 4, color);
+    }
+  }
+
+  // Standing about: a slow breath so idle people don't look frozen.
+  idleBreath(dt) {
+    if (this.def.vehicle) return;
+    this.breath = (this.breath || Math.random() * 6) + dt * 0.003;
+    this.sprite.scaleY = this.baseScale * (1 + Math.sin(this.breath) * 0.018);
   }
 
   updateCarryIcon() {
@@ -382,10 +406,13 @@ export class Unit {
     const step = (this.speed * dt) / 1000;
     this.face(target.x, target.y);
     this.sprite.rotation = 0;
-    this.walkPhase += dt * 0.014;
+    this.walkPhase += dt * 0.014 * Math.min(1.6, Math.max(0.7, this.speed / 60));
     this.sprite.y = this.def.vehicle ? 0 : -Math.abs(Math.sin(this.walkPhase)) * 1.6;
-    const sw = Math.sin(this.walkPhase);
-    this.setFrame(sw > 0.35 ? 1 : sw < -0.35 ? 2 : 0);
+    this.sprite.scaleY = this.baseScale;
+    // 8-step walk cycle: stand, half stride, full stride, half, stand, half (other leg), full, half
+    const WALK = [0, 3, 1, 3, 0, 4, 2, 4];
+    const ph = ((this.walkPhase % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+    this.setFrame(WALK[Math.floor((ph / (Math.PI * 2)) * 8) % 8]);
     if (dist <= step) {
       this.setPos(target.x, target.y);
       this.path.shift();
@@ -449,6 +476,7 @@ export class Unit {
     // 2. Carry out the current order.
     const o = this.order;
     if (!o) {
+      this.idleBreath(dt);
       // Idle soldiers and archers watch for enemies.
       if (this.isMilitary && !this.def.heals) {
         this.scanTimer -= dt;
@@ -509,14 +537,28 @@ export class Unit {
     }
     this.path = [];
     this.sprite.y = 0;
-    this.setFrame(0);
+    this.sprite.rotation = 0;
+    // (visual) melee: wind up as the next blow gets close, show the strike for a moment after
+    this.strikeT = Math.max(0, this.strikeT - dt);
+    const melee = this.def.range <= 60;
+    if (melee && this.strikeT > 0) this.setFrame(6);
+    else if (melee && this.cooldown < this.def.cooldown * 0.35) this.setFrame(5);
+    else this.setFrame(0);
     this.face(t.isBuilding ? t.cx : t.x, t.isBuilding ? t.cy : t.y);
     if (this.cooldown <= 0) {
       this.cooldown = this.def.cooldown;
       const dmg = hitDamage(this.def, t) * world.attackMultiplier(this.team);
       if (this.def.range > 60) {
         world.shoot(this.x, this.y, t, dmg, this, 18);
+        // (visual) a little kick back from the shot
+        if (world.renderShots && this.container.visible) {
+          const back = this.sprite.flipX ? 2 : -2;
+          this.sprite.x = back;
+          this.scene.tweens.add({ targets: this.sprite, x: 0, duration: 140, ease: 'Quad.easeOut' });
+        }
       } else {
+        this.strikeT = 160;
+        this.setFrame(6);
         world.dealDamage(t, dmg, this);
         world.sfx(this.type === 'worker' ? 'build' : 'sword', this.x, this.y);
         // little lunge

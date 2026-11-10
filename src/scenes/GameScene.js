@@ -31,7 +31,11 @@ function loadSpeed() {
 }
 import { EnemyAI, DIFFICULTY } from '../ai.js';
 import { audio } from '../audio.js';
+import { Practice } from '../practice.js';
 import { Fog } from '../fog.js';
+
+const TRIBUTE_RES = ['food', 'wood', 'stone', 'fuel'];
+const TRIBUTE_FEE = 0.1;
 
 export default class GameScene extends Phaser.Scene {
   constructor() {
@@ -59,6 +63,8 @@ export default class GameScene extends Phaser.Scene {
     const you = (this.setup.teams.find((t) => t.you) || this.setup.teams.find((t) => !t.ai) || this.setup.teams[0]).id;
     this.me = net ? net.team || this.teamIds[0] : replay && replay.me ? replay.me : save && save.me ? save.me : you;
     this.self = this.me; // the side this person actually plays (`me` can change when spectating)
+    this.freeplay = this.setup.mode === 'freeplay' || this.teamIds.length === 1; // practising alone
+    this.practiceDone = false;
     this.foe = this.teamIds.find((t) => this.isEnemy(t, this.me)) || this.teamIds.find((t) => t !== this.me);
     // Game settings (map size, resources, starting age, population, reveal, peace time, victory, climate).
     this.rules = cleanRules((replay && (replay.rules || { fog: replay.fog })) || (net && net.settings) || (save && (save.rules || {})) || data.rules || { fog: data.fog });
@@ -155,6 +161,7 @@ export default class GameScene extends Phaser.Scene {
     this.speed = loadSpeed();
     this.targeting = null;       // 'amove' while choosing an attack-move destination
     this.stats = new Stats(save && save.stats, this.teamIds);
+    this.practice = this.freeplay ? new Practice(this, save && save.practice) : null;
     // One market shared by everyone: prices go up when people buy and down when they sell.
     this.market = { ...MARKET_BASE, ...(save && save.market) };
 
@@ -732,6 +739,7 @@ export default class GameScene extends Phaser.Scene {
 
   onBuildingComplete(b) {
     this.stats.built(b.team);
+    if (this.renderShots && b.container.visible && !b.def.line) this.fx.completeBounce(b);
     if (b.def.wonder) {
       this.toast(b.team === this.me
         ? 'The Climate Restoration Project is complete! Defend it for 3 minutes to win.'
@@ -1050,6 +1058,34 @@ export default class GameScene extends Phaser.Scene {
     this.market[buy] = clamp(this.market[buy] * 1.05);
     this.market[pay] = clamp(this.market[pay] * 0.96);
     if (team === this.me) audio.play('confirm');
+    return true;
+  }
+
+  // Tribute: give resources to another side (ally or not). A 10% fee is paid on top.
+  tribute(from, to, res, amount) {
+    const T = this.teams[to];
+    const F = this.teams[from];
+    if (!T || !F || to === from || T.out || F.out || !TRIBUTE_RES.includes(res)) return false;
+    amount = Math.floor(Number(amount));
+    if (!(amount > 0) || amount > 100000) return false;
+    const fee = Math.ceil(amount * TRIBUTE_FEE);
+    const total = amount + fee;
+    if (!this.canAfford({ [res]: total }, from)) {
+      if (from === this.me) this.fail(`Need ${this.missingText({ [res]: total }, from)} more (that includes the ${fee} fee)`);
+      return false;
+    }
+    this.spend({ [res]: total }, from);
+    T.resources[res] += amount;
+    this.stats.tribute(from, to, amount);
+    const NAMES = { food: 'food', wood: 'wood', stone: 'stone', fuel: 'coal' };
+    if (from === this.me && !this.spectator) {
+      this.toast(`Sent ${amount} ${NAMES[res]} to ${this.teamName(to)}  (fee ${fee})`, '#e8d9a0');
+      audio.play('confirm');
+    } else if (to === this.me && !this.spectator) {
+      this.toast(`${this.teamName(from)} sent you ${amount} ${NAMES[res]}`, '#b8dc90');
+      audio.play('chime');
+    }
+    this.events.emit('tribute');
     return true;
   }
 
@@ -1740,6 +1776,10 @@ export default class GameScene extends Phaser.Scene {
       result = this.alliance[this.self] === winner ? 'green' : 'defeat';
     } else if (this.climate.temp >= 5) {
       result = 'collapse';
+    } else if (this.freeplay) {
+      // practice only ends when you say so (or your town falls)
+      if (this.practiceDone) { result = 'practice'; this.endNote = this.practice ? this.practice.summary() : ''; }
+      else if (this.teams[this.self].out) result = 'defeat';
     } else if (alive.size <= 1) {
       winner = alive.size ? [...alive][0] : null;
       result = winner !== null && this.alliance[this.self] === winner ? 'victory' : 'defeat';
@@ -1758,7 +1798,7 @@ export default class GameScene extends Phaser.Scene {
     this.winner = winner;
     this.stats.sample(this);
     this.cancelTargeting();
-    audio.play(result === 'victory' || result === 'green' || result === 'over' ? 'victory' : 'defeat');
+    audio.play(result === 'victory' || result === 'green' || result === 'over' || result === 'practice' ? 'victory' : 'defeat');
     this.clearSelection();
     this.finishRecording(result);
     if (this.net) this.net.send({ t: 'over' });
@@ -2050,6 +2090,8 @@ export default class GameScene extends Phaser.Scene {
         this.trade(c.pay, c.buy, team);
         if (team === this.me) this.events.emit('market');
         break;
+      case 'tribute': this.tribute(team, c.to, c.res, c.amount); break;
+      case 'finish': if (this.freeplay) { this.practiceDone = true; this.checkGameOver(); } break;
       case 'delete':
         for (const u of units) this.killUnit(u);
         if (own) {
@@ -2139,6 +2181,7 @@ export default class GameScene extends Phaser.Scene {
     this.wildlife.snapshot();
     this.step(TICK_MS);
     this.tick++;
+    if (this.practice) this.practice.update(TICK_MS);
     if (this.tick % HASH_EVERY === 0) this.checkHash();
   }
 

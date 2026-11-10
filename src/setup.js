@@ -18,6 +18,7 @@ export const PRESETS = {
   '3v1':     { name: '3 v 1',     desc: 'You and two computer allies gang up on one computer opponent.', seats: [S('you', 1), S('ai', 2), S('ai', 1), S('ai', 1)] },
   'ffa3':    { name: '1v1v1',     desc: 'Three sides, everyone for themselves. Last town standing wins.', seats: [S('you', 0), S('ai', 0), S('ai', 0), S('closed', 0)] },
   'ffa4':    { name: '1v1v1v1',   desc: 'Four sides, one in each corner, everyone for themselves. Last town standing wins.', seats: [S('you', 0), S('ai', 0), S('ai', 0), S('ai', 0)] },
+  'free':    { name: 'Freeplay',  desc: 'Just you, no enemies: practise building the best economy you can, and beat your best times.', seats: [S('you', 1), S('closed', 0), S('closed', 0), S('closed', 0)] },
 };
 // (older saves and replays used these names)
 export const MODES = PRESETS;
@@ -48,6 +49,8 @@ export function seatsSetup(seats, mode = 'custom') {
       you: s.kind === 'you' || undefined,
     });
   });
+  // on your own, it's a practice game
+  if (teams.length === 1 && teams[0].you) mode = 'freeplay';
   return { mode, teams };
 }
 
@@ -61,8 +64,10 @@ export function setupFromSlots(slots) {
 }
 
 // What's wrong with a set of seats (or null if it can be played).
-export function seatsProblem(seats) {
+// (playing alone is fine on this computer — that's Freeplay — but not online)
+export function seatsProblem(seats, allowSolo = true) {
   const used = seats.map((s, i) => [s, i]).filter(([s]) => s && s.kind !== 'closed');
+  if (allowSolo && used.length === 1 && used[0][0].kind === 'you') return null;
   if (used.length < 2) return 'You need at least two sides.';
   if (new Set(used.map(([s, i]) => allianceOf(s.team, i))).size < 2) return 'Everyone is on the same team. Put at least one side on another team (or on "–").';
   return null;
@@ -99,6 +104,7 @@ export function describeSetup(setup) {
     groups.get(t.alliance).push(TEAM_NAMES[t.id]);
   }
   const list = [...groups.values()];
+  if (setup.teams.length === 1) return 'Freeplay: just you and your economy';
   if (list.length <= 1) return 'Everyone on one team';
   if (list.every((g) => g.length === 1)) return list.length === 2 ? `${list[0][0]} vs ${list[1][0]}` : `${list.length}-way free-for-all`;
   return `${list.map((g) => g.join(' & ')).join(' vs ')}  (${list.map((g) => g.length).join(' v ')})`;

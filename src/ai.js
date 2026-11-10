@@ -76,6 +76,19 @@ export class EnemyAI {
     if (!tc) return; // defeated
     this.tc = tc;
 
+    // Now and then, help out an ally who has run short of something we have plenty of.
+    this.giftTimer = (this.giftTimer || 0) + 1;
+    if (this.giftTimer >= 40) {
+      this.giftTimer = 0;
+      const mineRes = w.teams[team].resources;
+      gift: for (const ally of w.liveTeams()) {
+        if (ally === team || !w.isAlly(ally, team)) continue;
+        for (const res of ['food', 'wood', 'stone']) {
+          if (w.teams[ally].resources[res] < 100 && mineRes[res] > 700) { w.tribute(team, ally, res, 200); break gift; }
+        }
+      }
+    }
+
     const units = w.units.filter((u) => u.team === team);
     const workers = units.filter((u) => u.type === 'worker');
     const army = units.filter((u) => u.isMilitary);

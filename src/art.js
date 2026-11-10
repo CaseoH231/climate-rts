@@ -1448,6 +1448,29 @@ export function buildingTexInfo(def) {
 // Which walking pose to draw: 0 = standing, 1 / -1 = mid-stride.
 let LEG_STEP = 0;
 let UNIT_TIER = 0; // 0 basic, 1 first upgrade (iron armour / steel tools), 2 modern kit
+let POSE = 0;      // 0 normal, 1 tool/sword raised (wind-up), 2 strike
+let HAND = { x: 23.6, y: 24.6 }; // where the front hand ended up (tools and swords are held here)
+
+// Animation frames for people: 0 standing, 1/2 full stride, 3/4 half stride (smoother walking),
+// 5 wind-up and 6 strike (chopping, mining, building, sword blows).
+export const FRAMES = [
+  { step: 0, pose: 0 }, { step: 1, pose: 0 }, { step: -1, pose: 0 }, { step: 0.5, pose: 0 }, { step: -0.5, pose: 0 },
+  { step: 0, pose: 1 }, { step: 0, pose: 2 },
+];
+const PERSON_FRAMES = [0, 1, 2, 3, 4, 5, 6];
+const RIDER_FRAMES = [0, 1, 2];
+const PAD = 7; // spare room either side of a person for a swung tool or sword
+
+// Draw a held tool/weapon (drawn for the normal pose) moved and turned to the current pose's hand.
+function heldTool(ctx, draw) {
+  const angle = POSE === 1 ? -1.0 : POSE === 2 ? 0.7 : 0;
+  ctx.save();
+  ctx.translate(HAND.x, HAND.y);
+  ctx.rotate(angle);
+  ctx.translate(-23.6, -24.6);
+  draw();
+  ctx.restore();
+}
 
 // Colour helpers for the figures: mix a #rrggbb colour towards white (amt > 0) or black (amt < 0).
 function tone(hex, amt) {
@@ -1493,12 +1516,17 @@ function figure(ctx, team, opts) {
   const body = opts.body || c.main;
   const sleeve = opts.sleeve || tone(body, -0.15);
   const arm = (x, swing, front) => {
-    const hx = x + swing * 0.9;
+    let hx = x + swing * 0.9;
+    let hy = 24.6;
+    if (front && POSE === 1) { hx = 24.4; hy = 13.6; }  // raised above the shoulder
+    if (front && POSE === 2) { hx = 26.4; hy = 22.2; }  // swung forward and down
     ctx.strokeStyle = front ? sleeve : tone(sleeve, -0.25);
     ctx.lineWidth = 3.3;
-    ctx.beginPath(); ctx.moveTo(x, 16.3); ctx.quadraticCurveTo(x + (x < 16 ? -0.8 : 0.8), 20.5, hx, 23.4); ctx.stroke();
+    const bend = x + (x < 16 ? -0.8 : 0.8);
+    ctx.beginPath(); ctx.moveTo(x, 16.3); ctx.quadraticCurveTo(POSE && front ? x + 1.6 : bend, POSE && front ? (16.3 + hy) / 2 : 20.5, hx, hy - 1.2); ctx.stroke();
     ctx.fillStyle = front ? skin : tone(skin, -0.2);
-    ctx.beginPath(); ctx.arc(hx, 24.6, 1.6, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(hx, hy, 1.6, 0, Math.PI * 2); ctx.fill();
+    if (front) HAND = { x: hx, y: hy };
   };
   arm(9.2, s, false);
 
@@ -1629,7 +1657,7 @@ export const UNIT_ART = {
       ctx.fillStyle = '#9c8a55';
       ctx.fillRect(13, 3, 6, 4);
     },
-    item: (ctx) => {
+    item: (ctx) => heldTool(ctx, () => {
       if (UNIT_TIER === 2) { // power drill
         ctx.fillStyle = '#e0b21a'; ctx.fillRect(22, 17, 7, 5);
         ctx.fillStyle = '#2a2a2a'; ctx.fillRect(23, 22, 3, 4); ctx.fillRect(29, 18.5, 3, 1.5);
@@ -1647,7 +1675,7 @@ export const UNIT_ART = {
       ctx.moveTo(24, 11);
       ctx.quadraticCurveTo(28, 9, 31, 13);
       ctx.stroke();
-    },
+    }),
   }),
   soldier: (ctx, team) => figure(ctx, team, {
     armour: UNIT_TIER === 1 ? 'plate' : UNIT_TIER === 2 ? 'camo' : null,
@@ -1665,16 +1693,19 @@ export const UNIT_ART = {
     item: (ctx, c) => {
       if (UNIT_TIER === 2) {
         // baton and a clear riot shield
-        ctx.fillStyle = '#1e1e1e'; ctx.fillRect(25, 10, 2, 14);
+        heldTool(ctx, () => { ctx.fillStyle = '#1e1e1e'; ctx.fillRect(25, 10, 2, 14); });
         ctx.fillStyle = 'rgba(200,225,240,0.55)'; ctx.fillRect(3, 13, 9, 15);
         ctx.strokeStyle = '#3a3e42'; ctx.lineWidth = 1; ctx.strokeRect(3.5, 13.5, 8, 14);
         ctx.fillStyle = c.main; ctx.fillRect(4, 18, 7, 1.5);
         return;
       }
-      ctx.fillStyle = UNIT_TIER === 1 ? '#eef1f4' : '#c9cdd1'; // sword
-      ctx.fillRect(25, 8, 2, 16);
-      ctx.fillStyle = '#6b4a2c';
-      ctx.fillRect(23, 23, 6, 2);
+      heldTool(ctx, () => {
+        ctx.fillStyle = UNIT_TIER === 1 ? '#eef1f4' : '#c9cdd1'; // sword
+        ctx.fillRect(25, 8, 2, 16);
+        ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.fillRect(25, 8, 0.7, 15);
+        ctx.fillStyle = '#6b4a2c';
+        ctx.fillRect(23, 23, 6, 2);
+      });
       ctx.fillStyle = rgrad(ctx, 7, 19, 1, 7, [c.light, c.main, c.dark]); // shield
       ctx.beginPath();
       ctx.arc(8, 20, 6, 0, Math.PI * 2);
@@ -2302,13 +2333,15 @@ export function ensureUnitTex(scene, type, team, tier) {
   if (!tier || scene.textures.exists(unitKey(type, team, 0, tier))) return;
   UNIT_TIER = tier;
   try {
-    [0, 1, 2].forEach((frame) => {
-      LEG_STEP = frame === 1 ? 1 : frame === 2 ? -1 : 0;
+    (type === 'scout' ? RIDER_FRAMES : PERSON_FRAMES).forEach((frame) => {
+      LEG_STEP = FRAMES[frame].step;
+      POSE = FRAMES[frame].pose;
       if (type === 'scout') makeUnitCanvas(scene, unitKey(type, team, frame, tier), 44, 40, (ctx) => scoutRider(ctx, team));
-      else makeUnitCanvas(scene, unitKey(type, team, frame, tier), 32, 40, (ctx) => UNIT_ART[type](ctx, team));
+      else makeUnitCanvas(scene, unitKey(type, team, frame, tier), 32 + PAD * 2, 40, (ctx) => { ctx.translate(PAD, 0); UNIT_ART[type](ctx, team); });
     });
   } finally {
     LEG_STEP = 0;
+    POSE = 0;
     UNIT_TIER = 0;
   }
 }
@@ -2325,12 +2358,14 @@ export function generateArt(scene, buildingTypes, teams = ['player', 'enemy']) {
       }, ART_RES);
     }
     for (const [type, draw] of Object.entries(UNIT_ART)) {
-      // standing pose + two walking poses
-      [0, 1, 2].forEach((frame) => {
-        LEG_STEP = frame === 1 ? 1 : frame === 2 ? -1 : 0;
-        makeUnitCanvas(scene, unitKey(type, team, frame), 32, 40, (ctx) => draw(ctx, team));
+      // standing, four walking poses, wind-up and strike
+      PERSON_FRAMES.forEach((frame) => {
+        LEG_STEP = FRAMES[frame].step;
+        POSE = FRAMES[frame].pose;
+        makeUnitCanvas(scene, unitKey(type, team, frame), 32 + PAD * 2, 40, (ctx) => { ctx.translate(PAD, 0); draw(ctx, team); });
       });
       LEG_STEP = 0;
+      POSE = 0;
     }
     makeUnitCanvas(scene, unitKey('armoured_car', team), 44, 40, (ctx) => armouredCar(ctx, team));
     makeUnitCanvas(scene, unitKey('cannon', team), 44, 40, (ctx) => cannon(ctx, team));

@@ -197,7 +197,8 @@ export default class MenuScene extends Phaser.Scene {
       const saves = listSaves().filter((s) => !s.empty).sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
       const any = saves.length > 0;
       const k = any ? 60 : 0; // room for "Continue"
-      this.addUI(panel(this, (w - PW) / 2, top, PW, (canInstall ? 490 : 430) + k, D));
+      top = Math.max(top - 30, Math.min(top, h - ((canInstall ? 550 : 490) + k) - 10));
+      this.addUI(panel(this, (w - PW) / 2, top, PW, (canInstall ? 550 : 490) + k, D));
       if (any) {
         const latest = saves[0];
         btn(top + 30, `Continue  ·  ${fmtTime(latest.gameTime || 0)}, ${ERAS[latest.era || 0].name}`, () => {
@@ -206,13 +207,20 @@ export default class MenuScene extends Phaser.Scene {
         }, { size: '16px' });
       }
       btn(top + 30 + k, 'New Game', () => this.show('new'));
-      btn(top + 90 + k, 'Play Online', () => this.show('online'));
-      btn(top + 150 + k, 'Load Game', () => this.show('load')).setEnabled(any);
-      btn(top + 210 + k, 'Replays', () => this.show('replays')).setEnabled(listReplays().length > 0);
-      btn(top + 270 + k, 'How to Play', () => this.show('help'));
-      btn(top + 330 + k, 'Settings', () => this.show('settings'));
+      btn(top + 90 + k, 'Freeplay (practice)', () => {
+        const o = this.options;
+        o.mode = 'free';
+        o.seats = presetSeats('free', o.difficulty);
+        o.tab = 'rules';
+        this.show('new');
+      });
+      btn(top + 150 + k, 'Play Online', () => this.show('online'));
+      btn(top + 210 + k, 'Load Game', () => this.show('load')).setEnabled(any);
+      btn(top + 270 + k, 'Replays', () => this.show('replays')).setEnabled(listReplays().length > 0);
+      btn(top + 330 + k, 'How to Play', () => this.show('help'));
+      btn(top + 390 + k, 'Settings', () => this.show('settings'));
       if (canInstall) {
-        btn(top + 390 + k, 'Install Game', async () => {
+        btn(top + 450 + k, 'Install Game', async () => {
           const prompt = window.installPrompt;
           if (!prompt) return;
           prompt.prompt();

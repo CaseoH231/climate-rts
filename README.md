@@ -70,7 +70,9 @@ Online play only works on the Cloudflare site. It won't work when you run the ga
     - **Peace time:** None, or 5, 10 or 20 minutes in which nobody can attack anybody.
     - **Victory:** Standard, or Conquest (only knocking out every rival wins; no Climate Restoration win).
     - **Climate:** Gentle, Normal or Harsh (how hard pollution heats the planet).
-  - The main menu also has Play Online, Load Game, Replays, How to Play and Settings.
+  - The main menu also has **Freeplay (practice)**, Play Online, Load Game, Replays, How to Play and Settings.
+- **Freeplay:** a practice game with no enemies (the **Freeplay** quick set-up, or close every other seat). An **economy panel** on the right shows your workers (and how many are idle), what you gather per minute of each resource, and the total. **Milestones** (10 / 20 / 30 / 50 / 75 workers, each new age, 1 000 to 50 000 gathered) pop up with your time and your **personal best** for the same starting resources and age — bests are kept in this browser. Choose **Finish Practice** in the game menu to end with a summary. The climate still counts: pass +5°C and the practice is over.
+- **Tribute:** in any game with other sides, press **Give** next to a side in the sides panel (top right) to send it 100 or 500 food, wood, stone or coal. Each gift costs 10% extra as a fee. Computer allies send you their spare resources when you run short. The end-of-game table shows tribute sent and received.
 - Games with 3–4 sides use a bigger map (88 × 88 tiles instead of 64 × 64), with a town in each corner. With more sides the planet warms faster, but not twice as fast: each side's pollution counts a bit less.
 - **In game:** press **Esc** (with nothing selected), **F10** or the **Menu** button to pause. From there you can **save** to one of 3 slots, **load**, read the help, or quit to the main menu.
 - Saves are kept in your browser's storage on this computer.
@@ -80,6 +82,7 @@ Online play only works on the Cloudflare site. It won't work when you run the ga
 - **Getting around:** people walk in straight lines where they can, instead of zig-zagging tile by tile. They squeeze diagonally past a corner (between a house and a tree, say) wherever there's visibly room.
 - **Delete:** select your own units or a building and press **Delete** (or the **✕ Delete** button under the portrait). A foundation nobody has started building gives its cost back. Your Town Centre asks you to press twice.
 - Saves from before v13 can't be loaded (games can now have up to four sides).
+- **Animations:** people walk with a smoother stride, raise their axe or pick and bring it down (chips fly), wind up before a sword blow, flinch when hit, breathe while standing about, and stagger before they fall. Rifles kick back, and buildings settle with a puff of dust when finished. All of this is just for show: it never changes the game, so replays and online games stay in sync.
 
 ## Fog of war
 
@@ -210,7 +213,8 @@ src/save.js             saving / loading to browser storage
 src/rng.js              seeded random numbers + the state fingerprint (hash)
 src/replay.js           storing and listing replays
 src/net.js              the connection to an online game (reconnects by itself)
-src/setup.js            who is in a game: sides, alliances, computer players (1 v 1, 2 v 2, free-for-all)
+src/setup.js            who is in a game: sides, alliances, computer players (1 v 1, 2 v 2, free-for-all, freeplay)
+src/practice.js         Freeplay: gather rates, milestones and personal bests
 worker/index.js         the Cloudflare Worker: serves the game, opens online rooms
 worker/room-core.js     an online room: game codes, 4 seats, spectators, the turn clock, relaying orders, sync checks, chat
 wrangler.jsonc          Cloudflare settings (website + Worker + Durable Object)
@@ -253,7 +257,9 @@ src/scenes/UIScene.js   resource bar, command panel, diamond minimap, climate pa
 - [x] Phase 19 – Bigger matches: up to 4 sides (1 v 1, 2 v 2, 3- and 4-way free-for-all, co-op against the computer), alliances with shared vision, a bigger 4-corner map, online lobby with 4 seats (person / computer / closed) and team picks, spectating, a sides panel. Also: Lumber Camp / Mining Camp / Mill instead of the Storage Shed, deleting units and buildings, better unit art (faces, tabards, outlines), richer ground (flowers, tufts, colour patches) and screen effects
 - [x] Phase 19½ – AoE2-style game set-up: quick set-ups (1v1, 1v2, 1v3, 2v1, 2v2, 3v1, 1v1v1, 1v1v1v1), every seat set to you / a computer (own level) / closed, team numbers 1–4 or "–", play as any colour, allies start in neighbouring corners — the same in the online lobby
 - [x] Phase 19¾ – Game settings (map size, resources, starting age, population, reveal map, peace time, victory, climate) for single player and online, bridges, smoother movement that squeezes through visible gaps
-- [ ] Phase 20 – Playtesting feedback
+- [x] Phase 20 – Polish: better animations (smoother walking, tool swings, sword wind-ups, flinches, falls, building completion), tributes between sides, and a Freeplay practice mode with an economy panel, milestones and personal bests
+- [ ] Phase 21 – Gore update: an optional blood & gore setting (off by default) — blood spatter on hits, bodies that stay on the battlefield longer, more dramatic deaths, scorch marks from explosions
+- [ ] Phase 22 – Playtesting feedback
 
 ## How the simulation works (for multiplayer)
 

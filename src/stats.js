@@ -13,6 +13,8 @@ function blankTeam() {
     buildingsLost: 0,
     razed: 0,
     co2: 0,
+    tribSent: 0,
+    tribGot: 0,
   };
 }
 
@@ -34,6 +36,10 @@ export class Stats {
   }
 
   emit(team, ppm) { if (this.teams[team]) this.teams[team].co2 += ppm; }
+  tribute(from, to, n) {
+    if (this.teams[from]) this.teams[from].tribSent += n;
+    if (this.teams[to]) this.teams[to].tribGot += n;
+  }
   trained(team) { if (this.teams[team]) this.teams[team].trained++; }
   built(team) { if (this.teams[team]) this.teams[team].built++; }
 

@@ -191,8 +191,11 @@ export default class UIScene extends Phaser.Scene {
       this.chatInput = null;
     }
 
-    // Sides panel (games with more than two sides, online games and replays): who's who, and who's out.
-    this.sides = (w.teamIds.length > 2 || w.mp || w.replay) ? this.makeSidesPanel() : null;
+    // Sides panel: who's who, who's out — and a Give button to send tribute.
+    this.sides = w.teamIds.length > 1 ? this.makeSidesPanel() : null;
+    this.tributeBox = null;
+    // Freeplay: an economy panel in the same place.
+    this.econ = w.practice ? this.makeEconPanel() : null;
     this.refreshSides();
     if (w.net && w.net.spectator) this.time.delayedCall(600, () => w.toast('👁 You are watching. Click a side in the list on the right to follow it.', '#d8c9a0'));
 
@@ -286,6 +289,8 @@ export default class UIScene extends Phaser.Scene {
     });
     this.climBar.setPosition(cx + 14, cy + 35);
     if (this.sides) this.sides.setPosition(w - CLIM_W - 8, TOP_H + 84);
+    if (this.econ) this.econ.setPosition(w - CLIM_W - 8, TOP_H + 84);
+    if (this.tributeBox) this.tributeBox.c.setPosition(this.sides.x - 308, this.sides.y);
     this.climEvents.setPosition(cx + 14, cy + 46);
     this.climRect = new Phaser.Geom.Rectangle(cx, cy, CLIM_W, CLIM_H);
 
@@ -800,6 +805,7 @@ export default class UIScene extends Phaser.Scene {
     } else if (view === 'main') {
       rows = [
         ['Resume Game', () => this.closeMenu()],
+        ...(w.freeplay && !w.replay ? [['Finish Practice', () => { w.issue({ k: 'finish' }); this.closeMenu(); }]] : []),
         ['Save Game', () => this.openMenu('save'), !!w.replay],
         ['Load Game', () => this.openMenu('load')],
         ['How to Play', () => this.openMenu('help')],
@@ -883,10 +889,18 @@ export default class UIScene extends Phaser.Scene {
       const hit = this.add.rectangle(0, y, CLIM_W, rowH, 0xffffff, 0).setOrigin(0);
       const dot = this.add.rectangle(14, y + rowH / 2, 10, 10, TEAM_COLORS[t].main).setStrokeStyle(1, 0x000000);
       const name = this.add.text(26, y + 3, '', { fontFamily: SANS, fontSize: '13px', color: COL.text, stroke: '#000', strokeThickness: 2 });
-      const tag = this.add.text(CLIM_W - 10, y + 3, '', { fontFamily: SANS, fontSize: '12px', color: COL.dim, stroke: '#000', strokeThickness: 2 }).setOrigin(1, 0);
-      c.add([hit, dot, name, tag]);
+      const tag = this.add.text(CLIM_W - 52, y + 3, '', { fontFamily: SANS, fontSize: '12px', color: COL.dim, stroke: '#000', strokeThickness: 2 }).setOrigin(1, 0);
+      // "Give" (tribute) button
+      const give = this.add.container(CLIM_W - 46, y + 2);
+      const gbg = this.add.graphics();
+      gbg.fillStyle(0x3a2f1e, 1).fillRoundedRect(0, 0, 40, rowH - 4, 3).lineStyle(1, UI_COL.bronze, 0.9).strokeRoundedRect(0, 0, 40, rowH - 4, 3);
+      const gt = this.add.text(20, (rowH - 4) / 2, 'Give', { fontFamily: SANS, fontSize: '11px', color: COL.gold, stroke: '#000', strokeThickness: 2 }).setOrigin(0.5);
+      const ghit = this.add.rectangle(0, 0, 40, rowH - 4, 0xffffff, 0).setOrigin(0).setInteractive({ useHandCursor: true });
+      ghit.on('pointerdown', (p) => { if (p.leftButtonDown()) { audio.play('click'); this.openTribute(t); } });
+      give.add([gbg, gt, ghit]);
+      c.add([hit, dot, name, tag, give]);
       hit.setInteractive({ useHandCursor: true }).on('pointerdown', () => { if (w.canSwitchView) w.setView(t); });
-      return { t, name, tag, dot, hit };
+      return { t, name, tag, dot, hit, give };
     });
     this.refreshSides();
     this.sidesTimer = this.time.addEvent({ delay: 1000, loop: true, callback: () => this.refreshSides() });
@@ -909,7 +923,120 @@ export default class UIScene extends Phaser.Scene {
       r.tag.setColor(T.out ? '#a08070' : rel === 'ally' ? '#9fd09a' : COL.dim);
       r.name.setAlpha(T.out ? 0.5 : 1);
       r.dot.setAlpha(T.out ? 0.35 : 1);
+      r.give.setVisible(this.canTribute(r.t));
     }
+    if (this.tributeBox) {
+      if (!this.canTribute(this.tributeBox.to)) this.closeTribute();
+      else this.tributeBox.refresh();
+    }
+  }
+
+  // ---------- Freeplay: economy panel ----------
+  makeEconPanel() {
+    const w = this.world;
+    const H = 168;
+    const c = this.add.container(0, 0).setDepth(40);
+    const bg = this.add.graphics();
+    bg.fillStyle(0x140e08, 0.8).fillRoundedRect(0, 0, CLIM_W, H, 4);
+    bg.lineStyle(1, UI_COL.bronze, 0.8).strokeRoundedRect(0, 0, CLIM_W, H, 4);
+    const st = (x, y, size = '13px', color = COL.text) => this.add.text(x, y, '', { fontFamily: SANS, fontSize: size, color, stroke: '#000', strokeThickness: 2 });
+    const title = this.add.text(10, 6, 'Freeplay — your economy', { fontFamily: SERIF, fontSize: '15px', color: COL.gold, stroke: '#000', strokeThickness: 3 });
+    const workers = st(10, 28);
+    const total = st(CLIM_W - 10, 28).setOrigin(1, 0);
+    const perMin = this.add.text(10, 50, 'Gathering per minute', { fontFamily: SANS, fontSize: '11px', color: COL.dim });
+    c.add([bg, title, workers, total, perMin]);
+    const RES = ['food', 'wood', 'stone', 'fuel', 'clean'];
+    const cw = (CLIM_W - 20) / RES.length;
+    const rateTexts = RES.map((r, i) => {
+      const icon = this.add.image(10 + i * cw + 9, 75, `i_${r}`).setScale(0.8);
+      const t = st(10 + i * cw + 21, 67, '13px');
+      c.add([icon, t]);
+      return t;
+    });
+    const next = this.add.text(10, 92, 'Next milestones', { fontFamily: SANS, fontSize: '11px', color: COL.dim });
+    const lines = [0, 1, 2].map((i) => st(10, 108 + i * 18, '12px'));
+    const bests = [0, 1, 2].map((i) => st(CLIM_W - 10, 108 + i * 18, '12px', COL.dim).setOrigin(1, 0));
+    c.add([next, ...lines, ...bests]);
+    const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.round(s) % 60).padStart(2, '0')}`;
+    const refresh = () => {
+      const p = w.practice;
+      if (!p) return;
+      const { n, idle } = p.workers();
+      workers.setText(idle ? `Workers ${n}  ·  ${idle} idle` : `Workers ${n}`).setColor(idle ? '#f0b070' : COL.text);
+      total.setText(`Gathered ${Math.round(p.totalGathered()).toLocaleString('en')}`);
+      const rates = p.rates();
+      RES.forEach((r, i) => rateTexts[i].setText(String(Math.round(rates[r]))));
+      const up = p.upcoming(3);
+      lines.forEach((t, i) => t.setText(up[i] ? `• ${up[i].name}` : ''));
+      bests.forEach((t, i) => t.setText(up[i] ? (up[i].best != null ? `best ${fmt(up[i].best)}` : 'no best yet') : ''));
+    };
+    refresh();
+    this.econTimer = this.time.addEvent({ delay: 500, loop: true, callback: refresh });
+    return c;
+  }
+
+  // ---------- Tribute ----------
+  canTribute(to) {
+    const w = this.world;
+    if (w.replay || w.spectator || (w.net && w.net.spectator) || w.freeplay) return false;
+    const me = w.teams[w.self];
+    const T = w.teams[to];
+    return to !== w.self && !!T && !T.out && !!me && !me.out && !w.gameOver;
+  }
+
+  openTribute(to) {
+    this.closeTribute();
+    const w = this.world;
+    const D = 60;
+    const BW = 300;
+    const BH = 196;
+    const x0 = this.sides.x - BW - 8;
+    const y0 = this.sides.y;
+    const c = this.add.container(x0, y0).setDepth(D);
+    const g = this.add.graphics();
+    g.fillStyle(0x140e08, 0.94).fillRoundedRect(0, 0, BW, BH, 5);
+    g.lineStyle(2, UI_COL.bronze, 0.9).strokeRoundedRect(0, 0, BW, BH, 5);
+    // swallow clicks so they don't reach the map
+    const block = this.add.rectangle(0, 0, BW, BH, 0, 0).setOrigin(0).setInteractive();
+    const css = '#' + TEAM_COLORS[to].main.toString(16).padStart(6, '0');
+    const title = this.add.text(14, 10, `Tribute to ${w.teamName(to).replace(' (computer)', '')}`, { fontFamily: SERIF, fontSize: '17px', color: css, stroke: '#000', strokeThickness: 3 });
+    const note = this.add.text(14, 34, 'Each gift costs 10% extra as a fee.', { fontFamily: SANS, fontSize: '12px', color: COL.dim });
+    c.add([g, block, title, note]);
+    const close = this.add.text(BW - 12, 8, '✕', { fontFamily: SANS, fontSize: '16px', color: COL.gold, stroke: '#000', strokeThickness: 2 }).setOrigin(1, 0)
+      .setInteractive({ useHandCursor: true }).on('pointerdown', () => { audio.play('click'); this.closeTribute(); });
+    c.add(close);
+    const RES = [['food', 'Food'], ['wood', 'Wood'], ['stone', 'Stone'], ['fuel', 'Coal']];
+    const rows = RES.map(([res, label], i) => {
+      const y = 58 + i * 32;
+      const icon = this.add.image(24, y + 12, `i_${res}`).setScale(0.9);
+      const name = this.add.text(42, y + 4, label, { fontFamily: SANS, fontSize: '13px', color: COL.text, stroke: '#000', strokeThickness: 2 });
+      const have = this.add.text(BW - 142, y + 5, '', { fontFamily: SANS, fontSize: '12px', color: COL.dim, stroke: '#000', strokeThickness: 2 }).setOrigin(1, 0);
+      const btns = [100, 500].map((n, j) => {
+        const b = button(this, BW - 132 + j * 64, y, 58, 26, `+${n}`, () => w.issue({ k: 'tribute', to, res, amount: n }), { size: '13px', depth: D });
+        return { b, n };
+      });
+      c.add([icon, name, have, ...btns.map((x) => x.b)]);
+      return { res, label, have, btns };
+    });
+    const refresh = () => {
+      for (const r of rows) {
+        const v = Math.floor(w.teams[w.self].resources[r.res]);
+        r.have.setText(`have ${v}`);
+        for (const { b, n } of r.btns) b.setEnabled(v >= Math.ceil(n * 1.1));
+      }
+    };
+    refresh();
+    this.tributeBox = { c, to, refresh };
+    this.tributeListener = () => refresh();
+    w.events.on('tribute', this.tributeListener);
+  }
+
+  closeTribute() {
+    if (!this.tributeBox) return;
+    this.tributeBox.c.destroy();
+    this.tributeBox = null;
+    if (this.tributeListener) this.world.events.off('tribute', this.tributeListener);
+    this.tributeListener = null;
   }
 
   // ---------- Online: chat & connection banner ----------
@@ -974,6 +1101,7 @@ export default class UIScene extends Phaser.Scene {
       defeat: ['Defeat', 'Your Town Centre has fallen.', '#e07a6a'],
       collapse: ['Climate Collapse', 'The planet passed +5°C. Nobody wins on a ruined world.', '#e8a060'],
       over: ['Game Over', '', '#e3c46f'],
+      practice: ['Practice Over', '', '#e3c46f'],
     }[result];
     const world = this.world;
     if (world.endNote) info[1] = world.endNote;
@@ -1010,6 +1138,9 @@ export default class UIScene extends Phaser.Scene {
       ['Buildings lost', (t) => t.buildingsLost],
       ['Enemy buildings destroyed', (t) => t.razed],
     ];
+    if (cols.some((t) => t && (t.tribSent || t.tribGot))) {
+      rows.push(['Tribute sent', (t) => t.tribSent || 0], ['Tribute received', (t) => t.tribGot || 0]);
+    }
     const lx = x0 + 28;
     const ty = y0 + 132;
     const colW = order.length > 2 ? 58 : 80;
@@ -1061,7 +1192,7 @@ export default class UIScene extends Phaser.Scene {
     if (!online) button(this, x1, by, bw, 44, world.replay ? 'New Game' : 'Play Again', () => {
       const r = world.replay;
       const setup = world.setup.mode === 'online' ? undefined : { mode: world.setup.mode, teams: world.setup.teams.map((t) => ({ ...t })) };
-      this.world.scene.start('GameScene', { seed: Math.floor(Math.random() * 1e9), mapType: world.mapType, difficulty: world.difficulty, setup, fog: r ? r.fog !== false : world.fog ? world.fog.enabled : true });
+      this.world.scene.start('GameScene', { seed: Math.floor(Math.random() * 1e9), mapType: world.mapType, difficulty: world.difficulty, setup, rules: world.rules, fog: r ? r.fog !== false : world.fog ? world.fog.enabled : true });
     }, { depth: D });
     if (rep) {
       button(this, x1 + (online ? 0 : bw + 15), by, bw, 44, world.replay ? 'Watch Again' : 'Watch Replay', () => {

@@ -110,6 +110,7 @@ export function serialize(w) {
       assault: [...a.assault].map((u) => uIndex.get(u)).filter((i) => i !== undefined),
     })),
     stats: w.stats ? w.stats.serialize() : null,
+    practice: w.practice ? w.practice.serialize() : null,
     wildlife: w.wildlife ? w.wildlife.serialize() : [],
     groups: (w.groups || []).map((g) => g.map((u) => uIndex.get(u)).filter((i) => i !== undefined)),
     camera: { x: cam.midPoint.x, y: cam.midPoint.y, zoom: cam.zoom },
