@@ -1,12 +1,14 @@
 // The main game world: map, units, buildings, economy, combat, climate, the AI, camera and controls.
 import {
-  TILE, MAP_W, MAP_H, MAP_SEED, PLAYER_START, ENEMY_START, START_RESOURCES, POP_MAX, TEAM_COLORS, TERRAIN, CLIMATE,
+  TILE, MAP_W, MAP_H, MAP_SEED, START_RESOURCES, TEAM_NAMES, startFor, mapSizeFor, POP_MAX, TEAM_COLORS, TERRAIN, CLIMATE,
 } from '../config.js';
 import { GameMap } from '../map.js';
 import { Unit, UNIT_TYPES, INFANTRY } from '../unit.js';
 import { Building, BUILDING_TYPES, UPGRADES, ERAS } from '../buildings.js';
 import { generateArt, buildingKey, buildingTexInfo, ART_RES, ensureBuildingTex, unitKey, unitTier, ensureUnitTex } from '../art.js';
-import { toIso, fromIso, ISO_W, ISO_H } from '../iso.js';
+import { toIso, fromIso, ISO_W, ISO_H, setWorldSize } from '../iso.js';
+import { soloSetup } from '../setup.js';
+import { fxEnabled } from '../ui.js';
 import { Climate } from '../climate.js';
 import { findPath } from '../pathfinding.js';
 import { Stats } from '../stats.js';
@@ -41,13 +43,21 @@ export default class GameScene extends Phaser.Scene {
     const net = replay ? null : data.net || null;
     const save = replay || net ? null : data.load || null;
     this.replay = replay;
-    // Online: `net` is the connection to the other player. Host plays blue ('player'), the guest red ('enemy').
+    // Online: `net` is the connection to the game room. Each person plays one side ('player' = Blue, 'enemy' = Red,
+    // 'green', 'yellow'); a spectator watches without a side.
     this.net = net;
     this.mp = !!(net || (replay && replay.mp));
-    this.me = net ? net.team : replay && replay.me ? replay.me : 'player';
-    this.foe = this.me === 'player' ? 'enemy' : 'player';
     this.savedGroups = null;
     this.difficulty = this.mp ? 'normal' : replay ? replay.difficulty : save ? save.difficulty : data.difficulty || 'normal';
+    // Who's playing: the sides, their alliances, and which ones the computer runs.
+    this.setup = (replay && replay.setup) || (net && net.settings.setup) || (save && save.setup) || data.setup || soloSetup('1v1', this.difficulty);
+    this.teamIds = this.setup.teams.map((t) => t.id);
+    this.alliance = Object.fromEntries(this.setup.teams.map((t) => [t.id, t.alliance]));
+    this.spectator = !!(net && !net.team);
+    this.me = net ? net.team || this.teamIds[0] : replay && replay.me ? replay.me : save && save.me ? save.me : this.teamIds[0];
+    this.self = this.me; // the side this person actually plays (`me` can change when spectating)
+    this.foe = this.teamIds.find((t) => this.isEnemy(t, this.me)) || this.teamIds.find((t) => t !== this.me);
+    setWorldSize(mapSizeFor(this.teamIds.length), mapSizeFor(this.teamIds.length));
     const seed = replay ? replay.seed : net ? net.settings.seed : save ? save.seed : data.seed ?? MAP_SEED;
     this.mapType = (replay ? replay.mapType : net ? net.settings.mapType : save ? save.mapType : data.mapType) || 'continental';
 
@@ -67,8 +77,8 @@ export default class GameScene extends Phaser.Scene {
     this.syncChecks = 0;
     // Phaser reuses this scene object for every game, so clear anything left over from the last one.
     this.replayEnded = false;
-    this.resigned = null;
     this.endNote = null;
+    this.lastOut = null;
     this.netWait = null;
     this.netDown = false;
     this.catchingUp = null;
@@ -76,11 +86,11 @@ export default class GameScene extends Phaser.Scene {
     this.recording = !save && !replay ? {
       id: Date.now(), v: GAME_VERSION, date: Date.now(), seed, mapType: this.mapType, difficulty: this.difficulty,
       fog: net ? net.settings.fog !== false : data.fog !== false, cmds: [], hashes: [], ticks: 0, result: null,
-      mp: this.mp, me: this.me, names: net ? net.names() : null,
+      mp: this.mp, me: this.me, names: net ? net.names() : null, setup: this.setup,
     } : null;
 
     // --- Art (drawn with code at start-up) & sound ---
-    generateArt(this, BUILDING_TYPES);
+    generateArt(this, BUILDING_TYPES, this.teamIds);
     audio.init(this.sound.context);
     audio.startAmbience();
     audio.startMusic('calm');
@@ -89,7 +99,7 @@ export default class GameScene extends Phaser.Scene {
     this.firesOnScreen = 0;
 
     // --- Map: painted onto a canvas texture we can repaint when tiles change ---
-    this.map = new GameMap(MAP_W, MAP_H, seed, this.mapType);
+    this.map = new GameMap(MAP_W, MAP_H, seed, this.mapType, this.teamIds);
     if (save) {
       this.map.tiles.set(save.map.tiles);
       this.map.amount.set(save.map.amount);
@@ -109,19 +119,21 @@ export default class GameScene extends Phaser.Scene {
     const cam = this.cameras.main;
     cam.setBounds(-200, -150, ISO_W + 400, ISO_H + 450);
     cam.setBackgroundColor('#0b0c0d');
-    const start = this.me === 'player' ? PLAYER_START : ENEMY_START;
+    this.applyScreenFx();
+    const onFx = () => this.applyScreenFx();
+    this.game.events.on('fxChanged', onFx);
+    this.events.once('shutdown', () => this.game.events.off('fxChanged', onFx));
+    const start = startFor(this.me, MAP_W, MAP_H);
     const h = this.map.tileCenter(start.x, start.y);
     this.home = toIso(h.x, h.y);
     cam.centerOn(this.home.x, this.home.y);
     this.terrainRefreshTimer = 0;
 
     // --- Teams: each has its own resources and upgrades ---
-    this.teams = {
-      player: { resources: { ...START_RESOURCES }, upgrades: new Set(), era: 0 },
-      enemy: { resources: { ...START_RESOURCES }, upgrades: new Set(), era: 0 },
-    };
+    this.teams = {};
+    for (const id of this.teamIds) this.teams[id] = { resources: { ...START_RESOURCES }, upgrades: new Set(), era: 0, out: false, resigned: false };
     this.resources = this.teams[this.me].resources; // shortcut for the person at this computer
-    this.upgrades = this.teams.player.upgrades;
+    this.upgrades = this.teams[this.me].upgrades;
     this.buildings = [];
     this.units = [];
     this.gameTime = 0;
@@ -132,7 +144,7 @@ export default class GameScene extends Phaser.Scene {
     this.renderShots = true;       // shots in flight: damage lands on game time, not animation time
     this.speed = loadSpeed();
     this.targeting = null;       // 'amove' while choosing an attack-move destination
-    this.stats = new Stats(save && save.stats);
+    this.stats = new Stats(save && save.stats, this.teamIds);
     // One market shared by everyone: prices go up when people buy and down when they sell.
     this.market = { ...MARKET_BASE, ...(save && save.market) };
 
@@ -142,19 +154,21 @@ export default class GameScene extends Phaser.Scene {
       this.tick = save.tick || 0;
     } else {
       // --- Starting bases ---
-      this.setupBase(PLAYER_START, 'player', ['worker', 'worker', 'worker', 'worker', 'soldier', 'soldier', 'soldier'], 2);
-      this.setupBase(ENEMY_START, 'enemy', ['worker', 'worker', 'worker', 'worker', 'soldier', 'soldier', 'soldier'], -2);
-      // --- Climate & AI (online, both sides are people) ---
+      for (const id of this.teamIds) {
+        const st = startFor(id, MAP_W, MAP_H);
+        this.setupBase(st, id, ['worker', 'worker', 'worker', 'worker', 'soldier', 'soldier', 'soldier'], st.y < MAP_H / 2 ? 2 : -2);
+      }
+      // --- Climate & computer players ---
       this.climate = new Climate(this);
-      if (!this.mp) {
-        const bonus = DIFFICULTY[this.difficulty].bonus;
-        for (const k of ['food', 'wood', 'stone']) this.teams.enemy.resources[k] += bonus;
-        this.ai = new EnemyAI(this, 'enemy', this.difficulty);
+      this.makeAIs();
+      for (const a of this.ais) {
+        const bonus = DIFFICULTY[a.difficulty].bonus;
+        for (const k of ['food', 'wood', 'stone']) this.teams[a.team].resources[k] += bonus;
       }
     }
 
     // --- Fog of war ---
-    const fogOn = replay ? false : net ? net.settings.fog !== false : save ? (save.fog ? save.fog.enabled : true) : data.fog !== false;
+    const fogOn = replay || this.spectator ? false : net ? net.settings.fog !== false : save ? (save.fog ? save.fog.enabled : true) : data.fog !== false;
     this.fog = new Fog(this, fogOn, save && save.fog ? save.fog.explored : null);
     this.fog.applyVisibility();
 
@@ -215,6 +229,7 @@ export default class GameScene extends Phaser.Scene {
       else this.events.emit('openMenu');
     });
     this.input.keyboard.on('keydown-F10', () => { if (!this.gameOver) this.events.emit('openMenu'); });
+    this.input.keyboard.on('keydown-DELETE', () => { if (!this.paused || this.net) this.deleteSelected(); });
     this.keys.H.on('down', () => cam.pan(this.home.x, this.home.y, 300, 'Sine.easeInOut'));
     this.keys.PERIOD.on('down', () => this.selectIdleWorker());
 
@@ -372,13 +387,52 @@ export default class GameScene extends Phaser.Scene {
     Object.assign(this.climate, { co2: c.co2, temp: c.temp, drought: c.drought, heatwave: c.heatwave || 0, seaStage: c.seaStage, warnedStage: c.warnedStage, fireBudget: c.fireBudget, disasterTimer: c.disasterTimer, emittedTotal: c.emittedTotal });
     for (const f of c.fires) this.climate.fires.set(f.y * this.map.w + f.x, { ...f });
     for (const a of c.ash) this.climate.ash.set(a.y * this.map.w + a.x, { ...a });
-    this.ai = new EnemyAI(this, 'enemy', this.difficulty);
-    Object.assign(this.ai, { nextWave: save.ai.nextWave, waveSize: save.ai.waveSize, waveNum: save.ai.waveNum });
-    save.ai.assault.forEach((i) => us[i] && this.ai.assault.add(us[i]));
+    this.makeAIs();
+    for (const sa of save.ais || []) {
+      const a = this.ais.find((x) => x.team === sa.team);
+      if (!a) continue;
+      Object.assign(a, { nextWave: sa.nextWave, waveSize: sa.waveSize, waveNum: sa.waveNum });
+      sa.assault.forEach((i) => us[i] && a.assault.add(us[i]));
+    }
+    for (const [id, t] of Object.entries(save.teams)) if (this.teams[id]) { this.teams[id].out = !!t.out; this.teams[id].resigned = !!t.resigned; }
     this.savedGroups = (save.groups || []).map((g) => g.map((i) => us[i]).filter(Boolean));
     const cam = this.cameras.main;
     cam.setZoom(save.camera.zoom);
     cam.centerOn(save.camera.x, save.camera.y);
+  }
+
+  // A soft vignette and a little extra colour and contrast on the game view (Settings → Screen effects).
+  applyScreenFx() {
+    const cam = this.cameras.main;
+    if (!cam.postFX) return; // not available without WebGL
+    cam.postFX.clear();
+    if (!fxEnabled()) return;
+    cam.postFX.addVignette(0.5, 0.5, 0.95, 0.22);
+    const cm = cam.postFX.addColorMatrix();
+    cm.saturate(0.14);
+    cm.contrast(0.06, true);
+    this.gradeFx = cm;
+  }
+
+  // A computer player for every side the computer runs.
+  makeAIs() {
+    this.ais = this.setup.teams.filter((t) => t.ai).map((t) => new EnemyAI(this, t.id, t.ai));
+    // (tests and older code use .ai for "the computer opponent")
+    this.ai = this.ais.find((a) => this.isEnemy(a.team, this.me)) || this.ais[0] || null;
+  }
+
+  // Are these two sides at war? (Different sides in the same alliance are allies.)
+  isEnemy(a, b) {
+    return a !== b && this.alliance[a] !== this.alliance[b];
+  }
+
+  isAlly(a, b) {
+    return a === b || this.alliance[a] === this.alliance[b];
+  }
+
+  // The sides still in the game.
+  liveTeams() {
+    return this.teamIds.filter((t) => !this.teams[t].out);
   }
 
   setupBase(start, team, types, spawnDir) {
@@ -427,7 +481,7 @@ export default class GameScene extends Phaser.Scene {
 
   // A message about something the player can't do, with an error sound.
   fail(msg) {
-    if (this.replay) return;
+    if (this.replay || this.spectator) return;
     this.toast(msg);
     audio.play('error');
   }
@@ -673,11 +727,13 @@ export default class GameScene extends Phaser.Scene {
     if (this.selectedBuilding === b) this.emitSelection();
   }
 
-  nearestDropOff(x, y, team = 'player') {
+  // The closest finished building of this side that takes this resource (res omitted = any drop-off).
+  nearestDropOff(x, y, team = 'player', res = null) {
     let best = null;
     let bestD = Infinity;
     for (const b of this.buildings) {
       if (b.team !== team || !b.complete || !b.def.dropOff) continue;
+      if (res && b.def.dropOff !== true && !b.def.dropOff.includes(res)) continue;
       const d = Phaser.Math.Distance.Between(x, y, b.cx, b.cy);
       if (d < bestD) { bestD = d; best = b; }
     }
@@ -712,7 +768,7 @@ export default class GameScene extends Phaser.Scene {
     let best = null;
     let bestD = radius;
     for (const u of this.units) {
-      if (u.team === team || u.dead) continue;
+      if (!this.isEnemy(u.team, team) || u.dead) continue;
       const d = Math.hypot(u.x - x, u.y - y);
       if (d < bestD) { bestD = d; best = u; }
     }
@@ -727,7 +783,7 @@ export default class GameScene extends Phaser.Scene {
     let best = null;
     let bestD = radius;
     for (const b of this.buildings) {
-      if (b.team === team || b.def.wall) continue; // walls only get attacked when they're in the way
+      if (!this.isEnemy(b.team, team) || b.def.wall) continue; // walls only get attacked when they're in the way
       const d = this.distanceTo(x, y, b);
       if (d < bestD) { bestD = d; best = b; }
     }
@@ -739,7 +795,7 @@ export default class GameScene extends Phaser.Scene {
     let best = null;
     let bestD = Infinity;
     for (const t of [...this.buildings, ...this.units]) {
-      if (t.team === team || t.dead || (t.isBuilding && t.def.wall)) continue;
+      if (!this.isEnemy(t.team, team) || t.dead || (t.isBuilding && t.def.wall)) continue;
       const d = this.distanceTo(x, y, t);
       if (d < bestD) { bestD = d; best = t; }
     }
@@ -755,7 +811,7 @@ export default class GameScene extends Phaser.Scene {
     for (const n of path) {
       if (this.map.isWalkable(n.x, n.y, u.team)) continue;
       const b = this.map.buildingAt(n.x, n.y);
-      if (b && b.def.wall && b.team !== u.team) return b;
+      if (b && b.def.wall && this.isEnemy(b.team, u.team)) return b;
       if (b === target) return null;
     }
     return null;
@@ -830,7 +886,7 @@ export default class GameScene extends Phaser.Scene {
   // so switching over doesn't cause a stutter.
   prewarmStyles(delta) {
     if (!this.styleQueue || !this.styleQueue.length) {
-      for (const team of ['player', 'enemy']) {
+      for (const team of this.teamIds) {
         const tc = this.buildings.find((b) => b.team === team && b.research && b.research.kind === 'era');
         if (!tc) continue;
         const style = this.teams[team].era + 1;
@@ -1357,7 +1413,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   spawnUnit(b, type) {
-    const toward = b.team === 'player' ? 1 : -1;
+    const toward = b.cy < (MAP_H * TILE) / 2 ? 1 : -1; // new units step out towards the middle of the map
     const side = { x: b.tx + Math.floor(b.w / 2), y: toward > 0 ? b.ty + b.h : b.ty - 1 };
     const spots = this.map.standSpots(b.tx, b.ty, b.w, b.h, side);
     const free = spots.find((s) => !this.units.some((u) => u.tile.x === s.x && u.tile.y === s.y)) || spots[0];
@@ -1399,6 +1455,27 @@ export default class GameScene extends Phaser.Scene {
     g.fillStyle(0x3a2a1a, 1).fillRect(f.x - 1, f.y - 26, 2, 26);
     g.fillStyle(TEAM_COLORS.player.main, 1).fillTriangle(f.x + 1, f.y - 26, f.x + 15, f.y - 21, f.x + 1, f.y - 16);
     g.lineStyle(1, 0x000000, 0.5).strokeTriangle(f.x + 1, f.y - 26, f.x + 15, f.y - 21, f.x + 1, f.y - 16);
+  }
+
+  // Delete key / Delete button: get rid of your selected units or building.
+  deleteSelected() {
+    if (this.replay || this.spectator || this.gameOver) return;
+    const units = [...this.selected].filter((u) => u.team === this.me);
+    if (units.length) {
+      this.issue({ k: 'delete', ids: units.map((u) => u.id) });
+      audio.play('click');
+      return;
+    }
+    const b = this.selectedBuilding;
+    if (!b || b.team !== this.me) return;
+    if (b.type === 'town_centre' && !(this.confirmDelete && this.confirmDelete.b === b && this.time.now - this.confirmDelete.at < 4000)) {
+      this.confirmDelete = { b, at: this.time.now };
+      this.toast('Press Delete again to tear down your Town Centre — without one, your side is out!', '#e07a6a');
+      return;
+    }
+    this.confirmDelete = null;
+    this.issue({ k: 'delete', b: b.id });
+    audio.play('click');
   }
 
   stopSelected() {
@@ -1464,7 +1541,7 @@ export default class GameScene extends Phaser.Scene {
     let best = null;
     let bestD = 17;
     for (const u of this.units) {
-      if (u.team === this.me || !u.container.visible) continue;
+      if (!this.isEnemy(u.team, this.me) || !u.container.visible) continue;
       const d = Phaser.Math.Distance.Between(ix, iy, u.isoX, u.isoY - 12);
       if (d < bestD) { bestD = d; best = u; }
     }
@@ -1551,7 +1628,7 @@ export default class GameScene extends Phaser.Scene {
     if (iso) audio.play('confirm');
 
     // What did we click on? Work it out here (where the player sees things) and send it by id.
-    const enemy = (iso && this.enemyUnitAt(iso.x, iso.y)) || (b && b.team !== this.me ? b : null);
+    const enemy = (iso && this.enemyUnitAt(iso.x, iso.y)) || (b && this.isEnemy(b.team, this.me) ? b : null);
     if (enemy) {
       this.issue({ k: 'order', ids, x: wx, y: wy, target: enemy.id });
       this.showMarker(wx, wy, 0xff4444);
@@ -1570,7 +1647,7 @@ export default class GameScene extends Phaser.Scene {
     const wy = c.y;
     if (c.target != null) {
       const target = this.byId(c.target);
-      if (target && target.team !== team) { units.forEach((u) => u.orderAttack(target)); return; }
+      if (target && this.isEnemy(target.team, team)) { units.forEach((u) => u.orderAttack(target)); return; }
       this.moveGroup(units, wx, wy); // it died on the way: just go there
       return;
     }
@@ -1624,26 +1701,69 @@ export default class GameScene extends Phaser.Scene {
   // ---------- Winning & losing ----------
   checkGameOver() {
     if (this.gameOver) return;
-    const hasTC = (team) => this.buildings.some((b) => b.team === team && b.type === 'town_centre');
-    let result = null;
-    const wonder = this.buildings.find((b) => b.def.wonder && b.complete && b.wonderTime >= 180);
-    if (wonder) result = wonder.team === this.me ? 'green' : 'defeat';
-    else if (this.climate.temp >= 5) result = 'collapse';
-    else if (this.resigned) {
-      result = this.resigned === this.me ? 'defeat' : 'victory';
-      this.endNote = this.resigned === this.me ? 'You resigned.' : `${this.teamName(this.resigned)} resigned.`;
+    // A side is out when its Town Centre falls (or it resigns). Everything it has left crumbles away.
+    for (const id of this.teamIds) {
+      const T = this.teams[id];
+      if (T.out) continue;
+      if (T.resigned || !this.buildings.some((b) => b.team === id && b.type === 'town_centre')) this.eliminate(id);
     }
-    else if (!hasTC(this.me)) result = 'defeat';
-    else if (!hasTC(this.foe)) result = 'victory';
+    const wonder = this.buildings.find((b) => b.def.wonder && b.complete && b.wonderTime >= 180);
+    const alive = new Set(this.liveTeams().map((t) => this.alliance[t]));
+    let winner = null; // the winning alliance
+    let result = null;
+    if (wonder) {
+      winner = this.alliance[wonder.team];
+      result = this.alliance[this.self] === winner ? 'green' : 'defeat';
+    } else if (this.climate.temp >= 5) {
+      result = 'collapse';
+    } else if (alive.size <= 1) {
+      winner = alive.size ? [...alive][0] : null;
+      result = winner !== null && this.alliance[this.self] === winner ? 'victory' : 'defeat';
+      if (!this.endNote && this.lastOut && this.teams[this.lastOut].resigned) {
+        this.endNote = this.lastOut === this.self ? 'You resigned.' : `${this.teamName(this.lastOut)} resigned.`;
+      }
+    } else if (this.teams[this.self].out && !this.mp) {
+      result = 'defeat'; // on your own, the game stops when you're out
+    }
     if (!result) return;
+    if ((this.net && this.net.spectator) || (this.replay && this.mp)) {
+      const names = this.teamIds.filter((t) => this.alliance[t] === winner).map((t) => this.teamName(t));
+      if (result !== 'collapse') { result = 'over'; this.endNote = winner === null ? 'Nobody won.' : `${names.join(' & ')} won.`; }
+    }
     this.gameOver = result;
+    this.winner = winner;
     this.stats.sample(this);
     this.cancelTargeting();
-    audio.play(result === 'victory' || result === 'green' ? 'victory' : 'defeat');
+    audio.play(result === 'victory' || result === 'green' || result === 'over' ? 'victory' : 'defeat');
     this.clearSelection();
     this.finishRecording(result);
     if (this.net) this.net.send({ t: 'over' });
     this.events.emit('gameOver', result);
+  }
+
+  // A side is out of the game.
+  eliminate(id) {
+    const T = this.teams[id];
+    T.out = true;
+    this.lastOut = id;
+    for (const u of this.units.filter((x) => x.team === id)) this.killUnit(u);
+    for (const b of this.buildings.filter((x) => x.team === id)) { b.hp = 0; this.removeBuilding(b); }
+    for (const b of this.buildings) for (const g of [...b.garrison]) if (g.team === id) this.killUnit(g);
+    const name = this.teamName(id);
+    if (id === this.me) {
+      this.endNote = T.resigned ? 'You resigned.' : null;
+      if (this.mp && !this.replay) {
+        // Online the match carries on: you can keep watching.
+        this.spectator = true;
+        this.clearSelection();
+        this.cancelPlacing && this.cancelPlacing();
+        if (this.fog.enabled) { this.fog.enabled = false; this.fog.visible.fill(1); this.fog.explored.fill(1); this.fog.draw(); this.fog.applyVisibility(); }
+        this.events.emit('eliminated');
+      }
+    } else {
+      this.toast(`${T.resigned ? '🏳' : '⚔'} ${name} ${T.resigned ? 'resigned' : 'has been defeated'}${this.isAlly(id, this.me) ? ' (your ally)' : ''}`,
+        this.isAlly(id, this.me) ? '#e0a49c' : '#b8dc90');
+    }
   }
 
   // ---------- Every frame ----------
@@ -1794,29 +1914,38 @@ export default class GameScene extends Phaser.Scene {
       .on('error', (m) => this.toast(m.msg, '#e07a6a'));
   }
 
-  // The other player quit or never came back: you win.
+  // Someone quit or never came back. (The room turns that into a 'resign' order for their side, so every
+  // computer removes them on the same tick.)
   opponentLeft(m) {
-    if (this.gameOver || m.slot === this.net.slot) return;
     this.netWait = null;
-    this.endNote = m.reason === 'timeout' ? `${m.name} lost connection and didn't come back.` : `${m.name} left the game.`;
-    this.gameOver = 'victory';
-    this.stats.sample(this);
-    this.cancelTargeting();
-    audio.play('victory');
-    this.clearSelection();
-    this.finishRecording('victory');
-    this.events.emit('gameOver', 'victory');
+    if (m.slot === this.net.slot) return;
+    this.toast(m.reason === 'timeout' ? `${m.name} lost connection and didn't come back.` : `${m.name} left the game.`, '#d8c9a0');
   }
 
-  // A team's player name online ('player' = host, 'enemy' = guest).
+  // Spectators and replays can follow any side: its resources, research and army show in the panels.
+  setView(team) {
+    if (!this.teams[team]) return;
+    this.me = team;
+    this.foe = this.teamIds.find((t) => this.isEnemy(t, team)) || this.teamIds.find((t) => t !== team);
+    this.resources = this.teams[team].resources;
+    this.upgrades = this.teams[team].upgrades;
+    this.clearSelection();
+    this.events.emit('viewChanged', team);
+  }
+
+  get canSwitchView() {
+    return !!(this.spectator || this.replay);
+  }
+
+  // A side's name: the player's name online, "You" / colour names against the computer.
   teamName(team) {
-    const names = this.net ? this.net.names() : this.replay && this.replay.names ? this.replay.names : null;
-    const n = names && names[team === 'player' ? 0 : 1];
-    return n || (team === 'player' ? 'Blue' : 'Red');
+    const t = this.setup.teams.find((x) => x.id === team);
+    if (!this.mp && team === this.self && !this.replay) return 'You';
+    return (t && t.name) || TEAM_NAMES[team] || team;
   }
 
   resign() {
-    if (!this.net || this.gameOver) return;
+    if (!this.net || this.gameOver || this.spectator) return;
     this.issue({ k: 'resign' });
   }
 
@@ -1837,7 +1966,7 @@ export default class GameScene extends Phaser.Scene {
   // Everything the player does to the game goes through here. Commands wait for the next tick,
   // so they happen at the same moment in the recording (and, later, on every computer online).
   issue(cmd) {
-    if (this.replay || this.gameOver) return;
+    if (this.replay || this.gameOver || this.spectator) return;
     if (this.net) this.net.send({ t: 'cmd', c: { p: this.me, ...cmd } }); // comes back to everyone in a turn
     else this.pending.push({ p: this.me, ...cmd });
   }
@@ -1884,8 +2013,23 @@ export default class GameScene extends Phaser.Scene {
         this.trade(c.pay, c.buy, team);
         if (team === this.me) this.events.emit('market');
         break;
+      case 'delete':
+        for (const u of units) this.killUnit(u);
+        if (own) {
+          // A foundation nobody has started building gives its cost back.
+          if (!own.complete && !(own.progress > 0)) {
+            for (const [r, n] of Object.entries(own.def.cost || {})) {
+              const key = r === 'energy' ? 'clean' : r;
+              if (key in this.teams[team].resources) this.teams[team].resources[key] += n;
+            }
+          }
+          if (own === this.selectedBuilding) this.clearSelection();
+          own.hp = 0;
+          this.removeBuilding(own);
+        }
+        break;
       case 'resign':
-        if (this.mp && !this.resigned) this.resigned = team;
+        if (this.teams[team] && !this.teams[team].out) this.teams[team].resigned = true;
         break;
       default: break;
     }
@@ -1957,8 +2101,9 @@ export default class GameScene extends Phaser.Scene {
     const nums = [this.tick, this.rng.state, this.units.length, this.buildings.length];
     for (const u of this.units) nums.push(u.id, u.px, u.py, u.hp);
     for (const b of this.buildings) nums.push(b.id, b.hp, b.progress || 0, b.queue.length);
-    for (const team of ['player', 'enemy']) {
+    for (const team of this.teamIds) {
       const t = this.teams[team];
+      nums.push(t.out ? 1 : 0);
       for (const k of Object.keys(t.resources).sort()) nums.push(t.resources[k]);
       nums.push(t.era, t.upgrades.size);
     }
@@ -2021,7 +2166,7 @@ export default class GameScene extends Phaser.Scene {
     this.updateMarket(dt);
     this.wildlife.update(dt, this);
     this.climate.update(dt);
-    if (this.ai) this.ai.update(dt);
+    for (const a of this.ais) if (!this.teams[a.team].out) a.update(dt);
     if (this.fog) this.fog.update(dt);
     this.stats.update(dt, this);
     this.checkGameOver();

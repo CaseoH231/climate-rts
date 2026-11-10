@@ -37,9 +37,18 @@ export const BUILDING_TYPES = {
     name: 'Farm', w: 2, h: 2, hp: 100, cost: { wood: 60 }, buildTime: 8, era: 0,
     walkable: true, food: 300, desc: 'One worker farms 300 food here.',
   },
-  storage: {
-    name: 'Storage Shed', w: 2, h: 2, hp: 300, cost: { wood: 100 }, buildTime: 14, era: 0,
-    dropOff: true, desc: 'Drop off any resource here. Build near forests, stone and coal.',
+  // Small drop-off camps: build them right next to what your workers are gathering.
+  lumber_camp: {
+    name: 'Lumber Camp', w: 1, h: 1, hp: 200, cost: { wood: 50 }, buildTime: 8, era: 0,
+    dropOff: ['wood'], desc: 'Workers drop off wood here. Build it at the edge of a forest.',
+  },
+  mining_camp: {
+    name: 'Mining Camp', w: 1, h: 1, hp: 200, cost: { wood: 50 }, buildTime: 8, era: 0,
+    dropOff: ['stone', 'fuel'], desc: 'Workers drop off stone and coal here. Build it next to a quarry or coal seam.',
+  },
+  mill: {
+    name: 'Mill', w: 2, h: 2, hp: 300, cost: { wood: 75 }, buildTime: 12, era: 0,
+    dropOff: ['food'], desc: 'Workers drop off food here. Build it among your farms or near berry bushes.',
   },
   barracks: {
     name: 'Barracks', w: 3, h: 3, hp: 500, cost: { wood: 125, stone: 50 }, buildTime: 22, era: 0,
@@ -130,7 +139,7 @@ export const BUILDING_TYPES = {
 
 // What a worker can build, in button order: an economy page and a military page.
 export const WORKER_PAGES = [
-  ['house', 'apartments', 'farm', 'storage', 'fishing_dock', 'market', 'trees', 'office', 'factory'],
+  ['house', 'apartments', 'farm', 'mill', 'lumber_camp', 'mining_camp', 'fishing_dock', 'market', 'trees', 'office', 'factory'],
   ['wind_turbine', 'power_plant', 'hydro_dam', 'solar', 'geothermal', 'carbon_capture'],
   ['barracks', 'tower', 'wall', 'gate', 'radar', 'workshop', 'restoration'],
 ];

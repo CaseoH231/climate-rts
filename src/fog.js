@@ -79,11 +79,11 @@ export class Fog {
     this.visible.fill(0);
     const w = this.world;
     for (const u of w.units) {
-      if (u.team !== w.me || u.dead) continue;
+      if (!w.isAlly(u.team, w.me) || u.dead) continue;
       this.reveal(Math.floor(u.x / TILE), Math.floor(u.y / TILE), SIGHT[u.type] || SIGHT.default);
     }
     for (const b of w.buildings) {
-      if (b.team !== w.me) continue;
+      if (!w.isAlly(b.team, w.me)) continue;
       this.reveal(Math.floor(b.cx / TILE), Math.floor(b.cy / TILE), (SIGHT[b.type] || SIGHT.default) + Math.floor(b.w / 2));
     }
   }
@@ -102,11 +102,11 @@ export class Fog {
   applyVisibility() {
     const w = this.world;
     for (const u of w.units) {
-      if (u.team === w.me) continue;
+      if (w.isAlly(u.team, w.me)) continue;
       u.container.setVisible(this.visibleAt(u.x, u.y));
     }
     for (const b of w.buildings) {
-      if (b.team === w.me) continue;
+      if (w.isAlly(b.team, w.me)) continue;
       b.container.setVisible(this.isExplored(Math.floor(b.cx / TILE), Math.floor(b.cy / TILE)));
     }
   }

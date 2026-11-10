@@ -1,12 +1,17 @@
 // The online relay: one Room per game code. It never runs the game itself — it just keeps time and passes
-// commands between the two players ("lockstep"):
+// commands between the players ("lockstep"):
 //
-//   • Every 100 ms the room closes a "turn": all commands it received since the last turn are sent to BOTH
-//     players, numbered. A turn covers 2 game ticks; nobody may run a tick until they have its turn.
-//     Both games therefore run exactly the same commands on exactly the same tick, and stay identical.
-//   • Every turn is kept, so a player who drops out or refreshes the page can rejoin and fast-forward.
-//   • Both games send a fingerprint (hash) of their state every 2 seconds. If they ever differ, the room
-//     tells both players the games have drifted apart ("desync").
+//   • Every 100 ms the room closes a "turn": all commands it received since the last turn are sent to
+//     EVERYONE, numbered. A turn covers 2 game ticks; nobody may run a tick until they have its turn.
+//     Every game therefore runs exactly the same commands on exactly the same tick, and stays identical.
+//     (Computer players are part of the game itself, so every computer runs them identically too.)
+//   • Every turn is kept, so a player who drops out or refreshes the page can rejoin and fast-forward,
+//     and spectators can join at any time.
+//   • Every game sends a fingerprint (hash) of its state every 2 seconds. If two ever differ, the room
+//     tells everyone the games have drifted apart ("desync").
+//
+// Seats: up to four sides (Blue, Red, Green, Yellow). The host decides what each seat is: open for a
+// person to join, a computer player, or closed; and which team (alliance) each seat is on.
 //
 // This file has no Cloudflare-specific code, so the same room logic runs in the real Durable Object
 // (worker/index.js) and in the local test server.
@@ -14,14 +19,16 @@
 export const TURN_MS = 100;
 export const TICKS_PER_TURN = 2;
 const WAIT_FOR_RECONNECT_MS = 90_000;
-const TEAMS = ['player', 'enemy'];
+const TEAMS = ['player', 'enemy', 'green', 'yellow'];
 const MAP_TYPES = ['continental', 'lakes', 'highlands', 'river'];
-const MAX_CMD_BYTES = 4000;
+const AI_LEVELS = ['easy', 'normal', 'hard'];
+const MAX_MSG_BYTES = 4000;
+const MAX_WATCHERS = 8;
 
 const clean = (str, max) => String(str || '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, max);
 
 export class RoomCore {
-  // timers: { setInterval, clearInterval, setTimeout, clearTimeout, now } (so tests can control time)
+  // timers: { setInterval, clearInterval, setTimeout, clearTimeout } (so tests can control time)
   constructor(code, timers = globalThis) {
     this.code = code;
     this.timers = timers;
@@ -30,8 +37,15 @@ export class RoomCore {
 
   reset() {
     if (this.clock) this.timers.clearInterval(this.clock);
-    if (this.dropTimer) this.timers.clearTimeout(this.dropTimer);
-    this.slots = [null, null];      // { token, name, conn, connected }
+    for (const t of (this.dropTimers || new Map()).values()) this.timers.clearTimeout(t);
+    // seat: { kind: 'human'|'ai'|'open'|'closed', alliance, ai?, token?, name?, conn?, connected? }
+    this.slots = [
+      { kind: 'human', alliance: 0, token: null },
+      { kind: 'open', alliance: 1 },
+      { kind: 'closed', alliance: 2 },
+      { kind: 'closed', alliance: 3 },
+    ];
+    this.watchers = [];             // spectators: { token, name, conn }
     this.settings = { mapType: 'continental', fog: true };
     this.started = false;
     this.ended = false;
@@ -39,18 +53,32 @@ export class RoomCore {
     this.history = [];              // history[n] = the commands of turn n
     this.pending = [];
     this.clock = null;
-    this.dropTimer = null;
-    this.waitingFor = null;
-    this.hashes = new Map();        // tick -> [hash from host, hash from guest]
+    this.waiting = new Set();       // seats we're waiting for (they dropped out mid-game)
+    this.dropTimers = new Map();
+    this.hashes = new Map();        // tick -> the first fingerprint we got for it
     this.desynced = false;
   }
 
-  get empty() {
-    return !this.slots.some((s) => s && s.connected);
+  get hostHere() {
+    return !!(this.slots[0].token && (this.slots[0].connected || this.started));
   }
 
-  players() {
-    return this.slots.map((s, i) => (s ? { slot: i, team: TEAMS[i], name: s.name, connected: s.connected } : null));
+  get empty() {
+    return !this.slots.some((s) => s.kind === 'human' && s.connected) && !this.watchers.length;
+  }
+
+  // What everyone may know about the seats.
+  publicSlots() {
+    return this.slots.map((s, i) => ({
+      slot: i, team: TEAMS[i], kind: s.kind, alliance: s.alliance,
+      ai: s.kind === 'ai' ? s.ai : undefined,
+      name: s.kind === 'human' ? s.name : undefined,
+      connected: s.kind === 'human' ? !!s.connected : undefined,
+    }));
+  }
+
+  lobbyMsg() {
+    return { t: 'lobby', slots: this.publicSlots(), watchers: this.watchers.map((w) => w.name), settings: this.settings };
   }
 
   send(conn, msg) {
@@ -59,36 +87,48 @@ export class RoomCore {
 
   broadcast(msg) {
     const str = JSON.stringify(msg);
-    for (const s of this.slots) if (s && s.connected) { try { s.conn.send(str); } catch (e) { /* closed */ } }
+    const conns = [...this.slots.filter((s) => s.kind === 'human' && s.connected).map((s) => s.conn), ...this.watchers.filter((w) => w.conn).map((w) => w.conn)];
+    for (const c of conns) { try { c.send(str); } catch (e) { /* closed */ } }
   }
 
-  // A browser connected. hello = { role: 'host' | 'join', token, name, have }
+  // A browser connected. hello = { role: 'host' | 'join' | 'watch', token, name, have }
   // `have` is the last turn this browser already has (-1 for none), so a rejoin only gets what it missed.
   join(conn, hello) {
     const token = clean(hello.token, 64);
     if (!token) return this.reject(conn, 'Bad connection request');
-    let slot = this.slots.findIndex((s) => s && s.token === token);
-    if (slot < 0) {
+    const name = clean(hello.name, 16);
+    let slot = this.slots.findIndex((s) => s.kind === 'human' && s.token === token);
+    let watcher = slot < 0 ? this.watchers.find((w) => w.token === token) : null;
+    if (slot < 0 && !watcher) {
       if (hello.role === 'host') {
-        if (this.slots[0] && (this.slots[0].connected || this.started)) return this.reject(conn, 'That game code is already in use — try again.');
-        if (this.slots[0]) this.reset(); // an abandoned lobby: start over
+        if (this.hostHere) return this.reject(conn, 'That game code is already in use — try again.');
+        this.reset();
         slot = 0;
+        Object.assign(this.slots[0], { token, name: name || 'Host' });
+      } else if (!this.hostHere) {
+        return this.reject(conn, 'No game with that code. Check the code with your friend.');
+      } else if (hello.role === 'watch') {
+        if (this.watchers.length >= MAX_WATCHERS) return this.reject(conn, 'That game already has as many spectators as it can take.');
+        watcher = { token, name: name || 'Spectator', conn: null };
+        this.watchers.push(watcher);
       } else {
-        if (!this.slots[0] || (!this.slots[0].connected && !this.started)) return this.reject(conn, 'No game with that code. Check the code with your friend.');
-        if (this.slots[1]) return this.reject(conn, 'That game already has two players.');
-        slot = 1;
+        if (this.started) return this.reject(conn, 'That game has already started — you can still watch it.');
+        slot = this.slots.findIndex((s) => s.kind === 'open');
+        if (slot < 0) return this.reject(conn, 'That game has no free seats — you can still watch it.');
+        Object.assign(this.slots[slot], { kind: 'human', token, name: name || 'Player' });
       }
-      this.slots[slot] = { token, name: clean(hello.name, 16) || (slot ? 'Guest' : 'Host'), conn: null, connected: false };
     }
-    const s = this.slots[slot];
-    if (s.conn && s.conn !== conn) { try { s.conn.close(4000, 'Replaced by a new connection'); } catch (e) { /* ignore */ } }
-    s.conn = conn;
-    s.connected = true;
-    conn.slot = slot;
+    const seat = watcher || this.slots[slot];
+    if (seat.conn && seat.conn !== conn) { try { seat.conn.close(4000, 'Replaced by a new connection'); } catch (e) { /* ignore */ } }
+    seat.conn = conn;
+    if (!watcher) seat.connected = true;
+    conn.slot = watcher ? null : slot;
+    conn.watcher = watcher || null;
 
     this.send(conn, {
-      t: 'welcome', slot, team: TEAMS[slot], code: this.code, players: this.players(), settings: this.settings,
-      started: this.started, ended: this.ended, turnMs: TURN_MS, ticksPerTurn: TICKS_PER_TURN,
+      t: 'welcome', slot: conn.slot, team: watcher ? null : TEAMS[slot], spectator: !!watcher, code: this.code,
+      slots: this.publicSlots(), settings: this.settings, started: this.started, ended: this.ended,
+      turnMs: TURN_MS, ticksPerTurn: TICKS_PER_TURN,
     });
     if (this.started) {
       const have = Number.isInteger(hello.have) ? hello.have : -1;
@@ -96,8 +136,8 @@ export class RoomCore {
       for (let n = Math.max(0, have + 1); n < this.history.length; n++) if (this.history[n].length) turns.push([n, this.history[n]]);
       this.send(conn, { t: 'history', upTo: this.history.length - 1, turns });
     }
-    this.broadcast({ t: 'lobby', players: this.players(), settings: this.settings });
-    if (this.started && this.waitingFor === slot) this.resume();
+    this.broadcast(this.lobbyMsg());
+    if (!watcher && this.started && this.waiting.has(slot)) this.stopWaiting(slot);
     return slot;
   }
 
@@ -108,53 +148,81 @@ export class RoomCore {
   }
 
   message(conn, raw) {
-    if (typeof raw !== 'string' || raw.length > MAX_CMD_BYTES) return;
+    if (typeof raw !== 'string' || raw.length > MAX_MSG_BYTES) return;
     let m;
     try { m = JSON.parse(raw); } catch (e) { return; }
     if (!m || typeof m !== 'object') return;
     if (m.t === 'hello') { this.join(conn, m); return; }
+    const watcher = conn.watcher;
     const slot = conn.slot;
-    if (slot === undefined || !this.slots[slot] || this.slots[slot].conn !== conn) return;
+    const seat = watcher || (slot !== undefined && slot !== null ? this.slots[slot] : null);
+    if (!seat || seat.conn !== conn) return;
+    const host = slot === 0;
     switch (m.t) {
       case 'settings':
-        if (slot !== 0 || this.started) return;
-        this.settings = {
-          mapType: MAP_TYPES.includes(m.mapType) ? m.mapType : 'continental',
-          fog: m.fog !== false,
-        };
-        this.broadcast({ t: 'lobby', players: this.players(), settings: this.settings });
+        if (!host || this.started) return;
+        this.settings = { mapType: MAP_TYPES.includes(m.mapType) ? m.mapType : 'continental', fog: m.fog !== false };
+        this.broadcast(this.lobbyMsg());
         break;
-      case 'start':
-        if (slot !== 0 || this.started || !this.slots[1] || !this.slots[1].connected) return;
+      case 'slot': {
+        // The host sets a seat: { i, kind?: 'open'|'ai'|'closed', ai?: level, alliance?: 0–3 }
+        if (!host || this.started || !Number.isInteger(m.i) || m.i < 0 || m.i > 3) return;
+        const s = this.slots[m.i];
+        if (Number.isInteger(m.alliance) && m.alliance >= 0 && m.alliance <= 3) s.alliance = m.alliance;
+        if (m.i !== 0 && s.kind !== 'human' && ['open', 'ai', 'closed'].includes(m.kind)) {
+          s.kind = m.kind;
+          if (m.kind === 'ai') s.ai = AI_LEVELS.includes(m.ai) ? m.ai : 'normal';
+        }
+        this.broadcast(this.lobbyMsg());
+        break;
+      }
+      case 'start': {
+        if (!host || this.started) return;
+        const problem = this.startProblem();
+        if (problem) { this.send(conn, { t: 'notice', msg: problem }); return; }
         this.started = true;
         this.settings.seed = Math.floor(Math.random() * 1e9);
-        this.broadcast({ t: 'start', settings: this.settings, players: this.players(), turnMs: TURN_MS, ticksPerTurn: TICKS_PER_TURN });
+        this.settings.slots = this.publicSlots().map((s) => ({ kind: s.kind, alliance: s.alliance, ai: s.ai, name: s.name }));
+        this.broadcast({ t: 'start', settings: this.settings, slots: this.publicSlots(), turnMs: TURN_MS, ticksPerTurn: TICKS_PER_TURN });
         this.clock = this.timers.setInterval(() => this.closeTurn(), TURN_MS);
         break;
+      }
       case 'cmd':
-        if (!this.started || this.ended || !m.c || typeof m.c !== 'object' || typeof m.c.k !== 'string') return;
-        this.pending.push({ ...m.c, p: TEAMS[slot] }); // you can only ever give orders to your own side
+        // Only seated players give orders, and only ever to their own side.
+        if (watcher || !this.started || this.ended || this.slots[slot].left || !m.c || typeof m.c !== 'object' || typeof m.c.k !== 'string') return;
+        this.pending.push({ ...m.c, p: TEAMS[slot] });
         break;
-      case 'hash': this.checkHash(slot, m.tick, m.h); break;
+      case 'hash': this.checkHash(m.tick, m.h); break;
       case 'chat': {
         const text = clean(m.text, 200);
-        if (text) this.broadcast({ t: 'chat', slot, name: this.slots[slot].name, text });
+        if (text) this.broadcast({ t: 'chat', slot: watcher ? null : slot, name: watcher ? `${seat.name} (watching)` : seat.name, text });
         break;
       }
       case 'ping': this.send(conn, { t: 'pong', at: m.at }); break;
       case 'over':
-        // The game ended (it ends on the same tick for both). No more turns are needed.
+        // The game ended (it ends on the same tick for everyone). No more turns are needed.
         if (this.started && !this.ended) this.end();
         break;
       case 'leave':
-        this.leave(slot);
+        if (watcher) this.dropWatcher(watcher);
+        else this.leave(slot);
         break;
       default: break;
     }
   }
 
+  // Why the host can't start yet (or null if they can).
+  startProblem() {
+    const seats = this.slots.filter((s) => s.kind === 'human' || s.kind === 'ai');
+    if (this.slots.some((s) => s.kind === 'open')) return 'Waiting for players to fill the open seats (or set them to Computer or Closed).';
+    if (this.slots.some((s) => s.kind === 'human' && !s.connected)) return 'Waiting for a player to reconnect.';
+    if (seats.length < 2) return 'You need at least two sides.';
+    if (new Set(seats.map((s) => s.alliance)).size < 2) return 'Everyone is on the same team — put at least one side on another team.';
+    return null;
+  }
+
   closeTurn() {
-    if (this.waitingFor !== null || this.ended) return;
+    if (this.waiting.size || this.ended) return;
     const n = this.turn++;
     const cmds = this.pending;
     this.pending = [];
@@ -162,72 +230,88 @@ export class RoomCore {
     this.broadcast(cmds.length ? { t: 'turn', n, c: cmds } : { t: 'turn', n });
   }
 
-  checkHash(slot, tick, h) {
+  checkHash(tick, h) {
     if (!Number.isInteger(tick) || typeof h !== 'number') return;
-    const e = this.hashes.get(tick) || [null, null];
-    e[slot] = h;
-    if (e[0] !== null && e[1] !== null) {
-      this.hashes.delete(tick);
-      if (e[0] !== e[1] && !this.desynced) {
-        this.desynced = true;
-        this.broadcast({ t: 'desync', tick });
-      }
-    } else {
-      this.hashes.set(tick, e);
-      if (this.hashes.size > 200) this.hashes.delete(this.hashes.keys().next().value);
+    if (!this.hashes.has(tick)) {
+      this.hashes.set(tick, h);
+      if (this.hashes.size > 300) this.hashes.delete(this.hashes.keys().next().value);
+    } else if (this.hashes.get(tick) !== h && !this.desynced) {
+      this.desynced = true;
+      this.broadcast({ t: 'desync', tick });
     }
   }
 
-  // A player's connection dropped.
+  // A connection dropped.
   close(conn) {
+    if (conn.watcher) {
+      if (conn.watcher.conn === conn) this.dropWatcher(conn.watcher);
+      return;
+    }
     const slot = conn.slot;
-    if (slot === undefined || !this.slots[slot] || this.slots[slot].conn !== conn) return;
+    if (slot === undefined || slot === null) return;
     const s = this.slots[slot];
+    if (s.kind !== 'human' || s.conn !== conn) return;
     s.connected = false;
     s.conn = null;
     if (!this.started) {
-      // In the lobby: the guest just leaves; if the host leaves, the room closes.
-      if (slot === 1) this.slots[1] = null;
-      else { this.broadcast({ t: 'closed', msg: 'The host left.' }); this.reset(); return; }
-      this.broadcast({ t: 'lobby', players: this.players(), settings: this.settings });
+      // In the lobby: a guest just leaves (their seat opens up again); if the host leaves, the room closes.
+      if (slot === 0) { this.broadcast({ t: 'closed', msg: 'The host left.' }); this.reset(); return; }
+      this.slots[slot] = { kind: 'open', alliance: s.alliance };
+      this.broadcast(this.lobbyMsg());
       return;
     }
     if (this.ended) { if (this.empty) this.reset(); return; }
+    if (s.left) return;
     // Mid-game: stop the clock and give them time to come back.
-    this.waitingFor = slot;
+    this.waiting.add(slot);
     this.broadcast({ t: 'wait', slot, name: s.name, seconds: WAIT_FOR_RECONNECT_MS / 1000 });
-    if (this.dropTimer) this.timers.clearTimeout(this.dropTimer);
-    this.dropTimer = this.timers.setTimeout(() => this.leave(slot, 'timeout'), WAIT_FOR_RECONNECT_MS);
+    this.broadcast(this.lobbyMsg());
+    if (this.dropTimers.has(slot)) this.timers.clearTimeout(this.dropTimers.get(slot));
+    this.dropTimers.set(slot, this.timers.setTimeout(() => this.leave(slot, 'timeout'), WAIT_FOR_RECONNECT_MS));
   }
 
-  resume() {
-    this.waitingFor = null;
-    if (this.dropTimer) { this.timers.clearTimeout(this.dropTimer); this.dropTimer = null; }
-    this.broadcast({ t: 'resume' });
+  stopWaiting(slot) {
+    this.waiting.delete(slot);
+    if (this.dropTimers.has(slot)) { this.timers.clearTimeout(this.dropTimers.get(slot)); this.dropTimers.delete(slot); }
+    if (!this.waiting.size) this.broadcast({ t: 'resume' });
   }
 
-  // Someone quit (or never came back). Online, quitting a running game counts as resigning.
+  dropWatcher(w) {
+    this.watchers = this.watchers.filter((x) => x !== w);
+    if (w.conn) { const c = w.conn; w.conn = null; try { c.close(1000, 'left'); } catch (e) { /* ignore */ } }
+    if (this.started && this.empty) { this.end(); this.reset(); return; }
+    this.broadcast(this.lobbyMsg());
+  }
+
+  // A player quit (or never came back). Mid-game their side resigns — as an order in the next turn, so
+  // every computer removes them on exactly the same tick — and the game carries on for everyone else.
   leave(slot, reason = 'left') {
     const s = this.slots[slot];
-    if (!s) return;
-    if (this.started && !this.ended) {
+    if (!s || s.kind !== 'human') return;
+    if (this.started && !this.ended && !s.left) {
+      s.left = true;
+      this.pending.push({ k: 'resign', p: TEAMS[slot] });
       this.broadcast({ t: 'left', slot, name: s.name, reason });
-      this.end();
+      if (this.waiting.has(slot)) this.stopWaiting(slot);
     }
     s.connected = false;
-    if (s.conn) { try { s.conn.close(1000, 'left'); } catch (e) { /* ignore */ } }
-    s.conn = null;
+    if (s.conn) { const c = s.conn; s.conn = null; try { c.close(1000, 'left'); } catch (e) { /* ignore */ } }
     if (!this.started) {
-      if (slot === 1) this.slots[1] = null;
-      else { this.broadcast({ t: 'closed', msg: 'The host left.' }); this.reset(); return; }
-      this.broadcast({ t: 'lobby', players: this.players(), settings: this.settings });
-    } else if (this.empty) this.reset();
+      if (slot === 0) { this.broadcast({ t: 'closed', msg: 'The host left.' }); this.reset(); return; }
+      this.slots[slot] = { kind: 'open', alliance: s.alliance };
+      this.broadcast(this.lobbyMsg());
+      return;
+    }
+    // Nobody left to play or watch: stop.
+    if (this.empty) { this.end(); this.reset(); return; }
+    this.broadcast(this.lobbyMsg());
   }
 
   end() {
     this.ended = true;
     if (this.clock) { this.timers.clearInterval(this.clock); this.clock = null; }
-    if (this.dropTimer) { this.timers.clearTimeout(this.dropTimer); this.dropTimer = null; }
-    this.waitingFor = null;
+    for (const t of this.dropTimers.values()) this.timers.clearTimeout(t);
+    this.dropTimers.clear();
+    this.waiting.clear();
   }
 }

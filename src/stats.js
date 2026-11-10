@@ -17,12 +17,13 @@ function blankTeam() {
 }
 
 export class Stats {
-  constructor(saved) {
-    this.teams = { player: blankTeam(), enemy: blankTeam() };
+  constructor(saved, teamIds = ['player', 'enemy']) {
+    this.teamIds = teamIds;
+    this.teams = Object.fromEntries(teamIds.map((k) => [k, blankTeam()]));
     this.timeline = [];
     this.sampleTimer = 0;
     if (saved) {
-      for (const k of ['player', 'enemy']) Object.assign(this.teams[k], saved.teams[k], { gathered: { ...blankTeam().gathered, ...saved.teams[k].gathered } });
+      for (const k of teamIds) if (saved.teams[k]) Object.assign(this.teams[k], saved.teams[k], { gathered: { ...blankTeam().gathered, ...saved.teams[k].gathered } });
       this.timeline = saved.timeline || [];
     }
   }
@@ -59,8 +60,8 @@ export class Stats {
       t: Math.round(world.gameTime),
       co2: Math.round(world.climate.co2),
       temp: Math.round(world.climate.temp * 100) / 100,
-      pop: { player: count('player', () => true), enemy: count('enemy', () => true) },
-      army: { player: count('player', (u) => u.isMilitary), enemy: count('enemy', (u) => u.isMilitary) },
+      pop: Object.fromEntries(this.teamIds.map((k) => [k, count(k, () => true)])),
+      army: Object.fromEntries(this.teamIds.map((k) => [k, count(k, (u) => u.isMilitary)])),
     });
     // Long games: keep every other sample once there are a lot of them.
     if (this.timeline.length > 400) this.timeline = this.timeline.filter((_, i) => i % 2 === 0 || i === this.timeline.length - 1);

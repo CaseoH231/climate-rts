@@ -111,7 +111,7 @@ export class Unit {
     this.body = body;
 
     this.carryIcon = scene.add.rectangle(-9, -6, 6, 6, 0xffffff).setStrokeStyle(1, 0x1a1a1a).setVisible(false);
-    const barY = big ? -26 : -32;
+    const barY = big ? -30 : -38; // above the head (units are drawn at UNIT_SCALE)
     this.hpBg = scene.add.rectangle(-11, barY, 22, 4, 0x000000, 0.65).setOrigin(0, 0.5).setVisible(false);
     this.hpFill = scene.add.rectangle(-10, barY, 20, 2, 0x8fb04a).setOrigin(0, 0.5).setVisible(false);
 
@@ -177,7 +177,7 @@ export class Unit {
   }
 
   orderAttack(target) {
-    if (!target || target.dead || target.team === this.team) return;
+    if (!target || target.dead || !this.scene.isEnemy(target.team, this.team)) return;
     if (this.def.heals) { // medics tag along instead of fighting
       this.moveTo(target.isBuilding ? { x: target.tx, y: target.ty } : target.tile);
       return;
@@ -300,9 +300,10 @@ export class Unit {
 
   returnCargo(world) {
     const o = this.order;
-    const d = world.nearestDropOff(this.x, this.y, this.team);
+    const d = world.nearestDropOff(this.x, this.y, this.team, this.carryType);
     if (!d) {
-      if (this.team === world.me) world.toast('Nowhere to drop off resources — build a Storage Shed');
+      const camp = { wood: 'Lumber Camp', stone: 'Mining Camp', fuel: 'Mining Camp', food: 'Mill' }[this.carryType] || 'Town Centre';
+      if (this.team === world.me) world.toast(`Nowhere to drop off ${this.carryType === 'fuel' ? 'coal' : this.carryType || 'resources'} — build a ${camp}`);
       this.stop();
       return;
     }
@@ -540,7 +541,7 @@ export class Unit {
     let far = null;
     let farD = Infinity;
     for (const u of world.units) {
-      if (u.team !== this.team || u === this || u.dead || u.hp >= u.maxHp || u.def.vehicle) continue;
+      if (!world.isAlly(u.team, this.team) || u === this || u.dead || u.hp >= u.maxHp || u.def.vehicle) continue;
       const d = Math.hypot(u.x - this.x, u.y - this.y);
       const frac = u.hp / u.maxHp;
       if (d < 80 && frac < worst) { worst = frac; best = u; }

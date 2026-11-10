@@ -2,6 +2,8 @@
 // It keeps every turn it receives, so the game can pick them up whenever it's ready, and it reconnects by
 // itself if the connection drops.
 
+import { setupFromSlots } from './setup.js';
+
 const TOKEN_KEY = 'age-of-emissions-net-token';
 const NAME_KEY = 'age-of-emissions-name';
 const LAST_KEY = 'age-of-emissions-last-online-game';
@@ -71,12 +73,14 @@ export async function onlineAvailable() {
 export class Net {
   constructor(code, role) {
     this.code = cleanCode(code);
-    this.role = role;              // 'host' | 'join'
+    this.role = role;              // 'host' | 'join' | 'watch'
     this.handlers = {};
     this.ws = null;
-    this.slot = null;
-    this.team = null;
-    this.players = [null, null];
+    this.slot = null;              // your seat 0–3 (null when watching)
+    this.team = null;              // your side ('player', 'enemy', 'green', 'yellow'), null when watching
+    this.spectator = role === 'watch';
+    this.slots = [];               // the four seats, as the room describes them
+    this.watchers = [];
     this.settings = { mapType: 'continental', fog: true };
     this.started = false;
     this.turns = new Map();        // turn number -> commands (only turns that have some)
@@ -100,11 +104,12 @@ export class Net {
   }
 
   names() {
-    return this.players.map((p) => (p ? p.name : null));
+    return this.slots.map((p) => (p && p.kind === 'human' ? p.name : null));
   }
 
-  opponent() {
-    return this.slot === null ? null : this.players[1 - this.slot];
+  // The game's sides, worked out from the seats the room fixed when the game started.
+  makeSetup() {
+    if (this.settings && this.settings.slots) this.settings.setup = setupFromSlots(this.settings.slots);
   }
 
   connect() {
@@ -141,20 +146,24 @@ export class Net {
         this.retries = 0;
         this.slot = m.slot;
         this.team = m.team;
-        this.players = m.players;
+        this.spectator = !!m.spectator;
+        this.slots = m.slots;
         this.settings = m.settings;
         this.turnMs = m.turnMs;
         this.ticksPerTurn = m.ticksPerTurn;
+        if (m.started) { this.started = true; this.makeSetup(); }
         this.remember();
         break;
       case 'lobby':
-        this.players = m.players;
-        this.settings = m.settings;
+        this.slots = m.slots;
+        this.watchers = m.watchers || [];
+        if (!this.started) this.settings = m.settings;
         break;
       case 'start':
         this.started = true;
         this.settings = m.settings;
-        this.players = m.players;
+        this.slots = m.slots;
+        this.makeSetup();
         this.remember();
         break;
       case 'turn':

@@ -1,6 +1,6 @@
 // In-game interface, in the style of classic isometric RTS games: wooden resource bar, stone command panel
 // with a command grid, info portrait and diamond minimap, climate panel, messages, in-game menu, end screen.
-import { TILE, MAP_W, MAP_H, TEAM_COLORS, CLIMATE } from '../config.js';
+import { TILE, MAP_W, MAP_H, TEAM_COLORS, TEAM_NAMES, CLIMATE } from '../config.js';
 import { BUILDING_TYPES, WORKER_PAGES, WORKER_PAGE_NAMES, UPGRADES, ERAS } from '../buildings.js';
 import { UNIT_TYPES } from '../unit.js';
 import { buildingKey, unitKey } from '../art.js';
@@ -16,7 +16,7 @@ const TOP_H = 34;
 const PANEL_H = 180;
 const MM_W = 256;
 const MM_H = 128;
-const MM_K = ISO_W / MM_W; // world px per minimap px
+const mmK = () => ISO_W / MM_W; // world px per minimap px (the map size changes between games)
 const CELL = 54;
 const BTN = 50;
 const GRID_X = 18;
@@ -122,6 +122,8 @@ export default class UIScene extends Phaser.Scene {
     this.insets = this.add.graphics();
     this.portrait = this.add.image(0, 0, 'i_pop').setVisible(false);
     this.selTitle = this.add.text(0, 0, '', { fontFamily: SERIF, fontSize: '19px', color: COL.gold, stroke: '#000', strokeThickness: 3 });
+    // Delete your selected units / building (key: Delete). Your Town Centre asks twice.
+    this.delBtn = button(this, 0, 0, 84, 26, '✕ Delete', () => this.world.deleteSelected(), { size: '13px' }).setVisible(false);
     this.selDetail = this.add.text(0, 0, '', { fontFamily: SANS, fontSize: '13px', color: COL.text, lineSpacing: 4, stroke: '#000', strokeThickness: 2 });
     // Row of small portraits: the units you've selected, or a building's training queue.
     this.strip = this.add.container(0, 0);
@@ -189,6 +191,11 @@ export default class UIScene extends Phaser.Scene {
       this.chatInput = null;
     }
 
+    // Sides panel (games with more than two sides, online games and replays): who's who, and who's out.
+    this.sides = (w.teamIds.length > 2 || w.mp || w.replay) ? this.makeSidesPanel() : null;
+    this.refreshSides();
+    if (w.net && w.net.spectator) this.time.delayedCall(600, () => w.toast('👁 You are watching. Click a side in the list on the right to follow it.', '#d8c9a0'));
+
     this.layout();
     this.scale.on('resize', this.layout, this);
 
@@ -201,6 +208,11 @@ export default class UIScene extends Phaser.Scene {
       gameOver: (r) => this.showGameOver(r),
       openMenu: () => (this.menu ? this.closeMenu() : this.openMenu()),
       market: () => this.buildButtons(),
+      viewChanged: () => { this.refreshSides(); this.buildButtons && this.buildButtons(); },
+      eliminated: () => {
+        this.buildButtons && this.buildButtons();
+        w.toast('Your Town Centre has fallen. You can keep watching the rest of the game, or leave from the Menu.', '#e07a6a');
+      },
       chat: (m) => this.addChat(m),
     };
     for (const [ev, fn] of Object.entries(handlers)) w.events.on(ev, fn);
@@ -273,6 +285,7 @@ export default class UIScene extends Phaser.Scene {
       this.climTexts[i].setPosition(ix + 24, cy + 11);
     });
     this.climBar.setPosition(cx + 14, cy + 35);
+    if (this.sides) this.sides.setPosition(w - CLIM_W - 8, TOP_H + 84);
     this.climEvents.setPosition(cx + 14, cy + 46);
     this.climRect = new Phaser.Geom.Rectangle(cx, cy, CLIM_W, CLIM_H);
 
@@ -296,6 +309,7 @@ export default class UIScene extends Phaser.Scene {
     inset(this.insets, INFO_X + 96, 14, Math.max(120, infoW - 96), PANEL_H - 30);
     inset(this.insets, this.mmX - 10, this.mmY - py - 8, MM_W + 20, MM_H + 16);
     this.portrait.setPosition(INFO_X + 42, py + 56);
+    this.delBtn.setPosition(INFO_X, py + 106);
     this.selTitle.setPosition(INFO_X + 108, py + 22);
     this.selDetail.setPosition(INFO_X + 108, py + 52);
     this.selDetail.setWordWrapWidth(Math.max(110, infoW - 120));
@@ -325,7 +339,7 @@ export default class UIScene extends Phaser.Scene {
   }
 
   minimapToIso(p) {
-    return { x: (p.x - this.mmX) * MM_K, y: (p.y - this.mmY) * MM_K };
+    return { x: (p.x - this.mmX) * mmK(), y: (p.y - this.mmY) * mmK() };
   }
 
   redrawMinimap() {
@@ -456,6 +470,9 @@ export default class UIScene extends Phaser.Scene {
     if (!sameUnits) this.buildPage = 0;
     this.sel = sel;
     this.buildButtons();
+    const wd = this.world;
+    const mine = sel.units.some((u) => u.team === wd.me) || (sel.building && sel.building.team === wd.me);
+    this.delBtn.setVisible(!!mine && !wd.replay && !wd.spectator);
     const { units, building } = sel;
     let key = null;
     if (building) key = building.image.texture.key;
@@ -476,7 +493,7 @@ export default class UIScene extends Phaser.Scene {
     const w = this.world;
     const era = w.eraOf(this.world.me);
     const cmds = [];
-    if (w.replay) return cmds;
+    if (w.replay || w.spectator) return cmds;
     if (b) {
       if (!b.complete || b.team !== this.world.me) return cmds;
       if (b.type === 'market') return this.marketCommands();
@@ -689,6 +706,10 @@ export default class UIScene extends Phaser.Scene {
       if (!b.research && !b.queue.length && lines.length < 3) lines.push(b.def.desc);
       return [b.def.name, lines.join('\n')];
     }
+    if (!units.length && w.spectator && !w.replay) {
+      return ['Watching', 'You can look around and select things, but not give orders.\n' +
+        'Click a side in the list on the right to see its resources.\n' + 'Enter to chat · Esc for the menu.'];
+    }
     if (!units.length && w.replay) {
       return ['Watching a replay', 'Every move is played back exactly as it happened. You can look around,\n' +
         'select things and change the speed (+ and −), but not give orders.\n' +
@@ -809,7 +830,7 @@ export default class UIScene extends Phaser.Scene {
       rows.push(['Back', () => this.openMenu('main')]);
     }
     const helpH = view === 'help' ? 330 : 0;
-    const settingsH = view === 'settings' ? 200 : 0;
+    const settingsH = view === 'settings' ? 250 : 0;
     const PH = 80 + rows.length * 50 + helpH + settingsH + (view === 'help' ? 60 : 0);
     const px = (sw - PW) / 2;
     const py = (sh - PH) / 2;
@@ -846,6 +867,48 @@ export default class UIScene extends Phaser.Scene {
     this.closeMenu(true);
     this.scene.stop('GameScene');
     this.scene.start('MenuScene');
+  }
+
+  // ---------- Sides panel ----------
+  makeSidesPanel() {
+    const w = this.world;
+    const c = this.add.container(0, 0).setDepth(40);
+    const rowH = 22;
+    const bg = this.add.graphics();
+    bg.fillStyle(0x140e08, 0.78).fillRoundedRect(0, 0, CLIM_W, 12 + w.teamIds.length * rowH, 4);
+    bg.lineStyle(1, UI_COL.bronze, 0.8).strokeRoundedRect(0, 0, CLIM_W, 12 + w.teamIds.length * rowH, 4);
+    c.add(bg);
+    this.sideRows = w.teamIds.map((t, i) => {
+      const y = 6 + i * rowH;
+      const hit = this.add.rectangle(0, y, CLIM_W, rowH, 0xffffff, 0).setOrigin(0);
+      const dot = this.add.rectangle(14, y + rowH / 2, 10, 10, TEAM_COLORS[t].main).setStrokeStyle(1, 0x000000);
+      const name = this.add.text(26, y + 3, '', { fontFamily: SANS, fontSize: '13px', color: COL.text, stroke: '#000', strokeThickness: 2 });
+      const tag = this.add.text(CLIM_W - 10, y + 3, '', { fontFamily: SANS, fontSize: '12px', color: COL.dim, stroke: '#000', strokeThickness: 2 }).setOrigin(1, 0);
+      c.add([hit, dot, name, tag]);
+      hit.setInteractive({ useHandCursor: true }).on('pointerdown', () => { if (w.canSwitchView) w.setView(t); });
+      return { t, name, tag, dot, hit };
+    });
+    this.refreshSides();
+    this.sidesTimer = this.time.addEvent({ delay: 1000, loop: true, callback: () => this.refreshSides() });
+    return c;
+  }
+
+  refreshSides() {
+    if (!this.sides) return;
+    const w = this.world;
+    for (const r of this.sideRows) {
+      const T = w.teams[r.t];
+      const you = r.t === w.self && !(w.net && w.net.spectator) && !w.replay;
+      const viewing = w.canSwitchView && r.t === w.me;
+      r.name.setText(`${w.teamName(r.t).replace(' (computer)', ' (AI)')}${you ? ' (you)' : ''}`);
+      r.name.setColor(viewing ? COL.gold : COL.text);
+      const rel = r.t === w.self ? '' : w.isAlly(r.t, w.self) ? 'ally' : 'enemy';
+      const army = w.units.filter((u) => u.team === r.t && u.isMilitary).length;
+      r.tag.setText(T.out ? (T.resigned ? 'resigned' : 'defeated') : `${ERAS[T.era].name.split(' ')[0]} · ⚔${army}${rel && !(w.net && w.net.spectator) && !w.replay ? ' · ' + rel : ''}`);
+      r.tag.setColor(T.out ? '#a08070' : rel === 'ally' ? '#9fd09a' : COL.dim);
+      r.name.setAlpha(T.out ? 0.5 : 1);
+      r.dot.setAlpha(T.out ? 0.35 : 1);
+    }
   }
 
   // ---------- Online: chat & connection banner ----------
@@ -909,10 +972,13 @@ export default class UIScene extends Phaser.Scene {
       green: ['Green Victory', 'The Climate Restoration Project has begun to heal the planet.', '#b8dc90'],
       defeat: ['Defeat', 'Your Town Centre has fallen.', '#e07a6a'],
       collapse: ['Climate Collapse', 'The planet passed +5°C. Nobody wins on a ruined world.', '#e8a060'],
+      over: ['Game Over', '', '#e3c46f'],
     }[result];
     const world = this.world;
     if (world.endNote) info[1] = world.endNote;
-    else if (world.mp && result === 'victory') info[1] = `${world.teamName(world.foe)}'s Town Centre has fallen.`;
+    else if (result === 'victory' && world.teamIds.length > 2) info[1] = 'Every rival town has fallen.';
+    else if (result === 'victory' && world.mp) info[1] = `${world.teamName(world.foe)}'s Town Centre has fallen.`;
+    else if (result === 'defeat' && world.teamIds.length > 2 && !world.teams[world.me].out) info[1] = 'Your side lost.';
     const c = world.climate;
     const PW = Math.min(860, w - 20);
     const PH = Math.min(580, h - 20);
@@ -927,41 +993,46 @@ export default class UIScene extends Phaser.Scene {
     txt(w / 2, y0 + 96, `Game time ${fmtTime(world.gameTime)}   ·   CO₂ ${Math.round(c.co2)} ppm   ·   +${Math.max(0, c.temp).toFixed(1)}°C   ·   ` +
       `Sea rises ${c.seaStage}   ·   ${ERAS[world.eraOf(this.world.me)].name}`, { color: COL.dim }, 0.5);
 
-    // --- Left: the numbers ---
-    const st = { me: world.stats.teams[world.me], foe: world.stats.teams[world.foe] };
+    // --- Left: the numbers, one column per side (you first) ---
+    const order = [world.me, ...world.teamIds.filter((t) => t !== world.me)];
+    const cols = order.map((t) => world.stats.teams[t] || null);
     const sum = (g) => Math.round(g.food + g.wood + g.stone + g.fuel + g.clean);
     const rows = [
-      ['Resources gathered', sum(st.me.gathered), sum(st.foe.gathered)],
-      ['   of which coal', Math.round(st.me.gathered.fuel), Math.round(st.foe.gathered.fuel)],
-      ['   of which clean energy', Math.round(st.me.gathered.clean), Math.round(st.foe.gathered.clean)],
-      ['CO₂ added (ppm)', Math.round(st.me.co2), Math.round(st.foe.co2)],
-      ['Units trained', st.me.trained, st.foe.trained],
-      ['Units lost', st.me.lost, st.foe.lost],
-      ['Enemy units killed', st.me.kills, st.foe.kills],
-      ['Buildings completed', st.me.built, st.foe.built],
-      ['Buildings lost', st.me.buildingsLost, st.foe.buildingsLost],
-      ['Enemy buildings destroyed', st.me.razed, st.foe.razed],
+      ['Resources gathered', (t) => sum(t.gathered)],
+      ['   of which coal', (t) => Math.round(t.gathered.fuel)],
+      ['   of which clean energy', (t) => Math.round(t.gathered.clean)],
+      ['CO₂ added (ppm)', (t) => Math.round(t.co2)],
+      ['Units trained', (t) => t.trained],
+      ['Units lost', (t) => t.lost],
+      ['Enemy units killed', (t) => t.kills],
+      ['Buildings completed', (t) => t.built],
+      ['Buildings lost', (t) => t.buildingsLost],
+      ['Enemy buildings destroyed', (t) => t.razed],
     ];
     const lx = x0 + 28;
     const ty = y0 + 132;
-    const colA = lx + 300;
-    const colB = lx + 380;
-    const tw = colB + 10 - lx;
+    const colW = order.length > 2 ? 58 : 80;
+    const colX = order.map((_, i) => lx + 230 + (i + 1) * colW);
+    const tw = colX[colX.length - 1] + 10 - lx;
     const g = this.add.graphics().setDepth(D);
     g.fillStyle(0x000000, 0.35).fillRect(lx - 8, ty - 6, tw + 16, 28 + rows.length * 25);
-    txt(colA, ty, 'You', { fontFamily: SERIF, fontSize: '15px', color: world.me === 'player' ? '#9fb9e0' : '#e0a49c' }, 1);
-    txt(colB, ty, world.mp ? 'Them' : 'Enemy', { fontFamily: SERIF, fontSize: '15px', color: world.me === 'player' ? '#e0a49c' : '#9fb9e0' }, 1);
-    rows.forEach(([label, a, b], i) => {
+    const css = (t) => '#' + TEAM_COLORS[t].main.toString(16).padStart(6, '0');
+    order.forEach((t, i) => {
+      const label = t === world.me && !world.spectator ? 'You' : world.teamName(t).replace(' (computer)', '');
+      const head = txt(colX[i], ty, label.length > 9 ? label.slice(0, 8) + '…' : label, { fontFamily: SERIF, fontSize: '14px', color: css(t), stroke: '#000', strokeThickness: 3 }, 1);
+      if (world.teams[t] && world.teams[t].out) head.setAlpha(0.6);
+    });
+    rows.forEach(([label, fn], i) => {
       const y = ty + 26 + i * 25;
       if (i % 2 === 0) g.fillStyle(0xffffff, 0.04).fillRect(lx - 8, y - 4, tw + 16, 25);
       const sub = label.startsWith('   ');
       txt(lx, y, label.trim(), { color: sub ? COL.dim : COL.text, fontSize: sub ? '12px' : '13px' }).setX(sub ? lx + 14 : lx);
-      // the better number glows a little (fewer is better for losses and CO₂)
+      // the best number glows a little (fewer is better for losses and CO₂)
+      const vals = cols.map((t) => (t ? fn(t) : 0));
       const lowerBetter = /lost|CO₂|coal/.test(label);
-      const aWins = a !== b && (lowerBetter ? a < b : a > b);
-      const bWins = a !== b && !aWins;
-      txt(colA, y, String(a), { color: aWins ? COL.gold : COL.text }, 1);
-      txt(colB, y, String(b), { color: bWins ? COL.gold : COL.text }, 1);
+      const best = lowerBetter ? Math.min(...vals) : Math.max(...vals);
+      const unique = vals.filter((v) => v === best).length === 1;
+      vals.forEach((v, j) => txt(colX[j], y, String(v), { color: unique && v === best ? COL.gold : COL.text }, 1));
     });
 
     // --- Right: charts over time ---
@@ -972,8 +1043,9 @@ export default class UIScene extends Phaser.Scene {
     this.drawChart(cx, ty, chartW, chartH, 'Temperature (°C above normal)', tl.map((p) => p.t),
       [{ values: tl.map((p) => Math.max(0, p.temp)), color: 0xe08a4a }], { min: 0, maxAtLeast: 1, fmt: (v) => `+${v.toFixed(1)}` });
     this.drawChart(cx, ty + chartH + 58, chartW, chartH, 'Army size', tl.map((p) => p.t),
-      [{ values: tl.map((p) => p.army[world.me]), color: TEAM_COLORS[world.me].main, name: 'You' },
-        { values: tl.map((p) => p.army[world.foe]), color: TEAM_COLORS[world.foe].main, name: world.mp ? 'Opponent' : 'Enemy' }], { min: 0, maxAtLeast: 5, fmt: (v) => String(Math.round(v)) });
+      order.map((t) => ({ values: tl.map((p) => (p.army && p.army[t]) || 0), color: TEAM_COLORS[t].main,
+        name: t === world.me && !world.spectator ? 'You' : order.length > 2 ? TEAM_NAMES[t] : world.mp ? 'Opponent' : 'Enemy' })),
+      { min: 0, maxAtLeast: 5, fmt: (v) => String(Math.round(v)) });
 
     const by = y0 + PH - 64;
     const rep = world.replay || world.finishRecording(result);
@@ -987,7 +1059,8 @@ export default class UIScene extends Phaser.Scene {
     }
     if (!online) button(this, x1, by, bw, 44, world.replay ? 'New Game' : 'Play Again', () => {
       const r = world.replay;
-      this.world.scene.start('GameScene', { seed: Math.floor(Math.random() * 1e9), mapType: world.mapType, difficulty: world.difficulty, fog: r ? r.fog !== false : world.fog ? world.fog.enabled : true });
+      const setup = world.setup.mode === 'online' ? undefined : { mode: world.setup.mode, teams: world.setup.teams.map((t) => ({ ...t })) };
+      this.world.scene.start('GameScene', { seed: Math.floor(Math.random() * 1e9), mapType: world.mapType, difficulty: world.difficulty, setup, fog: r ? r.fog !== false : world.fog ? world.fog.enabled : true });
     }, { depth: D });
     if (rep) {
       button(this, x1 + (online ? 0 : bw + 15), by, bw, 44, world.replay ? 'Watch Again' : 'Watch Replay', () => {
@@ -1142,34 +1215,34 @@ export default class UIScene extends Phaser.Scene {
       if (!b.container.visible) continue;
       const i = toIso(b.cx, b.cy);
       g.fillStyle(TEAM_COLORS[b.team].main, b.complete ? 1 : 0.5);
-      if (b.def.wall) { g.fillRect(i.x / MM_K - 1, i.y / MM_K - 1, 2, 2); continue; }
-      g.fillRect(i.x / MM_K - 2.5, i.y / MM_K - 2, 5, 4);
-      g.lineStyle(1, 0x000000, 0.6).strokeRect(i.x / MM_K - 2.5, i.y / MM_K - 2, 5, 4);
+      if (b.def.wall) { g.fillRect(i.x / mmK() - 1, i.y / mmK() - 1, 2, 2); continue; }
+      g.fillRect(i.x / mmK() - 2.5, i.y / mmK() - 2, 5, 4);
+      g.lineStyle(1, 0x000000, 0.6).strokeRect(i.x / mmK() - 2.5, i.y / mmK() - 2, 5, 4);
     }
     for (const u of w.units) {
       if (!u.container.visible) continue;
       g.fillStyle(u.selected ? 0xffffff : u.team === 'player' ? 0x7aa8ff : 0xff6a5a, 1);
-      g.fillRect(u.isoX / MM_K - 1, u.isoY / MM_K - 1, 2, 2);
+      g.fillRect(u.isoX / mmK() - 1, u.isoY / mmK() - 1, 2, 2);
     }
     if (w.wildlife) {
       g.fillStyle(0xc9a070, 1);
-      for (const d of w.wildlife.deer) if (d.sprite.visible) g.fillRect(d.sprite.x / MM_K - 1, d.sprite.y / MM_K - 1, 2, 2);
+      for (const d of w.wildlife.deer) if (d.sprite.visible) g.fillRect(d.sprite.x / mmK() - 1, d.sprite.y / mmK() - 1, 2, 2);
     }
     g.fillStyle(0xff5a14, 1);
     for (const f of w.climate.fires.values()) {
       const i = toIso(f.x * TILE + 16, f.y * TILE + 16);
-      g.fillRect(i.x / MM_K - 1, i.y / MM_K - 1, 2, 2);
+      g.fillRect(i.x / mmK() - 1, i.y / mmK() - 1, 2, 2);
     }
     for (const p of this.pings) {
       p.t -= delta;
       const i = toIso(p.x * TILE + 16, p.y * TILE + 16);
       const r2 = 4 + ((3000 - p.t) / 120) % 10;
-      g.lineStyle(2, 0xff6a5a, Math.max(0, p.t / 3000)).strokeCircle(i.x / MM_K, i.y / MM_K, r2);
+      g.lineStyle(2, 0xff6a5a, Math.max(0, p.t / 3000)).strokeCircle(i.x / mmK(), i.y / mmK(), r2);
     }
     this.pings = this.pings.filter((p) => p.t > 0);
 
     const v = w.cameras.main.worldView;
     g.lineStyle(1, 0xffffff, 0.9);
-    g.strokeRect(v.x / MM_K, v.y / MM_K, v.width / MM_K, v.height / MM_K);
+    g.strokeRect(v.x / mmK(), v.y / mmK(), v.width / mmK(), v.height / mmK());
   }
 }

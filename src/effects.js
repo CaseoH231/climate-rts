@@ -213,7 +213,7 @@ export class Effects {
 
   // ---- Ruins left where a building fell (they fade away after a couple of minutes) ----
   ruins(b) {
-    const key = makeRubble(this.scene, b.w, b.h, ['house', 'farm', 'storage', 'barracks', 'market', 'trees'].includes(b.type));
+    const key = makeRubble(this.scene, b.w, b.h, ['house', 'farm', 'lumber_camp', 'mining_camp', 'mill', 'barracks', 'market', 'trees'].includes(b.type));
     const top = toIso(b.tx * TILE, b.ty * TILE);
     const img = this.scene.add.image(top.x - b.h * TILE, top.y, key).setOrigin(0, 0).setDepth(1.5);
     this.scene.tweens.add({ targets: img, alpha: 0, delay: 120000, duration: 8000, onComplete: () => img.destroy() });

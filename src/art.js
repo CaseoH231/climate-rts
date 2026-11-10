@@ -7,6 +7,8 @@ import { TILE } from './config.js';
 export const TEAM_RGB = {
   player: { main: '#3f6296', light: '#6585b8', dark: '#253c5e' },
   enemy:  { main: '#93382f', light: '#b85a4d', dark: '#5c201b' },
+  green:  { main: '#3b8044', light: '#5ea866', dark: '#214a27' },
+  yellow: { main: '#b58c22', light: '#d8b14a', dark: '#6b5212' },
 };
 
 // ---------- little drawing helpers ----------
@@ -721,19 +723,168 @@ export const BUILDING_ART = {
     }
   },
 
-  storage(ctx, team) {
-    isoShadow(ctx, 8, 8, 56, 56, 26);
+  // Lumber camp (1×1): an open lean-to with a stack of logs, a chopping block and a team pennant.
+  lumber_camp(ctx, team) {
+    isoShadow(ctx, 3, 3, 29, 29, 16);
+    // trampled ground with sawdust
+    diamond(ctx, 1, 1, 31, 31);
+    ctx.fillStyle = 'rgba(120,92,58,0.55)';
+    ctx.fill();
+    const r = rand(71);
+    for (let i = 0; i < 26; i++) {
+      const q = P(3 + r() * 26, 3 + r() * 26);
+      ctx.fillStyle = `rgba(${210 + r() * 30},${180 + r() * 30},${120 + r() * 30},0.6)`;
+      ctx.fillRect(q[0], q[1], 1, 0.8);
+    }
+    // back posts + sloping plank roof (high at the back)
+    const post = (x, y, z) => { const b = P(x, y), t = P(x, y, z); ctx.fillStyle = '#4a321e'; ctx.fillRect(t[0] - 1, t[1], 2, b[1] - t[1]); };
+    post(4, 4, 20); post(26, 4, 20);
+    // log stack under the roof: ends of logs facing front-left
+    for (let row = 0; row < 3; row++) {
+      for (let i = 0; i < 4 - row; i++) {
+        const q = P(6 + i * 5 + row * 2.5, 22, 3 + row * 4.6);
+        ctx.fillStyle = rgrad(ctx, q[0] - 0.6, q[1] - 0.6, 0.3, 2.6, ['#e9c991', '#c99a5e', '#8a5e34']);
+        ctx.beginPath(); ctx.ellipse(q[0], q[1], 2.6, 2.4, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#5e3c1e'; ctx.lineWidth = 0.7; ctx.stroke();
+        ctx.strokeStyle = 'rgba(120,80,40,0.6)'; ctx.lineWidth = 0.4;
+        ctx.beginPath(); ctx.ellipse(q[0], q[1], 1.2, 1.1, 0, 0, Math.PI * 2); ctx.stroke();
+      }
+    }
+    // the logs' long sides, running back under the roof
+    wallR(ctx, 6, 22, 24, 13, (c, w, h) => {
+      for (let y = 0; y < h; y += 4.4) {
+        c.fillStyle = vgrad(c, y, y + 4.4, ['#9a6c40', '#7a5230', '#5a3a20']);
+        c.fillRect(0, y, w, 4.2);
+      }
+    }, 0.15);
+    // roof
+    const a = P(1, 1, 22), b = P(30, 1, 22), c2 = P(30, 26, 15), d = P(1, 26, 15);
+    ctx.beginPath(); ctx.moveTo(...a); ctx.lineTo(...b); ctx.lineTo(...c2); ctx.lineTo(...d); ctx.closePath();
+    ctx.save(); ctx.clip();
+    ctx.fillStyle = vgrad(ctx, a[1], d[1], ['#8e6a44', '#6a4a2c']);
+    ctx.fillRect(d[0] - 2, a[1] - 2, b[0] - d[0] + 4, c2[1] - a[1] + 4);
+    ctx.strokeStyle = 'rgba(40,24,12,0.45)'; ctx.lineWidth = 0.7;
+    for (let x = 1; x < 31; x += 3.6) { const p0 = P(x, 1, 22), p1 = P(x, 26, 15); ctx.beginPath(); ctx.moveTo(...p0); ctx.lineTo(...p1); ctx.stroke(); }
+    ctx.restore();
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath(); ctx.moveTo(...d); ctx.lineTo(...c2); ctx.lineTo(c2[0], c2[1] + 1.5); ctx.lineTo(d[0], d[1] + 1.5); ctx.fill();
+    post(1, 26, 15); post(30, 26, 15);
+    // chopping block with an axe, at the front corner
+    const cb = P(26, 30);
+    ctx.fillStyle = hgrad(ctx, cb[0] - 3, cb[0] + 3, ['#6a4a2c', '#9a7048', '#5a3a20']);
+    ctx.fillRect(cb[0] - 3, cb[1] - 4, 6, 4);
+    ctx.fillStyle = '#c99a5e'; ctx.beginPath(); ctx.ellipse(cb[0], cb[1] - 4, 3, 1.4, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#5a3a20'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(cb[0], cb[1] - 4.5); ctx.lineTo(cb[0] + 4, cb[1] - 10); ctx.stroke();
+    ctx.fillStyle = '#b4bac0'; poly(ctx, [[cb[0] - 1, cb[1] - 5.5], [cb[0] + 1.5, cb[1] - 7], [cb[0] + 0.5, cb[1] - 3.5]]); ctx.fill();
+    // pennant on the roof
+    const fp = P(28, 3, 22);
+    ctx.fillStyle = '#3a2a1a'; ctx.fillRect(fp[0], fp[1] - 12, 1, 12);
+    ctx.fillStyle = TEAM_RGB[team].main; poly(ctx, [[fp[0] + 1, fp[1] - 12], [fp[0] + 8, fp[1] - 10], [fp[0] + 1, fp[1] - 8]]); ctx.fill();
+  },
+
+  // Mining camp (1×1): a sturdy hut with a cart of stone and coal and a pickaxe.
+  mining_camp(ctx, team) {
+    isoShadow(ctx, 3, 3, 29, 29, 18);
+    diamond(ctx, 1, 1, 31, 31);
+    ctx.fillStyle = 'rgba(96,90,82,0.55)';
+    ctx.fill();
+    const r = rand(83);
+    for (let i = 0; i < 20; i++) {
+      const q = P(2 + r() * 28, 2 + r() * 28);
+      ctx.fillStyle = r() < 0.5 ? 'rgba(40,38,36,0.7)' : 'rgba(170,166,158,0.7)';
+      ctx.fillRect(q[0], q[1], 1.2, 0.9);
+    }
+    // timber hut at the back
     house(ctx, {
-      x0: 8, y0: 8, x1: 56, y1: 56, z: 20, ridge: 'x', rh: 16, ov: 3, seed: 42,
-      roof: ['#6d6a62', '#383630'],
-      wallLeft: (c, w, h) => { plankWall(c, 0, 0, w, h, 41); c.fillStyle = '#1e140c'; c.fillRect(w / 2 - 8, h - 15, 16, 15); },
-      wallRight: plankFace(43),
+      x0: 3, y0: 3, x1: 19, y1: 19, z: 13, ridge: 'y', rh: 9, ov: 2, seed: 84,
+      roof: ['#7c7468', '#45403a'],
+      wallLeft: (c, w, h) => { plankWall(c, 0, 0, w, h, 85, [104, 84, 60]); c.fillStyle = '#1a120c'; c.fillRect(w / 2 - 3, h - 9, 6, 9); },
+      wallRight: plankFace(86, [104, 84, 60]),
     });
-    wallL(ctx, 8, 56, 56, 17, (c, w) => { c.fillStyle = TEAM_RGB[team].main; c.fillRect(0, 0, w, 2); });
-    const cr = P(46, 62);
-    crate(ctx, cr[0] - 5, cr[1] - 10, 9);
-    const br = P(60, 46);
-    barrel(ctx, br[0] - 3, br[1] - 9);
+    wallL(ctx, 3, 19, 19, 11, (c, w) => { c.fillStyle = TEAM_RGB[team].main; c.fillRect(0, 0, w, 1.6); });
+    // ore cart on little rails
+    ctx.strokeStyle = '#3a3634'; ctx.lineWidth = 0.8;
+    for (const off of [-1.5, 1.5]) { const p0 = P(19 + off, 22), p1 = P(19 + off, 31); ctx.beginPath(); ctx.moveTo(...p0); ctx.lineTo(...p1); ctx.stroke(); }
+    const cx = 19, cy = 26;
+    wallL(ctx, cx - 4, cx + 4, cy + 3, 5, (c, w, h) => { c.fillStyle = vgrad(c, 0, h, ['#6a5a48', '#3e342a']); c.fillRect(0, 0, w, h); c.fillStyle = '#2a2420'; c.fillRect(0, 0, w, 0.8); }, 0, 1);
+    wallR(ctx, cy - 3, cy + 3, cx + 4, 5, (c, w, h) => { c.fillStyle = vgrad(c, 0, h, ['#5a4a3a', '#30281e']); c.fillRect(0, 0, w, h); }, 0.2, 1);
+    for (let i = 0; i < 7; i++) {
+      const q = P(cx - 3 + r() * 6, cy - 2 + r() * 4, 7 + r() * 1.5);
+      ctx.fillStyle = i % 2 ? '#2a2826' : '#a8a296';
+      ctx.beginPath(); ctx.arc(q[0], q[1], 1.5 + r() * 0.7, 0, Math.PI * 2); ctx.fill();
+    }
+    for (const [wx, wy] of [[cx - 3, cy + 3], [cx + 3, cy + 3]]) { const q = P(wx, wy, 1); ctx.fillStyle = '#1e1c1a'; ctx.beginPath(); ctx.arc(q[0], q[1], 1.3, 0, Math.PI * 2); ctx.fill(); }
+    // pickaxe leaning on the hut
+    const pk = P(21, 12);
+    ctx.strokeStyle = '#6a4a2c'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(pk[0], pk[1]); ctx.lineTo(pk[0] + 2, pk[1] - 10); ctx.stroke();
+    ctx.strokeStyle = '#9aa0a6'; ctx.lineWidth = 1.1; ctx.beginPath(); ctx.moveTo(pk[0] - 2.5, pk[1] - 8.5); ctx.quadraticCurveTo(pk[0] + 2, pk[1] - 11.5, pk[0] + 6, pk[1] - 8); ctx.stroke();
+    // lantern
+    const ln = P(19, 11, 10);
+    ctx.fillStyle = 'rgba(255,200,90,0.35)'; ctx.beginPath(); ctx.arc(ln[0], ln[1], 3, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ffd27a'; ctx.fillRect(ln[0] - 0.8, ln[1] - 1, 1.6, 2);
+  },
+
+  // Mill (2×2): a stone base with a windmill (or a modern grain silo in later eras) and sacks of flour.
+  mill(ctx, team) {
+    // a cobbled yard
+    diamond(ctx, 3, 3, 61, 61);
+    ctx.fillStyle = 'rgba(132,116,92,0.5)';
+    ctx.fill();
+    const rr = rand(64);
+    for (let i = 0; i < 60; i++) {
+      const q = P(5 + rr() * 54, 5 + rr() * 54);
+      ctx.fillStyle = `rgba(${150 + rr() * 50},${135 + rr() * 45},${110 + rr() * 40},0.7)`;
+      ctx.beginPath(); ctx.ellipse(q[0], q[1], 1.6, 0.9, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    if (STYLE >= 2) isoShadow(ctx, 8, 8, 56, 56, 30);
+    else isoShadow(ctx, 16, 16, 42, 42, 36);
+    if (STYLE >= 2) {
+      // grain elevator: concrete silos + a shed
+      house(ctx, {
+        x0: 8, y0: 30, x1: 56, y1: 56, z: 16, ridge: 'x', rh: 8, ov: 2, seed: 61,
+        roof: ['#8a8f94', '#4a4e52'],
+        wallLeft: (c, w, h) => { (STYLE === 4 ? cedarWall : corrugatedWall)(c, 0, 0, w, h, 62); c.fillStyle = '#26282a'; c.fillRect(w / 2 - 7, h - 13, 14, 13); },
+        wallRight: (c, w, h) => corrugatedWall(c, 0, 0, w, h),
+      });
+      for (const [x, y] of [[18, 18], [34, 16]]) {
+        cylinder(ctx, x, y, 8, 0, 50, (c, X, Y, W, H) => { c.fillStyle = hgrad(c, X, X + W, ['#cfd2d4', '#e8eaec', '#a4a8ac']); c.fillRect(X, Y, W, H);
+          c.fillStyle = 'rgba(0,0,0,0.12)'; for (let yy = Y + 6; yy < Y + H; yy += 7) c.fillRect(X, yy, W, 1); }, '#b8bcc0');
+      }
+      wallL(ctx, 8, 56, 56, 14, (c, w) => { c.fillStyle = TEAM_RGB[team].main; c.fillRect(0, 0, w, 2); });
+      return;
+    }
+    // round stone tower
+    const t = cylinder(ctx, 29, 29, 14, 0, 42, (c, X, Y, W, H) => {
+      if (STYLE === 1) brickWall(c, X, Y, W, H, 63); else stoneWall(c, X, Y, W, H, 63, [150, 140, 122]);
+    });
+    // door and window
+    const dp = P(28, 41, 12);
+    ctx.fillStyle = '#2a1c10'; ctx.beginPath(); ctx.moveTo(dp[0] - 4, dp[1] + 12); ctx.lineTo(dp[0] - 4, dp[1] + 3); ctx.arc(dp[0], dp[1] + 3, 4, Math.PI, 0); ctx.lineTo(dp[0] + 4, dp[1] + 12); ctx.fill();
+    windowLit(ctx, dp[0] + 8, dp[1] - 16, 5, 6);
+    // conical thatched cap
+    cone(ctx, t.top, t.rx + 2, t.ry + 1, 18, '#c49a5e', '#6e5230');
+    // sails, turned towards the viewer
+    const hub = [t.top[0] + 1, t.top[1] - 4];
+    ctx.save();
+    ctx.translate(hub[0], hub[1]);
+    for (let i = 0; i < 4; i++) {
+      ctx.rotate(Math.PI / 2);
+      ctx.fillStyle = '#5a3e26'; ctx.fillRect(-1, 0, 2, 30);
+      ctx.fillStyle = 'rgba(236,226,200,0.92)';
+      ctx.fillRect(1, 6, 7, 22);
+      ctx.strokeStyle = 'rgba(90,62,38,0.7)'; ctx.lineWidth = 0.6;
+      for (let y = 9; y < 28; y += 4) { ctx.beginPath(); ctx.moveTo(1, y); ctx.lineTo(8, y); ctx.stroke(); }
+    }
+    ctx.fillStyle = '#3a2a1a'; ctx.beginPath(); ctx.arc(0, 0, 2.6, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    // flour sacks and a team banner
+    for (const [x, y] of [[50, 44], [54, 40], [52, 50]]) {
+      const q = P(x, y);
+      ctx.fillStyle = rgrad(ctx, q[0] - 1, q[1] - 5, 0.5, 5, ['#f2ead6', '#d6cab0', '#a89a7c']);
+      ctx.beginPath(); ctx.ellipse(q[0], q[1] - 3.5, 3.4, 4.2, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#8a7a5a'; ctx.fillRect(q[0] - 1.2, q[1] - 8, 2.4, 1.2);
+    }
+    bannerL(ctx, 18, 41, 22, team);
   },
 
   barracks(ctx, team) {
@@ -1243,62 +1394,136 @@ export function buildingTexInfo(def) {
 let LEG_STEP = 0;
 let UNIT_TIER = 0; // 0 basic, 1 first upgrade (iron armour / steel tools), 2 modern kit
 
+// Colour helpers for the figures: mix a #rrggbb colour towards white (amt > 0) or black (amt < 0).
+function tone(hex, amt) {
+  const n = parseInt(hex.slice(1), 16);
+  const f = (v) => Math.round(amt >= 0 ? v + (255 - v) * amt : v * (1 + amt));
+  return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`;
+}
+
+const SKINS = ['#c99c78', '#a8775a', '#e0b896', '#8a5e44'];
+const HAIRS = ['#3a2a1c', '#5a3a22', '#1e1a16', '#8a6a3a'];
+
+// A person in 3/4 view on a 32×40 canvas, feet at (16, 34). opts: body (tunic colour), armour, legs,
+// head(ctx, c) for hats/helmets, item(ctx, c) for tools and weapons, hair (false = hidden under a hat),
+// look (picks skin/hair), tabard (team-coloured front panel, default on for plain tunics).
 function figure(ctx, team, opts) {
   const c = TEAM_RGB[team];
-  const skin = '#c49a78';
-  // legs
-  ctx.fillStyle = '#3a3128';
+  const look = opts.look || 0;
+  const skin = SKINS[look % SKINS.length];
   const s = LEG_STEP;
-  ctx.fillRect(12 - s * 1.5, 26, 3, 8 - Math.max(0, s));
-  ctx.fillRect(17 + s * 1.5, 26, 3, 8 - Math.max(0, -s));
-  ctx.fillStyle = '#211b15';
-  ctx.fillRect(11 - s * 1.5, 33 - Math.max(0, s), 4, 2);
-  ctx.fillRect(17 + s * 1.5, 33 - Math.max(0, -s), 4, 2);
-  // body
+  const trousers = opts.legs || '#4a3d30';
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  // --- legs (the back leg is drawn darker) ---
+  const leg = (x, swing) => {
+    const fx = x + swing * 2.3;
+    const fy = 33.4 - Math.abs(swing) * 0.5;
+    ctx.fillStyle = swing > 0 ? tone(trousers, -0.25) : trousers;
+    poly(ctx, [[x - 2, 25.5], [x + 2, 25.5], [fx + 1.6, fy - 2], [fx - 1.6, fy - 2]]);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(0,0,0,0.18)';
+    poly(ctx, [[x + 0.6, 25.5], [x + 2, 25.5], [fx + 1.6, fy - 2], [fx + 0.4, fy - 2]]);
+    ctx.fill();
+    // boot
+    ctx.fillStyle = '#2a1d13';
+    ctx.beginPath(); ctx.ellipse(fx + 0.5, fy - 0.3, 2.5, 1.5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillRect(fx - 1.7, fy - 3, 3.4, 2.6);
+    ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.fillRect(fx - 1.2, fy - 2.8, 1, 2);
+  };
+  if (s >= 0) { leg(18.6, s); leg(13.4, -s); } else { leg(13.4, -s); leg(18.6, s); }
+
+  // --- arms behind the body swing opposite to the legs ---
   const body = opts.body || c.main;
-  ctx.fillStyle = hgrad(ctx, 9, 23, [c.light, body, c.dark]);
-  poly(ctx, [[10, 15], [22, 15], [23, 27], [9, 27]]);
+  const sleeve = opts.sleeve || tone(body, -0.15);
+  const arm = (x, swing, front) => {
+    const hx = x + swing * 0.9;
+    ctx.strokeStyle = front ? sleeve : tone(sleeve, -0.25);
+    ctx.lineWidth = 3.3;
+    ctx.beginPath(); ctx.moveTo(x, 16.3); ctx.quadraticCurveTo(x + (x < 16 ? -0.8 : 0.8), 20.5, hx, 23.4); ctx.stroke();
+    ctx.fillStyle = front ? skin : tone(skin, -0.2);
+    ctx.beginPath(); ctx.arc(hx, 24.6, 1.6, 0, Math.PI * 2); ctx.fill();
+  };
+  arm(9.2, s, false);
+
+  // --- torso: rounded shoulders, narrower waist ---
+  const torso = () => {
+    ctx.beginPath();
+    ctx.moveTo(9.6, 17.2);
+    ctx.quadraticCurveTo(9.8, 14.4, 12.6, 14.2);
+    ctx.lineTo(19.4, 14.2);
+    ctx.quadraticCurveTo(22.2, 14.4, 22.4, 17.2);
+    ctx.lineTo(22.2, 26.6);
+    ctx.quadraticCurveTo(16, 27.8, 9.8, 26.6);
+    ctx.closePath();
+  };
+  torso();
+  ctx.fillStyle = hgrad(ctx, 9.5, 22.5, [tone(body, 0.22), body, tone(body, -0.38)]);
   ctx.fill();
-  if (opts.armour === 'plate') {
-    // polished steel breastplate, team colour showing at the hips
-    ctx.fillStyle = hgrad(ctx, 10, 22, ['#e4e7ea', '#a8adb2', '#6c7176']);
-    poly(ctx, [[10.5, 15], [21.5, 15], [21, 23], [11, 23]]);
+  const plainTunic = !opts.armour;
+  if (opts.tabard !== false && plainTunic && body !== c.main) {
+    // a team-coloured tabard down the front, with a pale trim
+    ctx.fillStyle = vgrad(ctx, 14, 28, [c.light, c.main, c.dark]);
+    poly(ctx, [[13.2, 14.4], [18.8, 14.4], [19.4, 27.4], [16, 28.4], [12.6, 27.4]]);
     ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.fillRect(13, 16, 1.5, 5);
-  } else if (opts.armour === 'leather') {
-    ctx.fillStyle = hgrad(ctx, 10, 22, ['#8a643e', '#6a4a2c', '#4a321e']);
-    poly(ctx, [[10.5, 15], [21.5, 15], [21, 23], [11, 23]]);
-    ctx.fill();
-    ctx.fillStyle = 'rgba(0,0,0,0.25)'; for (let yy = 17; yy < 23; yy += 2.5) ctx.fillRect(11, yy, 10, 0.8);
-  } else if (opts.armour === 'camo') {
-    // modern fatigues with a tactical vest in team colour
-    ctx.fillStyle = '#5c6b42';
-    poly(ctx, [[10, 15], [22, 15], [23, 27], [9, 27]]);
-    ctx.fill();
-    ctx.fillStyle = '#46532f';
-    for (const [x, y] of [[11, 17], [17, 20], [13, 24], [20, 25]]) { ctx.beginPath(); ctx.ellipse(x, y, 2.2, 1.3, 0.4, 0, Math.PI * 2); ctx.fill(); }
-    ctx.fillStyle = c.dark;
-    poly(ctx, [[11, 16], [21, 16], [20.5, 23], [11.5, 23]]); ctx.fill();
-    ctx.fillStyle = c.main; ctx.fillRect(12, 18, 3, 2); ctx.fillRect(17, 18, 3, 2);
-  } else if (opts.armour === 'hivis') {
-    ctx.fillStyle = '#ef7d22';
-    poly(ctx, [[10.5, 15], [21.5, 15], [21.5, 25], [10.5, 25]]); ctx.fill();
-    ctx.fillStyle = '#e8eef0'; ctx.fillRect(10.5, 19, 11, 1.4); ctx.fillRect(10.5, 22.5, 11, 1.4);
+    ctx.strokeStyle = 'rgba(232,214,160,0.75)'; ctx.lineWidth = 0.5; ctx.stroke();
   }
-  ctx.fillStyle = '#3a2b1d'; // belt
-  ctx.fillRect(9, 24, 14, 2);
-  // arms
-  ctx.fillStyle = c.dark;
-  ctx.fillRect(7, 16, 3, 9);
-  ctx.fillRect(22, 16, 3, 9);
-  ctx.fillStyle = skin;
-  ctx.fillRect(7, 24, 3, 2);
-  ctx.fillRect(22, 24, 3, 2);
-  // head
-  ctx.fillStyle = rgrad(ctx, 15, 9, 1, 5, ['#d9b391', skin, '#8f6b52']);
-  ctx.beginPath();
-  ctx.arc(16, 10, 4.5, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.save();
+  torso();
+  ctx.clip();
+  if (opts.armour === 'plate') {
+    ctx.fillStyle = hgrad(ctx, 10, 22, ['#eef0f2', '#aab0b6', '#62686e']);
+    ctx.fillRect(9, 14, 14, 10.5);
+    ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.fillRect(12.4, 15.5, 1.2, 6);
+    ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(9, 19.2, 14, 0.6);
+    ctx.fillStyle = c.main; ctx.fillRect(9, 24.5, 14, 3); // team skirt below the plate
+  } else if (opts.armour === 'leather') {
+    ctx.fillStyle = hgrad(ctx, 10, 22, ['#93704a', '#6a4a2c', '#43301c']);
+    ctx.fillRect(9, 14, 14, 10.5);
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    for (let yy = 16.5; yy < 24; yy += 2.3) ctx.fillRect(9, yy, 14, 0.7);
+    ctx.fillStyle = c.main; ctx.fillRect(14.6, 14, 2.8, 10.5);
+  } else if (opts.armour === 'camo') {
+    ctx.fillStyle = '#5c6b42'; ctx.fillRect(9, 14, 14, 14);
+    ctx.fillStyle = '#46532f';
+    for (const [x, y] of [[11, 17], [17, 20], [13, 24], [20, 25], [21, 16]]) { ctx.beginPath(); ctx.ellipse(x, y, 2.2, 1.3, 0.4, 0, Math.PI * 2); ctx.fill(); }
+    ctx.fillStyle = tone(c.dark, -0.1);
+    poly(ctx, [[11.2, 15.2], [20.8, 15.2], [20.4, 23.6], [11.6, 23.6]]); ctx.fill();
+    ctx.fillStyle = c.main; ctx.fillRect(12.2, 17.5, 3, 2.2); ctx.fillRect(16.8, 17.5, 3, 2.2);
+    ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(12.2, 21, 7.6, 0.8);
+  } else if (opts.armour === 'hivis') {
+    ctx.fillStyle = '#ef7d22'; ctx.fillRect(9, 14, 14, 12);
+    ctx.fillStyle = '#e8eef0'; ctx.fillRect(9, 19, 14, 1.4); ctx.fillRect(9, 22.5, 14, 1.4);
+    ctx.fillStyle = c.main; ctx.fillRect(14.8, 14, 2.4, 4);
+  }
+  // soft shading: light from the upper left
+  ctx.fillStyle = 'rgba(255,255,255,0.10)'; ctx.fillRect(9, 14, 4, 13);
+  ctx.fillStyle = 'rgba(0,0,0,0.16)'; ctx.fillRect(19.5, 14, 4, 14);
+  ctx.restore();
+  // belt and buckle
+  ctx.fillStyle = '#2e2118'; ctx.fillRect(9.8, 24.4, 12.4, 1.9);
+  ctx.fillStyle = '#d4b45a'; ctx.fillRect(15.1, 24.5, 1.8, 1.6);
+
+  // --- front arm ---
+  arm(22.8, -s, true);
+
+  // --- neck and head ---
+  ctx.fillStyle = tone(skin, -0.18); ctx.fillRect(14.7, 12.6, 2.6, 2.4);
+  ctx.fillStyle = rgrad(ctx, 14.6, 8.4, 0.8, 5.2, [tone(skin, 0.2), skin, tone(skin, -0.3)]);
+  ctx.beginPath(); ctx.arc(16, 9.6, 4.6, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = tone(skin, -0.22); ctx.beginPath(); ctx.ellipse(11.7, 10.2, 0.9, 1.3, 0, 0, Math.PI * 2); ctx.fill(); // ear
+  if (opts.hair !== false) {
+    ctx.fillStyle = HAIRS[(look * 3 + 1) % HAIRS.length];
+    ctx.beginPath(); ctx.arc(16, 9.2, 4.9, Math.PI * 1.02, Math.PI * 1.98); ctx.quadraticCurveTo(19, 6.8, 16.5, 6.6); ctx.quadraticCurveTo(13, 6.9, 11.2, 8.8); ctx.fill();
+  }
+  // face: eyes, brow shadow, a hint of a mouth
+  ctx.fillStyle = '#1c1410';
+  ctx.beginPath(); ctx.ellipse(14.4, 10.2, 0.55, 0.75, 0, 0, Math.PI * 2); ctx.ellipse(17.9, 10.2, 0.55, 0.75, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = 'rgba(0,0,0,0.12)'; ctx.fillRect(13.3, 8.9, 5.8, 0.7);
+  ctx.fillStyle = 'rgba(120,60,50,0.45)'; ctx.fillRect(15.2, 12.3, 2, 0.6);
+  ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.beginPath(); ctx.arc(14.6, 7.6, 1.4, 0, Math.PI * 2); ctx.fill();
+
   if (opts.head) opts.head(ctx, c);
   if (opts.item) opts.item(ctx, c);
 }
@@ -1447,6 +1672,7 @@ export const UNIT_ART = {
   }),
   medic: (ctx, team) => figure(ctx, team, {
     body: '#d8d2c2',
+    tabard: false,
     head: (ctx) => {
       if (UNIT_TIER >= 1) {
         kevlarHelm(ctx, UNIT_TIER === 2 ? '#e8e4da' : '#c9ccd0');
@@ -1963,6 +2189,35 @@ export function makeCanvas(scene, key, w, h, draw, res = 1) {
   tex.refresh();
 }
 
+// People, horses and vehicles are drawn a little larger than the art grid (so they read well next to
+// buildings) and get a thin dark outline, which keeps them crisp against grass, fields and each other.
+export const UNIT_SCALE = 1.15;
+const OUTLINE = 'rgba(24,16,10,0.85)';
+export function makeUnitCanvas(scene, key, w, h, draw) {
+  if (scene.textures.exists(key)) return;
+  const res = ART_RES * UNIT_SCALE;
+  const W = Math.ceil(w * res);
+  const H = Math.ceil(h * res);
+  const art = document.createElement('canvas');
+  art.width = W; art.height = H;
+  const a = art.getContext('2d');
+  a.scale(res, res);
+  draw(a);
+  // silhouette in the outline colour
+  const sil = document.createElement('canvas');
+  sil.width = W; sil.height = H;
+  const sc = sil.getContext('2d');
+  sc.drawImage(art, 0, 0);
+  sc.globalCompositeOperation = 'source-in';
+  sc.fillStyle = OUTLINE;
+  sc.fillRect(0, 0, W, H);
+  const tex = scene.textures.createCanvas(key, W, H);
+  const ctx = tex.getContext();
+  for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, 1], [1, 1]]) ctx.drawImage(sil, dx, dy);
+  ctx.drawImage(art, 0, 0);
+  tex.refresh();
+}
+
 export function buildingKey(type, team, style = 0) { return `b_${type}_${team}${style ? `_s${style}` : ''}`; }
 export function unitKey(type, team, frame = 0, tier = 0) { return `u_${type}_${team}${frame ? `_w${frame}` : ''}${tier ? `_t${tier}` : ''}`; }
 
@@ -1994,8 +2249,8 @@ export function ensureUnitTex(scene, type, team, tier) {
   try {
     [0, 1, 2].forEach((frame) => {
       LEG_STEP = frame === 1 ? 1 : frame === 2 ? -1 : 0;
-      if (type === 'scout') makeCanvas(scene, unitKey(type, team, frame, tier), 44, 40, (ctx) => scoutRider(ctx, team), ART_RES);
-      else makeCanvas(scene, unitKey(type, team, frame, tier), 32, 40, (ctx) => UNIT_ART[type](ctx, team), ART_RES);
+      if (type === 'scout') makeUnitCanvas(scene, unitKey(type, team, frame, tier), 44, 40, (ctx) => scoutRider(ctx, team));
+      else makeUnitCanvas(scene, unitKey(type, team, frame, tier), 32, 40, (ctx) => UNIT_ART[type](ctx, team));
     });
   } finally {
     LEG_STEP = 0;
@@ -2003,8 +2258,8 @@ export function ensureUnitTex(scene, type, team, tier) {
   }
 }
 
-export function generateArt(scene, buildingTypes) {
-  for (const team of Object.keys(TEAM_RGB)) {
+export function generateArt(scene, buildingTypes, teams = ['player', 'enemy']) {
+  for (const team of teams) {
     for (const [type, def] of Object.entries(buildingTypes)) {
       const draw = BUILDING_ART[type];
       if (!draw) continue;
@@ -2018,22 +2273,22 @@ export function generateArt(scene, buildingTypes) {
       // standing pose + two walking poses
       [0, 1, 2].forEach((frame) => {
         LEG_STEP = frame === 1 ? 1 : frame === 2 ? -1 : 0;
-        makeCanvas(scene, unitKey(type, team, frame), 32, 40, (ctx) => draw(ctx, team), ART_RES);
+        makeUnitCanvas(scene, unitKey(type, team, frame), 32, 40, (ctx) => draw(ctx, team));
       });
       LEG_STEP = 0;
     }
-    makeCanvas(scene, unitKey('armoured_car', team), 44, 40, (ctx) => armouredCar(ctx, team), ART_RES);
-    makeCanvas(scene, unitKey('cannon', team), 44, 40, (ctx) => cannon(ctx, team), ART_RES);
-    makeCanvas(scene, unitKey('e_tank', team), 44, 40, (ctx) => electricTank(ctx, team), ART_RES);
+    makeUnitCanvas(scene, unitKey('armoured_car', team), 44, 40, (ctx) => armouredCar(ctx, team));
+    makeUnitCanvas(scene, unitKey('cannon', team), 44, 40, (ctx) => cannon(ctx, team));
+    makeUnitCanvas(scene, unitKey('e_tank', team), 44, 40, (ctx) => electricTank(ctx, team));
     [0, 1, 2].forEach((frame) => {
       LEG_STEP = frame === 1 ? 1 : frame === 2 ? -1 : 0;
-      makeCanvas(scene, unitKey('scout', team, frame), 44, 40, (ctx) => scoutRider(ctx, team), ART_RES);
+      makeUnitCanvas(scene, unitKey('scout', team, frame), 44, 40, (ctx) => scoutRider(ctx, team));
     });
     LEG_STEP = 0;
   }
   for (const [name, draw] of Object.entries(ICON_ART)) makeCanvas(scene, `i_${name}`, 20, 20, draw, ART_RES);
-  makeCanvas(scene, 'deer0', 32, 24, (ctx) => deerArt(ctx, 0), ART_RES);
-  makeCanvas(scene, 'deer1', 32, 24, (ctx) => deerArt(ctx, 1), ART_RES);
+  makeUnitCanvas(scene, 'deer0', 32, 24, (ctx) => deerArt(ctx, 0));
+  makeUnitCanvas(scene, 'deer1', 32, 24, (ctx) => deerArt(ctx, 1));
   for (const [name, draw] of Object.entries(UPGRADE_ICON)) makeCanvas(scene, `up_${name}`, 40, 40, draw, ART_RES);
   // soft cloud shadow and a water glint
   makeCanvas(scene, 'cloud', 512, 256, (ctx) => {

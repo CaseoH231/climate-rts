@@ -1,5 +1,5 @@
 // Map generation, terrain/resource lookups and drawing.
-import { TILE, TERRAIN, TERRAIN_INFO, TERRAIN_RESOURCE, RESOURCE_AMOUNT, TERRAIN_AMOUNT, PLAYER_START, ENEMY_START } from './config.js';
+import { TILE, TERRAIN, TERRAIN_INFO, TERRAIN_RESOURCE, RESOURCE_AMOUNT, TERRAIN_AMOUNT, startFor } from './config.js';
 import { toIso, fromIso } from './iso.js';
 
 // Small seeded random number generator, so the same seed always makes the same map.
@@ -69,25 +69,27 @@ function tileRand(x, y) {
 
 // Kinds of map you can pick for a new game.
 export const MAP_TYPES = {
-  continental: { name: 'Continental', desc: 'Rolling land with a few lakes and coasts.', sea: 0.32, cell: 12, forest: 0.67, stone: 0.84, coal: 0.86 },
-  lakes: { name: 'Lakes', desc: 'Lots of small lakes to work around. Rising seas bite hard.', sea: 0.41, cell: 7, forest: 0.68, stone: 0.83, coal: 0.85 },
-  highlands: { name: 'Highlands', desc: 'High, dry land rich in stone and coal. Hardly any water.', sea: 0.15, cell: 14, forest: 0.62, stone: 0.79, coal: 0.82 },
-  river: { name: 'Great River', desc: 'A wide river splits the map. Armies must cross at three fords.', sea: 0.2, cell: 12, forest: 0.66, stone: 0.84, coal: 0.86, river: true },
+  continental: { name: 'Continental', desc: 'Rolling green land with a few lakes and stretches of coast. Plenty of forest, stone and coal for everyone, and open ground to fight on. A good map for your first games.', sea: 0.32, cell: 12, forest: 0.67, stone: 0.84, coal: 0.86 },
+  lakes: { name: 'Lakes', desc: 'Dozens of small lakes break the land into winding paths, so armies are slow and narrow gaps matter. Fishing docks pay off, but low ground means rising seas swallow a lot of land.', sea: 0.41, cell: 7, forest: 0.68, stone: 0.83, coal: 0.85 },
+  highlands: { name: 'Highlands', desc: 'High, dry plateaus rich in stone and coal, with hardly any water. Rising seas barely matter here, but all that coal makes it very easy to pollute.', sea: 0.15, cell: 14, forest: 0.62, stone: 0.79, coal: 0.82 },
+  river: { name: 'Great River', desc: 'A wide river splits the map, and armies can only cross at shallow fords (with 3–4 sides, two rivers cross in the middle so every town gets its own quarter). Hold the fords to hold the map.', sea: 0.2, cell: 12, forest: 0.66, stone: 0.84, coal: 0.86, river: true },
 };
 
 const NEIGHBOURS_8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]];
-const TEAM_CODE = { player: 1, enemy: 2 };
+const TEAM_CODE = { player: 1, enemy: 2, green: 3, yellow: 4 };
 
 export class GameMap {
-  constructor(w, h, seed, type = 'continental') {
+  // teams: which sides get a starting base (Blue and Red unless told otherwise).
+  constructor(w, h, seed, type = 'continental', teams = ['player', 'enemy']) {
     this.w = w;
     this.h = h;
+    this.starts = teams.map((t) => startFor(t, w, h));
     this.seed = seed;
     this.type = MAP_TYPES[type] ? type : 'continental';
     this.tiles = new Uint8Array(w * h);
     this.amount = new Float32Array(w * h);   // resource left in each tile
     this.blocked = new Uint8Array(w * h);    // 1 = a solid building stands here
-    this.gateTeam = new Uint8Array(w * h);   // gates: only their owner (1 player, 2 enemy) may walk through
+    this.gateTeam = new Uint8Array(w * h);   // gates: only their owner (1 Blue, 2 Red, 3 Green, 4 Yellow) may walk through
     this.buildings = new Array(w * h).fill(null);
     this.elev = new Float32Array(w * h);     // land height — low land floods first when the sea rises
     this.seaLevel = MAP_TYPES[this.type].sea;
@@ -119,7 +121,7 @@ export class GameMap {
     if (T.river) this.carveRiver(rng);
 
     // Scatter some berry bushes around the map.
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0, n = Math.round((10 * this.w * this.h) / 4096); i < n; i++) {
       const bx = Math.floor(rng() * this.w);
       const by = Math.floor(rng() * this.h);
       for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
@@ -128,8 +130,11 @@ export class GameMap {
     }
 
     // Each base: cleared land on high ground, with wood, stone, coal and berries nearby.
-    // The enemy's layout is a mirror image of the player's (dir = -1).
-    for (const [s, dir] of [[PLAYER_START, 1], [ENEMY_START, -1]]) {
+    // Every base gets the same layout, mirrored so the resources sit on the side towards the middle.
+    for (const s of this.starts) {
+      const dx = s.x < this.w / 2 ? 1 : -1;
+      const dy = s.y < this.h / 2 ? 1 : -1;
+      const dir = dx; // (kept for the shared berry layout below)
       this.fillCircle(s.x, s.y, 6, TERRAIN.GRASS);
       for (let dy = -8; dy <= 8; dy++) {
         for (let dx = -8; dx <= 8; dx++) {
@@ -139,20 +144,45 @@ export class GameMap {
           }
         }
       }
-      this.fillCircle(s.x + 9 * dir, s.y, 2, TERRAIN.FOREST);
-      this.fillCircle(s.x, s.y + 9 * dir, 1, TERRAIN.STONE);
-      this.fillCircle(s.x - dir, s.y - 9 * dir, 1, TERRAIN.COAL);
-      for (const [dx, dy] of [[-4, 3], [-5, 3], [-4, 4], [-5, 4], [-3, 4]]) {
-        if (this.inBounds(s.x + dx * dir, s.y + dy * dir)) this.set(s.x + dx * dir, s.y + dy * dir, TERRAIN.BERRIES);
+      this.fillCircle(s.x + 9 * dx, s.y, 2, TERRAIN.FOREST);
+      this.fillCircle(s.x, s.y + 9 * dy, 1, TERRAIN.STONE);
+      this.fillCircle(s.x - dx, s.y - 9 * dy, 1, TERRAIN.COAL);
+      for (const [bx, by] of [[-4, 3], [-5, 3], [-4, 4], [-5, 4], [-3, 4]]) {
+        if (this.inBounds(s.x + bx * dx, s.y + by * dy)) this.set(s.x + bx * dx, s.y + by * dy, TERRAIN.BERRIES);
       }
+      void dir;
     }
-    // Make sure the two bases are connected by walkable land.
-    this.ensureConnected(PLAYER_START, ENEMY_START);
+    // Make sure every base can walk to every other.
+    for (let i = 1; i < this.starts.length; i++) this.ensureConnected(this.starts[0], this.starts[i]);
 
     // Fill resource tiles with their starting amounts.
     for (let i = 0; i < this.tiles.length; i++) {
       const res = TERRAIN_RESOURCE[this.tiles[i]];
       this.amount[i] = res ? TERRAIN_AMOUNT[this.tiles[i]] || RESOURCE_AMOUNT[res] : 0;
+    }
+  }
+
+  // With 3–4 sides: two rivers crossing in the middle, so every corner base has its own quarter.
+  carveCrossRivers(rng) {
+    const ph = [rng() * 6.28, rng() * 6.28, rng() * 6.28, rng() * 6.28];
+    const fords = [-26, -11, 11, 26];
+    for (const axis of [0, 1]) {
+      const wob = (a) => 3 * Math.sin(a * 0.15 + ph[axis * 2]) + 1.4 * Math.sin(a * 0.37 + ph[axis * 2 + 1]);
+      for (let y = 0; y < this.h; y++) {
+        for (let x = 0; x < this.w; x++) {
+          const along = axis ? x - this.w / 2 : y - this.h / 2;
+          const across = (axis ? y - this.h / 2 : x - this.w / 2) - wob(along);
+          const i = y * this.w + x;
+          const ford = fords.some((f) => Math.abs(along - f) < 2.3);
+          if (Math.abs(across) < 1.9) {
+            if (ford) { this.tiles[i] = TERRAIN.GRASS; this.elev[i] = 0.7; }
+            else { this.tiles[i] = TERRAIN.WATER; this.elev[i] = 0.05; }
+          } else if (Math.abs(across) < 3.2) {
+            this.elev[i] = Math.min(this.elev[i], 0.3);
+            if (ford && this.tiles[i] !== TERRAIN.GRASS) this.tiles[i] = TERRAIN.GRASS;
+          }
+        }
+      }
     }
   }
 
@@ -170,7 +200,9 @@ export class GameMap {
 
   // A winding river across the map, between the two bases, with three shallow fords.
   carveRiver(rng) {
-    const mid = (PLAYER_START.x + PLAYER_START.y + ENEMY_START.x + ENEMY_START.y) / 2; // x + y along the river
+    if (this.starts.length > 2) { this.carveCrossRivers(rng); return; }
+    const [A, B] = [startFor('player', this.w, this.h), startFor('enemy', this.w, this.h)];
+    const mid = (A.x + A.y + B.x + B.y) / 2; // x + y along the river
     const ph1 = rng() * 6.28;
     const ph2 = rng() * 6.28;
     const wobble = (a) => 3.5 * Math.sin(a * 0.16 + ph1) + 1.5 * Math.sin(a * 0.41 + ph2);
@@ -489,7 +521,13 @@ export class GameMap {
       r += ripple; g += ripple; b += ripple;
       if (dl < 2.5) { const f = (1 - dl / 2.5) * 0.4; r = lerp(r, 196, f); g = lerp(g, 200, f); b = lerp(b, 180, f); }
     } else {
-      r = lerp(86, 112, n2); g = lerp(116, 138, n2); b = lerp(42, 54, n2);
+      r = lerp(82, 112, n2); g = lerp(114, 140, n2); b = lerp(40, 54, n2);
+      // big, gentle patches: lush blue-green in the hollows, warmer and paler on the rises
+      const patch = n3 - 0.5;
+      r += patch * 18; g += patch * 6; b -= patch * 10;
+      const e = this.elev[ty * this.w + tx];
+      const lift = Math.max(-0.12, Math.min(0.2, e - 0.55));
+      r += lift * 40; g += lift * 30; b += lift * 18;
       const dry = Math.max(0, n3 - 0.55) * 1.8;
       r = lerp(r, 142, dry); g = lerp(g, 134, dry); b = lerp(b, 68, dry);
       const shade = this.edgeFade(wx, wy, tx, ty, t, wobble);
@@ -747,15 +785,46 @@ export class GameMap {
         ctx.fillRect(p.x - 1.5, p.y - 7, 3, 7);
       }
     } else if (t === TERRAIN.GRASS) {
-      if (r() < 0.35) {
-        const p = at(4 + r() * 24, 4 + r() * 24);
-        ctx.strokeStyle = 'rgba(48,70,24,0.6)';
-        ctx.lineWidth = 1;
+      // Low-lying meadow land gets more flowers, drier high ground more bare patches and pebbles.
+      const e = this.elev[ty * this.w + tx];
+      const nearWater = this.distToClass(tx * TILE + 16, ty * TILE + 16, tx, ty, true) < 40;
+      // tufts of grass: a dark blade behind, a sunlit blade in front
+      const tufts = 1 + Math.floor(r() * 3);
+      for (let i = 0; i < tufts; i++) {
+        const p = at(3 + r() * 26, 3 + r() * 26);
+        const h = 2.5 + r() * 2.5;
+        ctx.lineWidth = 0.9;
         for (let k = -1; k <= 1; k++) {
+          ctx.strokeStyle = k ? 'rgba(42,66,22,0.55)' : 'rgba(150,182,84,0.55)';
           ctx.beginPath();
-          ctx.moveTo(p.x, p.y);
-          ctx.lineTo(p.x + k * 2, p.y - 3 - r() * 2);
+          ctx.moveTo(p.x + k * 0.6, p.y);
+          ctx.quadraticCurveTo(p.x + k * 1.4, p.y - h * 0.6, p.x + k * 2.2 + (r() - 0.5), p.y - h);
           ctx.stroke();
+        }
+      }
+      // wild flowers, in little clusters
+      if (r() < (nearWater ? 0.3 : e < 0.55 ? 0.16 : 0.07)) {
+        const p = at(6 + r() * 20, 6 + r() * 20);
+        const col = ['#f2efe4', '#f4d35e', '#c99ee0', '#e8835f', '#9cc4f0'][Math.floor(r() * 5)];
+        for (let i = 0; i < 4 + r() * 4; i++) {
+          const fx = p.x + (r() - 0.5) * 9;
+          const fy = p.y + (r() - 0.5) * 4.5;
+          ctx.fillStyle = 'rgba(52,80,28,0.7)';
+          ctx.fillRect(fx, fy - 2, 0.6, 2);
+          ctx.fillStyle = col;
+          ctx.beginPath(); ctx.arc(fx + 0.3, fy - 2.3, 0.9, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+      // pebbles on dry ground
+      if (e > 0.6 && r() < 0.18) {
+        const p = at(6 + r() * 20, 6 + r() * 20);
+        for (let i = 0; i < 2 + r() * 3; i++) {
+          const fx = p.x + (r() - 0.5) * 8;
+          const fy = p.y + (r() - 0.5) * 4;
+          ctx.fillStyle = 'rgba(0,0,0,0.25)';
+          ctx.beginPath(); ctx.ellipse(fx + 0.6, fy + 0.5, 1.4, 0.7, 0, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = `rgb(${150 + r() * 40},${144 + r() * 36},${128 + r() * 30})`;
+          ctx.beginPath(); ctx.ellipse(fx, fy, 1.3, 0.8, 0, 0, Math.PI * 2); ctx.fill();
         }
       }
     }

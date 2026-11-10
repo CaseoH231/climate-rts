@@ -39,13 +39,14 @@ export class EnemyAI {
   constructor(world, team = 'enemy', difficulty = 'normal') {
     this.world = world;
     this.team = team;
-    this.cfg = { ...AI_SETTINGS, ...DIFFICULTY[difficulty] };
+    this.difficulty = DIFFICULTY[difficulty] ? difficulty : 'normal';
+    this.cfg = { ...AI_SETTINGS, ...DIFFICULTY[this.difficulty] };
     this.timer = 0;
     this.nextWave = this.cfg.firstWave;
     this.waveSize = this.cfg.firstWaveSize;
     this.waveNum = 0;
     this.assault = new Set();
-    this.storageTimer = 30;
+    this.storageTimer = 25;
     this.rebalanceTimer = 20;
     this.unreachable = new Set(); // resource tiles our workers can't get to
   }
@@ -54,7 +55,7 @@ export class EnemyAI {
   counterPick(era) {
     const seen = {};
     for (const u of this.world.units) {
-      if (u.team !== this.team && u.isMilitary && !u.dead) seen[u.type] = (seen[u.type] || 0) + 1;
+      if (this.world.isEnemy(u.team, this.team) && u.isMilitary && !u.dead) seen[u.type] = (seen[u.type] || 0) + 1;
     }
     const common = Object.keys(seen).sort((a, b) => seen[b] - seen[a])[0];
     if (!common || seen[common] < 3) return null;
@@ -113,7 +114,7 @@ export class EnemyAI {
     if (count('tower') < 2 && w.gameTime > 420 && this.res.stone > 150 && !this.saving) wishes.push('tower');
     for (const type of wishes) if (this.build(type, workers)) break;
 
-    // 3. Storage sheds next to far-away resources.
+    // 3. Lumber camps, mining camps and mills next to far-away resources.
     this.storageTimer -= 1;
     if (Math.floor(w.gameTime) % 90 === 0) this.unreachable.clear(); // things change — check again sometimes
     if (this.storageTimer <= 0) {
@@ -171,7 +172,10 @@ export class EnemyAI {
         this.waveNum++;
         this.waveSize += this.cfg.waveGrowth;
         this.nextWave = w.gameTime + this.cfg.waveGap;
-        w.toast(`Enemy attack wave ${this.waveNum} is on its way! (${sent} units)`, '#d9a39b');
+        if (w.isEnemy(team, w.me) && !w.spectator) {
+          const who = w.teamIds.length > 2 ? w.teamName(team) : 'Enemy';
+          w.toast(`${who} attack wave ${this.waveNum} is on its way! (${sent} units)`, '#d9a39b');
+        }
       }
     }
     for (const u of this.assault) {
@@ -296,15 +300,22 @@ export class EnemyAI {
     return null;
   }
 
+  // Drop-off camps next to resources that are a long walk from anywhere to drop them off.
   buildStorageIfNeeded(workers, mine) {
     const w = this.world;
-    if (mine.some((b) => b.type === 'storage' && !b.complete) || mine.filter((b) => b.type === 'storage').length >= 4) return;
-    for (const res of ['wood', 'fuel', 'stone']) {
-      const t = w.map.nearestResource(res, this.tc.tx + 1, this.tc.ty + 1, 30);
+    const CAMP = { wood: 'lumber_camp', fuel: 'mining_camp', stone: 'mining_camp', food: 'mill' };
+    if (mine.some((b) => (b.type === 'lumber_camp' || b.type === 'mining_camp' || b.type === 'mill') && !b.complete)) return;
+    if (mine.filter((b) => b.type === 'lumber_camp' || b.type === 'mining_camp' || b.type === 'mill').length >= 7) return;
+    // Look where the workers actually are.
+    const busy = {};
+    for (const u of workers) if (u.order && u.order.kind === 'gather' && !u.order.farm) (busy[u.order.res] = busy[u.order.res] || []).push(u.order);
+    for (const res of ['wood', 'fuel', 'stone', 'food']) {
+      const o = (busy[res] || [])[0];
+      const t = o ? { x: o.tx, y: o.ty } : res === 'food' ? null : w.map.nearestResource(res, this.tc.tx + 1, this.tc.ty + 1, 30);
       if (!t) continue;
-      const drop = w.nearestDropOff(t.x * TILE, t.y * TILE, this.team);
-      const far = !drop || Math.hypot(drop.cx - t.x * TILE, drop.cy - t.y * TILE) > 9 * TILE;
-      if (far && this.build('storage', workers, t)) return;
+      const drop = w.nearestDropOff(t.x * TILE, t.y * TILE, this.team, res);
+      const far = !drop || Math.hypot(drop.cx - t.x * TILE, drop.cy - t.y * TILE) > 7 * TILE;
+      if (far && this.build(CAMP[res], workers, t)) return;
     }
   }
 }

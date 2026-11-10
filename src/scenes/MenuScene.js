@@ -3,8 +3,9 @@ import { TILE, MAP_W, MAP_H, PLAYER_START, GAME_VERSION } from '../config.js';
 import { GameMap, MAP_TYPES } from '../map.js';
 import { BUILDING_TYPES, ERAS } from '../buildings.js';
 import { generateArt, buildingKey, unitKey, buildingTexInfo, BUILDING_POINTS, ART_RES } from '../art.js';
-import { toIso, ISO_W, ISO_H } from '../iso.js';
+import { toIso, ISO_W, ISO_H, setWorldSize } from '../iso.js';
 import { panel, button, volumeRows, scrollText, htmlInput, FONT_SERIF, FONT_SANS, UI_COL } from '../ui.js';
+import { MODES, soloSetup, setupFromSlots, describeSetup } from '../setup.js';
 import { Net, newCode, cleanCode, playerName, setPlayerName, lastGame, forgetLastGame, onlineAvailable } from '../net.js';
 import { audio } from '../audio.js';
 import { listSaves, readSave } from '../save.js';
@@ -77,13 +78,14 @@ export default class MenuScene extends Phaser.Scene {
   }
 
   create() {
+    setWorldSize(64, 64); // the menu's background is a corner of a 1 v 1 map
     generateArt(this, BUILDING_TYPES);
     audio.init(this.sound.context);
     audio.startAmbience();
     audio.startMusic('calm');
     this.input.setDefaultCursor(cursors().arrow);
     makeCanvas(this, 'crest', 80, 80, drawCrest, 2);
-    this.options = { difficulty: 'normal', map: 'continental', fog: true };
+    this.options = { difficulty: 'normal', map: 'continental', fog: true, mode: '1v1' };
 
     // --- Background: paint a corner of a map and put a little town on it ---
     if (!this.textures.exists('menu_terrain')) {
@@ -220,55 +222,61 @@ export default class MenuScene extends Phaser.Scene {
         });
       }
     } else if (view === 'settings') {
-      this.addUI(panel(this, (w - PW) / 2, top, PW, 330, D));
+      this.addUI(panel(this, (w - PW) / 2, top, PW, 380, D));
       this.addUI(this.add.text(w / 2, top + 22, 'Settings', { fontFamily: FONT_SERIF, fontSize: '22px', color: UI_COL.gold, stroke: '#000', strokeThickness: 4 }).setOrigin(0.5, 0).setDepth(D + 1));
       for (const o of volumeRows(this, (w - PW) / 2 + 30, top + 66, PW - 60, D + 1)) this.addUI(o);
-      btn(top + 268, 'Back', () => this.show('main'), { w: 200 });
+      btn(top + 318, 'Back', () => this.show('main'), { w: 200 });
     } else if (view === 'new') {
-      this.addUI(panel(this, (w - PW) / 2, top, PW, 438, D));
-      this.addUI(this.add.text(w / 2, top + 22, 'Difficulty', { fontFamily: FONT_SERIF, fontSize: '18px', color: UI_COL.text, stroke: '#000', strokeThickness: 3 }).setOrigin(0.5, 0).setDepth(D + 1));
-      const diffBtns = Object.entries(DIFFICULTY).map(([k, d], i) => {
-        const b = this.addUI(button(this, (w - PW) / 2 + 30 + i * 130, top + 52, 120, 38, d.name, () => {
-          this.options.difficulty = k;
-          diffBtns.forEach(([kk, bb]) => bb.setSelected(kk === k));
-        }, { depth: D + 1, size: '16px' }));
-        b.setSelected(k === this.options.difficulty);
-        return [k, b];
-      });
-      this.addUI(this.add.text(w / 2, top + 108, 'Map', { fontFamily: FONT_SERIF, fontSize: '18px', color: UI_COL.text, stroke: '#000', strokeThickness: 3 }).setOrigin(0.5, 0).setDepth(D + 1));
-      if (!MAP_TYPES[this.options.map]) this.options.map = 'continental';
-      const mapDesc = this.addUI(this.add.text(w / 2, top + 182, '', {
+      const NW = 500;
+      const PH = 548;
+      const x0 = (w - NW) / 2;
+      top = Math.max(8, (h - PH) / 2);
+      this.addUI(panel(this, x0, top, NW, PH, D));
+      const label = (y, str) => this.addUI(this.add.text(w / 2, y, str, { fontFamily: FONT_SERIF, fontSize: '18px', color: UI_COL.text, stroke: '#000', strokeThickness: 3 }).setOrigin(0.5, 0).setDepth(D + 1));
+      const note = (y) => this.addUI(this.add.text(w / 2, y, '', {
         fontFamily: FONT_SANS, fontSize: '13px', fontStyle: 'italic', color: UI_COL.dim, stroke: '#000', strokeThickness: 2,
+        align: 'center', wordWrap: { width: NW - 50 }, lineSpacing: 2,
       }).setOrigin(0.5, 0).setDepth(D + 1));
-      const mapBtns = Object.entries(MAP_TYPES).map(([k, t], i) => {
-        const b = this.addUI(button(this, (w - PW) / 2 + 22 + i * 100, top + 138, 96, 38, t.name, () => {
-          this.options.map = k;
-          mapBtns.forEach(([kk, bb]) => bb.setSelected(kk === k));
-          mapDesc.setText(t.desc);
-        }, { depth: D + 1, size: '13px' }));
-        b.setSelected(k === this.options.map);
-        return [k, b];
-      });
-      mapDesc.setText(MAP_TYPES[this.options.map].desc);
-      top += 38;
-      this.addUI(this.add.text(w / 2, top + 188, 'Fog of war', { fontFamily: FONT_SERIF, fontSize: '18px', color: UI_COL.text, stroke: '#000', strokeThickness: 3 }).setOrigin(0.5, 0).setDepth(D + 1));
-      const fogBtns = [[true, 'On'], [false, 'Off']].map(([k, label], i) => {
-        const b = this.addUI(button(this, (w - PW) / 2 + 30 + i * 195, top + 218, 185, 38, label, () => {
-          this.options.fog = k;
-          fogBtns.forEach(([kk, bb]) => bb.setSelected(kk === k));
-        }, { depth: D + 1, size: '16px' }));
-        b.setSelected(k === this.options.fog);
-        return [k, b];
-      });
-      btn(top + 276, 'Start Game', () => this.startGame());
-      btn(top + 334, 'Back', () => this.show('main'), { w: 200 });
+      // a row of choice buttons; `desc` (optional) shows the chosen one's description
+      const choices = (y, entries, key, bw, desc, size = '14px') => {
+        const gap = 8;
+        const total = entries.length * bw + (entries.length - 1) * gap;
+        const btns = entries.map(([k, text, d], i) => {
+          const b = this.addUI(button(this, (w - total) / 2 + i * (bw + gap), y, bw, 36, text, () => {
+            this.options[key] = k;
+            btns.forEach(([kk, bb]) => bb.setSelected(kk === k));
+            if (desc) desc.setText(d);
+          }, { depth: D + 1, size }));
+          b.setSelected(k === this.options[key]);
+          return [k, b];
+        });
+        if (desc) desc.setText((entries.find(([k]) => k === this.options[key]) || entries[0])[2]);
+      };
+      let y = top + 18;
+      label(y, 'Game');
+      const modeDesc = note(y + 72);
+      choices(y + 30, Object.entries(MODES).map(([k, m]) => [k, m.name.replace('3-way free-for-all', '3-way FFA').replace('4-way free-for-all', '4-way FFA'), m.desc]), 'mode', 110, modeDesc);
+      y += 104;
+      label(y, 'Computer players');
+      choices(y + 30, Object.entries(DIFFICULTY).map(([k, d]) => [k, d.name, '']), 'difficulty', 130, null, '16px');
+      y += 84;
+      label(y, 'Map');
+      if (!MAP_TYPES[this.options.map]) this.options.map = 'continental';
+      const mapDesc = note(y + 72);
+      choices(y + 30, Object.entries(MAP_TYPES).map(([k, t]) => [k, t.name, t.desc]), 'map', 108, mapDesc, '13px');
+      y += 142;
+      label(y, 'Fog of war');
+      choices(y + 30, [[true, 'On', ''], [false, 'Off', '']], 'fog', 160, null, '16px');
+      y += 84;
+      btn(y, 'Start Game', () => this.startGame());
+      btn(y + 54, 'Back', () => this.show('main'), { w: 200 });
     } else if (view === 'load') {
       const saves = listSaves();
       this.addUI(panel(this, (w - PW) / 2, top, PW, 90 + saves.length * 54 + 40, D));
       this.addUI(this.add.text(w / 2, top + 22, 'Load Game', { fontFamily: FONT_SERIF, fontSize: '22px', color: UI_COL.gold, stroke: '#000', strokeThickness: 4 }).setOrigin(0.5, 0).setDepth(D + 1));
       saves.forEach((s, i) => {
-        const label = s.empty ? `Slot ${s.slot} — empty`
-          : `Slot ${s.slot} — ${fmtTime(s.gameTime)}, ${ERAS[s.era].name}, ${DIFFICULTY[s.difficulty]?.name || ''}`;
+        const label = s.empty ? `Slot ${s.slot} — ${s.old ? 'old save (from before v13)' : 'empty'}`
+          : `Slot ${s.slot} — ${fmtTime(s.gameTime)}, ${ERAS[s.era].name}, ${MODES[s.mode] ? MODES[s.mode].name : '1 v 1'}, ${DIFFICULTY[s.difficulty]?.name || ''}`;
         btn(top + 66 + i * 54, label, () => {
           const data = readSave(s.slot);
           if (data) this.scene.start('GameScene', { load: data });
@@ -304,21 +312,23 @@ export default class MenuScene extends Phaser.Scene {
         fontFamily: FONT_SANS, fontSize: '14px', color: UI_COL.text, stroke: '#000', strokeThickness: 2, ...style,
       }).setOrigin(ox, 0).setDepth(D + 1));
       T(w / 2, top, 'Play Online', { fontFamily: FONT_SERIF, fontSize: '22px', color: UI_COL.gold, strokeThickness: 4 });
-      T(w / 2, top + 30, 'Play a friend over the internet: one of you hosts,\nthe other joins with the code.', { fontStyle: 'italic', color: UI_COL.dim, fontSize: '13px', align: 'center' });
+      T(w / 2, top + 30, 'Up to four players over the internet: one hosts, the others join with\nthe code. Watch lets you follow a game without playing.', { fontStyle: 'italic', color: UI_COL.dim, fontSize: '13px', align: 'center' });
       T(x0 + 30, top + 74, 'Your name', {}, 0);
       this.addUI(htmlInput(this, x0 + 150, top + 66, OW - 180, 34, { maxLength: 16, value: playerName(), onInput: (v) => setPlayerName(v.trim()) }));
       const ok = this.online !== false;
       btn(top + 120, 'Host a Game', () => this.connectOnline(newCode(), 'host')).setEnabled(ok);
-      T(x0 + 30, top + 190, 'Join with a code', {}, 0);
+      T(x0 + 30, top + 190, 'Code', {}, 0);
       const codeBox = this.addUI(htmlInput(this, x0 + 180, top + 182, 130, 34, {
         maxLength: 8, upper: true, align: 'center', spacing: '3px', placeholder: 'CODE',
         onEnter: (v) => cleanCode(v).length >= 4 && this.connectOnline(cleanCode(v), 'join'),
       }));
-      this.addUI(button(this, x0 + 322, top + 178, 128, 42, 'Join', () => {
+      const withCode = (role) => {
         const code = cleanCode(codeBox.value);
         if (code.length < 4) { this.netMsg = 'Type the code your friend sees on their screen.'; this.show('online'); return; }
-        this.connectOnline(code, 'join');
-      }, { depth: D + 1 })).setEnabled(ok);
+        this.connectOnline(code, role);
+      };
+      this.addUI(button(this, x0 + 318, top + 178, 64, 42, 'Join', () => withCode('join'), { depth: D + 1, size: '15px' })).setEnabled(ok);
+      this.addUI(button(this, x0 + 388, top + 178, 72, 42, 'Watch', () => withCode('watch'), { depth: D + 1, size: '15px' })).setEnabled(ok);
       let y = top + 240;
       if (rejoin) {
         btn(y, `Rejoin game ${last.code}`, () => this.connectOnline(last.code, last.role));
@@ -333,50 +343,81 @@ export default class MenuScene extends Phaser.Scene {
     } else if (view === 'lobby') {
       const net = this.net;
       if (!net) { this.show('online'); return; }
-      const OW = 520;
+      const OW = 620;
+      const PH = 600;
       const x0 = (w - OW) / 2;
-      const host = net.role === 'host';
-      this.addUI(panel(this, x0, top - 20, OW, host ? 470 : 380, D));
+      top = Math.max(8, (h - PH) / 2);
+      const host = net.role === 'host' && net.slot === 0;
+      this.addUI(panel(this, x0, top, OW, PH, D));
       const T = (x, y, str, style = {}, ox = 0.5) => this.addUI(this.add.text(x, y, str, {
         fontFamily: FONT_SANS, fontSize: '14px', color: UI_COL.text, stroke: '#000', strokeThickness: 2, ...style,
       }).setOrigin(ox, 0).setDepth(D + 1));
-      T(w / 2, top - 4, 'Game code', { fontFamily: FONT_SERIF, fontSize: '16px', color: UI_COL.dim });
-      T(w / 2, top + 16, net.code.split('').join(' '), { fontFamily: FONT_SERIF, fontSize: '40px', color: UI_COL.gold, strokeThickness: 5 });
-      T(w / 2, top + 70, !net.connected && net.slot === null ? 'Connecting…'
-        : host ? 'Send this code to your friend. Start when they\'ve joined.' : 'Waiting for the host to start the game…', { fontStyle: 'italic', color: UI_COL.dim });
-      // players
-      const p = net.players;
-      const row = (i, y) => {
-        const pl = p[i];
-        const dot = i === 0 ? '🔵' : '🔴';
-        const label = pl ? `${dot}  ${pl.name}${i === net.slot ? '  (you)' : ''}${i === 0 ? '  — host, plays Blue' : '  — plays Red'}${pl.connected ? '' : '  · reconnecting…'}`
-          : `${dot}  Waiting for someone to join…`;
-        T(x0 + 40, y, label, { fontSize: '16px', color: pl ? UI_COL.text : UI_COL.dim }, 0);
-      };
-      row(0, top + 104);
-      row(1, top + 132);
-      // settings
+      T(w / 2, top + 14, 'Game code', { fontFamily: FONT_SERIF, fontSize: '15px', color: UI_COL.dim });
+      T(w / 2, top + 32, net.code.split('').join(' '), { fontFamily: FONT_SERIF, fontSize: '38px', color: UI_COL.gold, strokeThickness: 5 });
+      const status = !net.connected && net.slot === null && !net.spectator ? 'Connecting…'
+        : host ? 'Send this code to your friends. Set up the seats, then start.'
+          : net.spectator ? 'You\'re watching. The game shows up here when the host starts it.' : 'Waiting for the host to start the game…';
+      T(w / 2, top + 82, status, { fontStyle: 'italic', color: UI_COL.dim });
+      // --- the four seats ---
+      const COLORS = ['#7d9fd4', '#d98a7e', '#7cc486', '#e2c25e'];
+      const SIDE = ['Blue', 'Red', 'Green', 'Yellow'];
+      const AI_NAMES = { easy: 'Easy', normal: 'Normal', hard: 'Hard' };
+      const cycle = ['open', 'ai:normal', 'ai:hard', 'ai:easy', 'closed'];
+      (net.slots.length ? net.slots : [0, 1, 2, 3].map((i) => ({ slot: i, kind: i ? 'closed' : 'human', alliance: i }))).forEach((st, i) => {
+        const y = top + 112 + i * 46;
+        const closed = st.kind === 'closed';
+        this.addUI(this.add.rectangle(x0 + 30, y + 18, 14, 14, parseInt(COLORS[i].slice(1), 16), closed ? 0.3 : 1).setStrokeStyle(1, 0x000000).setDepth(D + 1));
+        T(x0 + 44, y + 9, SIDE[i], { fontFamily: FONT_SERIF, fontSize: '16px', color: closed ? UI_COL.dim : COLORS[i] }, 0);
+        let who;
+        if (st.kind === 'human') who = `${st.name}${i === net.slot ? '  (you)' : ''}${i === 0 ? '  — host' : ''}${st.connected === false ? '  · reconnecting…' : ''}`;
+        else if (st.kind === 'ai') who = `Computer (${AI_NAMES[st.ai] || 'Normal'})`;
+        else if (st.kind === 'open') who = 'Open — waiting for someone to join';
+        else who = 'Closed';
+        if (host && i > 0 && st.kind !== 'human') {
+          const cur = st.kind === 'ai' ? `ai:${st.ai || 'normal'}` : st.kind;
+          this.addUI(button(this, x0 + 120, y, 290, 36, who, () => {
+            const next = cycle[(cycle.indexOf(cur) + 1) % cycle.length];
+            const [kind, ai] = next.split(':');
+            net.send({ t: 'slot', i, kind, ai });
+          }, { depth: D + 1, size: '14px' }));
+        } else {
+          T(x0 + 128, y + 10, who, { fontSize: '15px', color: st.kind === 'human' || st.kind === 'ai' ? UI_COL.text : UI_COL.dim }, 0);
+        }
+        if (!closed) {
+          const teamLabel = `Team ${st.alliance + 1}`;
+          if (host) {
+            this.addUI(button(this, x0 + OW - 150, y, 120, 36, teamLabel, () => net.send({ t: 'slot', i, alliance: (st.alliance + 1) % 4 }), { depth: D + 1, size: '14px' }));
+          } else T(x0 + OW - 90, y + 10, teamLabel, { fontSize: '15px', color: UI_COL.dim });
+        }
+      });
+      // who's on which side, in words
+      const live = (net.slots || []).filter((st) => st.kind === 'human' || st.kind === 'ai' || st.kind === 'open');
+      const preview = live.length ? describeSetup({ teams: live.map((st) => ({ id: ['player', 'enemy', 'green', 'yellow'][st.slot], alliance: st.alliance })) }) : '';
+      T(w / 2, top + 300, preview + (net.watchers && net.watchers.length ? `     ·     Watching: ${net.watchers.join(', ')}` : ''), { fontFamily: FONT_SERIF, fontSize: '15px', color: UI_COL.gold });
+      // --- map & fog ---
       const st = net.settings || {};
+      const mapDesc = MAP_TYPES[st.mapType] ? MAP_TYPES[st.mapType].desc : '';
       if (host) {
-        T(w / 2, top + 172, 'Map', { fontFamily: FONT_SERIF, fontSize: '16px' });
         const keys = Object.keys(MAP_TYPES);
         keys.forEach((k, i) => {
-          const b = this.addUI(button(this, x0 + 24 + i * ((OW - 48) / keys.length), top + 196, (OW - 48) / keys.length - 8, 36, MAP_TYPES[k].name, () => {
+          const b = this.addUI(button(this, x0 + 24 + i * ((OW - 48) / keys.length), top + 330, (OW - 48) / keys.length - 8, 34, MAP_TYPES[k].name, () => {
             net.send({ t: 'settings', mapType: k, fog: st.fog !== false });
           }, { depth: D + 1, size: '14px' }));
           b.setSelected(st.mapType === k);
         });
-        const fog = this.addUI(button(this, x0 + (OW - 240) / 2, top + 244, 240, 36, `Fog of war: ${st.fog !== false ? 'on' : 'off'}`, () => {
+      } else {
+        T(w / 2, top + 336, `Map: ${MAP_TYPES[st.mapType] ? MAP_TYPES[st.mapType].name : '—'}   ·   Fog of war: ${st.fog !== false ? 'on' : 'off'}`, { fontSize: '15px' });
+      }
+      T(w / 2, top + 372, mapDesc, { fontStyle: 'italic', color: UI_COL.dim, fontSize: '13px', wordWrap: { width: OW - 60 }, align: 'center' });
+      if (host) {
+        const fog = this.addUI(button(this, x0 + (OW - 220) / 2, top + 440, 220, 34, `Fog of war: ${st.fog !== false ? 'on' : 'off'}`, () => {
           net.send({ t: 'settings', mapType: st.mapType, fog: st.fog === false });
         }, { depth: D + 1, size: '14px' }));
         fog.setSelected(st.fog !== false);
-        const ready = p[1] && p[1].connected;
-        btn(top + 306, ready ? 'Start Game' : 'Waiting for a player…', () => net.send({ t: 'start' })).setEnabled(!!ready);
-      } else {
-        T(w / 2, top + 176, `Map: ${MAP_TYPES[st.mapType] ? MAP_TYPES[st.mapType].name : '—'}   ·   Fog of war: ${st.fog !== false ? 'on' : 'off'}`, { fontSize: '15px' });
-        T(w / 2, top + 204, 'You play Red, starting in the far corner. No computer players — just the two of you.', { color: UI_COL.dim, fontSize: '13px' });
+        btn(top + 486, 'Start Game', () => net.send({ t: 'start' }));
       }
-      btn(top + (host ? 368 : 270), 'Leave', () => this.leaveOnline(), { w: 200 });
+      if (this.netNotice) T(w / 2, top + (host ? 532 : 470), this.netNotice, { color: '#e8b080', wordWrap: { width: OW - 60 }, align: 'center' });
+      btn(top + PH - 56, 'Leave', () => this.leaveOnline(), { w: 200 });
     } else if (view === 'help') {
       const PH = Math.min(440, h - top - 10);
       this.addUI(panel(this, (w - 600) / 2, top - 20, 600, PH, D));
@@ -391,11 +432,13 @@ export default class MenuScene extends Phaser.Scene {
   connectOnline(code, role) {
     if (this.net) this.net.close();
     this.netMsg = '';
+    this.netNotice = '';
     const net = new Net(code, role);
     this.net = net;
     const refresh = () => { if (this.net === net && this.view === 'lobby') this.show('lobby'); };
     net.on('welcome', (m) => { if (m.started) this.startOnline(); else refresh(); })
-      .on('lobby', refresh)
+      .on('lobby', () => { this.netNotice = ''; refresh(); })
+      .on('notice', (m) => { this.netNotice = m.msg; refresh(); })
       .on('start', () => this.startOnline())
       .on('disconnected', refresh)
       .on('error', (m) => this.onlineFailed(net, m.msg))
@@ -429,7 +472,8 @@ export default class MenuScene extends Phaser.Scene {
 
   startGame() {
     const seed = Math.floor(Math.random() * 1e9);
-    this.scene.start('GameScene', { seed, mapType: this.options.map, difficulty: this.options.difficulty, fog: this.options.fog });
+    const setup = soloSetup(this.options.mode, this.options.difficulty);
+    this.scene.start('GameScene', { seed, mapType: this.options.map, difficulty: this.options.difficulty, fog: this.options.fog, setup });
   }
 
   update(time, delta) {

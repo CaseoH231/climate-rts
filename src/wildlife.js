@@ -1,7 +1,7 @@
 // Herds of deer that wander the map. They bolt away from people, and a hunted deer
 // becomes a "Hunted deer" food tile that workers butcher quickly.
 
-import { TILE, TERRAIN, PLAYER_START, ENEMY_START } from './config.js';
+import { TILE, TERRAIN } from './config.js';
 import { toIso } from './iso.js';
 
 const WANDER_SPEED = 26;  // grid px per second
@@ -25,11 +25,13 @@ export class Wildlife {
   spawnHerds() {
     const rng = mulberry(this.map.seed ^ 0x5eed);
     const spots = [];
-    for (const base of [PLAYER_START, ENEMY_START]) {
-      const away = base === PLAYER_START ? 1 : -1;
-      spots.push({ x: base.x + away * 9, y: base.y + away * 3 });
+    for (const base of this.map.starts) {
+      const ax = base.x < this.map.w / 2 ? 1 : -1;
+      const ay = base.y < this.map.h / 2 ? 1 : -1;
+      spots.push({ x: base.x + ax * 9, y: base.y + ay * 3 });
     }
-    for (let i = 0; i < 5; i++) spots.push({ x: 8 + Math.floor(rng() * (this.map.w - 16)), y: 8 + Math.floor(rng() * (this.map.h - 16)) });
+    const wilds = this.map.starts.length > 2 ? 8 : 5;
+    for (let i = 0; i < wilds; i++) spots.push({ x: 8 + Math.floor(rng() * (this.map.w - 16)), y: 8 + Math.floor(rng() * (this.map.h - 16)) });
     for (const s of spots) {
       const c = this.map.nearestWalkable(s.x, s.y, 8);
       if (!c) continue;

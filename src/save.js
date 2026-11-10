@@ -12,12 +12,10 @@ function storage() {
 }
 
 // Short info about each slot for the save/load menus.
-// Version 10 added the Modern Age as era 2, so older saves in era 2+ move up one.
-const SAVE_VERSION = 10;
+// Version 11 added games with up to four sides; saves from before that can't be loaded.
+const SAVE_VERSION = 11;
 function migrate(d) {
-  if (!d || (d.version || 0) >= SAVE_VERSION) return d;
-  for (const t of Object.values(d.teams || {})) if (t.era >= 2) t.era += 1;
-  d.version = SAVE_VERSION;
+  if (!d || (d.version || 0) < SAVE_VERSION) return null;
   return d;
 }
 
@@ -28,7 +26,8 @@ export function listSaves() {
       const raw = ls && ls.getItem(key(slot));
       if (!raw) return { slot, empty: true };
       const d = migrate(JSON.parse(raw));
-      return { slot, empty: false, savedAt: d.savedAt, gameTime: d.gameTime, era: d.teams.player.era, difficulty: d.difficulty };
+      if (!d) return { slot, empty: true, old: true };
+      return { slot, empty: false, savedAt: d.savedAt, gameTime: d.gameTime, era: d.teams[d.me || 'player'].era, difficulty: d.difficulty, mode: d.setup && d.setup.mode };
     } catch (e) {
       return { slot, empty: true };
     }
@@ -74,6 +73,8 @@ export function serialize(w) {
     version: SAVE_VERSION,
     seed: w.map.seed,
     difficulty: w.difficulty,
+    setup: w.setup,
+    me: w.me,
     mapType: w.mapType,
     market: { ...w.market },
     gameTime: w.gameTime,
@@ -86,7 +87,7 @@ export function serialize(w) {
       seaLevel: w.map.seaLevel,
     },
     teams: Object.fromEntries(Object.entries(w.teams).map(([k, t]) => [k, {
-      resources: { ...t.resources }, upgrades: [...t.upgrades], era: t.era,
+      resources: { ...t.resources }, upgrades: [...t.upgrades], era: t.era, out: t.out, resigned: t.resigned,
     }])),
     buildings: w.buildings.map((b) => ({
       type: b.type, team: b.team, tx: b.tx, ty: b.ty, progress: b.progress, hp: b.hp,
@@ -103,10 +104,10 @@ export function serialize(w) {
       fires: [...c.fires.values()].map((f) => ({ x: f.x, y: f.y, t: f.t })),
       ash: [...c.ash.values()].map((a) => ({ x: a.x, y: a.y, t: a.t })),
     },
-    ai: {
-      nextWave: w.ai.nextWave, waveSize: w.ai.waveSize, waveNum: w.ai.waveNum,
-      assault: [...w.ai.assault].map((u) => uIndex.get(u)).filter((i) => i !== undefined),
-    },
+    ais: (w.ais || []).map((a) => ({
+      team: a.team, nextWave: a.nextWave, waveSize: a.waveSize, waveNum: a.waveNum,
+      assault: [...a.assault].map((u) => uIndex.get(u)).filter((i) => i !== undefined),
+    })),
     stats: w.stats ? w.stats.serialize() : null,
     wildlife: w.wildlife ? w.wildlife.serialize() : [],
     groups: (w.groups || []).map((g) => g.map((u) => uIndex.get(u)).filter((i) => i !== undefined)),

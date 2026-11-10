@@ -31,16 +31,21 @@ The `_headers` file tells Cloudflare not to cache the game code too hard, so upd
 
 `wrangler.jsonc` is Cloudflare's settings file. It says: serve the folder as the website, and run `worker/index.js` for anything under `/api/` (that's the online-play server). `.assetsignore` keeps the server code and this README off the website. Online play uses **Durable Objects**, which are included in Cloudflare's free Workers plan.
 
-## Play online (1 v 1)
+## Play online (up to 4 players)
 
 1. Main menu → **Play Online**, type your name.
-2. One of you presses **Host a Game** and reads out (or texts) the 5-letter code. The host picks the map and fog of war.
-3. The other types the code and presses **Join**. When both names show, the host presses **Start Game**.
-4. The host plays **Blue**, the guest **Red**. There are no computer players, just the two of you.
+2. One of you presses **Host a Game** and sends the others the 5-letter code.
+3. Friends type the code and press **Join** to take a seat, or **Watch** to spectate without playing.
+4. The host sets up the four seats (Blue, Red, Green, Yellow). Each seat can be **open** for a person, a **computer player** (Easy / Normal / Hard) or **closed**. The host also picks a **team** for each seat. Some examples:
+   - **1 v 1**: two people, the other seats closed.
+   - **2 v 2**: Blue + Green on Team 1, Red + Yellow on Team 2. Any seat can be a person or the computer.
+   - **Co-op**: two or three people on one team against computer players.
+   - **Free-for-all**: everyone on a different team.
+5. Pick the map and fog of war, then **Start Game**.
 
-In game: **Enter** opens chat. The number at the top right is your connection's round trip to the server. The **Menu** doesn't pause an online game. Use it to **Resign**, or to **Leave** (leaving counts as a loss).
+In game: **Enter** opens chat. The number at the top right is your connection's round trip to the server. The list under the climate panel shows every side, who's an ally, and who's been knocked out. The **Menu** doesn't pause an online game. Use it to **Resign**, or to **Leave** (leaving counts as resigning). If your side is knocked out you can keep watching. Spectators can click a side in the list to follow it.
 
-If someone's internet drops, the game pauses for both players and waits up to 90 seconds for them to come back. If someone refreshes or closes the page, **Play Online → Rejoin game** puts them back in. Their game quickly replays everything they missed. Online games are saved as replays too.
+If someone's internet drops, the game pauses for everyone and waits up to 90 seconds for them to come back. If they don't, their side resigns and the game carries on. If someone refreshes or closes the page, **Play Online → Rejoin game** puts them back in. Their game quickly replays everything they missed. Online games are saved as replays too.
 
 Online play only works on the Cloudflare site. It won't work when you run the game with Live Server, because there's no game server there.
 
@@ -52,11 +57,14 @@ Online play only works on the Cloudflare site. It won't work when you run the ga
 
 ## Menus & saving
 
-- **Main menu:** New Game (choose **Easy / Normal / Hard**, a **random** or **classic** map, and **fog of war** on/off), Load Game, How to Play.
+- **Main menu:** New Game: choose **1 v 1**, **2 v 2** (you plus a computer ally), or a **3- or 4-way free-for-all**, how good the computer players are (**Easy / Normal / Hard**), the **map** (each has a description), and **fog of war** on/off. Also Play Online, Load Game, Replays, How to Play and Settings.
+- Games with 3–4 sides use a bigger map (88 × 88 tiles instead of 64 × 64), with a town in each corner. With more sides the planet warms faster, but not twice as fast: each side's pollution counts a bit less.
 - **In game:** press **Esc** (with nothing selected), **F10** or the **Menu** button to pause. From there you can **save** to one of 3 slots, **load**, read the help, or quit to the main menu.
 - Saves are kept in your browser's storage on this computer.
 - **Replays:** every new game is recorded. When it ends, press **Watch Replay**, or open **Replays** on the main menu to watch your last 6 games. A replay is tiny: just the map settings and the orders you gave, with the time each one happened. The banner shows whether playback is still "in sync" (a replay recorded with an older version of the game may drift). Games continued from a save aren't recorded.
-- **Settings** (main menu or in-game menu): master, sound-effects and ambience volume.
+- **Settings** (main menu or in-game menu): master, music, sound-effects and ambience volume, and **Screen effects** (the soft vignette and colour grading; turn them off on slower computers).
+- **Delete:** select your own units or a building and press **Delete** (or the **✕ Delete** button under the portrait). A foundation nobody has started building gives its cost back. Your Town Centre asks you to press twice.
+- Saves from before v13 can't be loaded (games can now have up to four sides).
 
 ## Fog of war
 
@@ -80,7 +88,7 @@ Advance at the Town Centre. Each age unlocks new buildings (shown with a roman n
 
 | Age | Unlocks |
 | --- | --- |
-| I · Coal Age | Houses, farms, storage, docks, market, barracks, towers, walls, wind turbines, tree planting; scouts; basic upgrades at the Town Centre |
+| I · Coal Age | Houses, farms, mills, lumber camps, mining camps, docks, market, barracks, towers, walls, wind turbines, tree planting; scouts; basic upgrades at the Town Centre |
 | II · Industrial Age | Workshop, Coal Power Plant (lots of energy, lots of CO₂), Riflemen, Medics, Cannons. Buildings turn to brick with slate roofs and chimneys |
 | III · Modern Age | Apartment Blocks (+15 pop), Office Towers (steady income), Factories (wood + stone, but CO₂), Radar Stations (see through fog), Armoured Cars, Electric Tools, Body Armour, Automation. Concrete, glass and flat roofs |
 | IV · Transition Age | Solar Farm, Hydro Dam, Carbon Capture, Smart Grid, Reforestation, Cool Roofs. White buildings with solar panels on every roof |
@@ -92,8 +100,9 @@ Research takes time and is shown by a purple bar. Hover any button to see what i
 
 - Your **Town Centre** trains workers and is where resources get dropped off.
 - Select workers and **right-click trees, stone or berry bushes** to gather. They'll carry loads back automatically.
-- With workers selected, press **1–4** (or click the buttons) to build: House, Farm, Storage Shed, Barracks.
-- **Houses** raise your population limit. **Farms** give 300 food each. **Storage Sheds** are extra drop-off points — put them near forests and stone.
+- With workers selected, use the build grid to build houses, farms, drop-off camps, barracks and more.
+- **Houses** raise your population limit. **Farms** give 300 food each.
+- **Drop-off camps** save long walks. Workers carry **wood** to a **Lumber Camp**, **stone and coal** to a **Mining Camp**, and **food** to a **Mill** (or anything to the Town Centre). Camps are small (one tile) and cheap, so build them right next to the forest or quarry. The Mill (2 × 2) goes among your farms or near berries.
 - Click a building to see it. Town Centre and Barracks have train buttons.
 
 ### Fighting
@@ -186,8 +195,9 @@ src/save.js             saving / loading to browser storage
 src/rng.js              seeded random numbers + the state fingerprint (hash)
 src/replay.js           storing and listing replays
 src/net.js              the connection to an online game (reconnects by itself)
+src/setup.js            who is in a game: sides, alliances, computer players (1 v 1, 2 v 2, free-for-all)
 worker/index.js         the Cloudflare Worker: serves the game, opens online rooms
-worker/room-core.js     an online room: game codes, the turn clock, relaying orders, sync checks, chat
+worker/room-core.js     an online room: game codes, 4 seats, spectators, the turn clock, relaying orders, sync checks, chat
 wrangler.jsonc          Cloudflare settings (website + Worker + Durable Object)
 src/fog.js              fog of war
 src/audio.js            all sound effects and ambience (Web Audio synthesis)
@@ -225,7 +235,7 @@ src/scenes/UIScene.js   resource bar, command panel, diamond minimap, climate pa
 - [x] Phase 16 – Modern Age: a fifth era (Coal → Industrial → Modern → Transition → Green) with Apartment Blocks, Office Towers, Factories and Radar Stations; every building changes look each era; units change look with their upgrades
 - [x] Phase 17 – Multiplayer groundwork: the game is deterministic (seeded random numbers, fixed 50 ms ticks with smooth drawing in between, every unit and building has an id) and every player action is a "command" that runs on the next tick. Replays record those commands plus a state fingerprint every 2 seconds, and playback checks the fingerprints match
 - [x] Phase 18 – Online 1v1: a lobby with a short invite code, a free Cloudflare Worker + Durable Object relaying commands between players, lockstep networking (both games run the same commands on the same tick), sync checks, reconnecting / rejoining after a refresh, resigning, chat and ping display
-- [ ] Phase 19 – Bigger matches: 2v2 and free-for-all with up to 4 players, co-op against the AI, spectating and saved replays
+- [x] Phase 19 – Bigger matches: up to 4 sides (1 v 1, 2 v 2, 3- and 4-way free-for-all, co-op against the computer), alliances with shared vision, a bigger 4-corner map, online lobby with 4 seats (person / computer / closed) and team picks, spectating, a sides panel. Also: Lumber Camp / Mining Camp / Mill instead of the Storage Shed, deleting units and buildings, better unit art (faces, tabards, outlines), richer ground (flowers, tufts, colour patches) and screen effects
 - [ ] Phase 20 – Playtesting feedback
 
 ## How the simulation works (for multiplayer)

@@ -32,6 +32,9 @@ export class Climate {
   }
 
   addCO2(ppm) {
+    // With more than two sides there's more pollution to go round, so each side's share counts a bit less
+    // (four sides warm the planet about 40% faster than two, instead of twice as fast).
+    if (ppm > 0) ppm *= Math.sqrt(2 / Math.max(2, this.world.teamIds.length));
     this.co2 = Math.max(CLIMATE.baseCO2, this.co2 + ppm);
     if (ppm > 0) this.emittedTotal += ppm;
   }
@@ -104,8 +107,10 @@ export class Climate {
 
   // Whose town a fire or storm lands near. Against the computer it's always yours; online it's either.
   victimTeam() {
-    if (!this.world.mp) return 'player';
-    return this.world.rand() < 0.5 ? 'player' : 'enemy';
+    const w = this.world;
+    if (!w.mp && w.teamIds.length === 2) return w.me;
+    const live = w.liveTeams();
+    return live[Math.floor(w.rand() * live.length)] || w.me;
   }
 
   pickFireTile() {
@@ -234,7 +239,7 @@ export class Climate {
     const centre = bs[Math.floor(this.world.rand() * bs.length)];
     const radius = 5 * TILE;
     const hit = bs.filter((b) => Math.hypot(b.cx - centre.cx, b.cy - centre.cy) <= radius);
-    this.world.toast(`🌪️ A severe storm hit ${team === this.world.me ? 'your' : 'the enemy'} town! ${hit.length} building${hit.length === 1 ? '' : 's'} damaged`, '#9fc5e8');
+    this.world.toast(`🌪️ A severe storm hit ${team === this.world.me ? 'your' : `${this.world.teamName(team)}'s`} town! ${hit.length} building${hit.length === 1 ? '' : 's'} damaged`, '#9fc5e8');
     this.world.stormEffect(centre.cx, centre.cy, radius);
     if (this.world.sfx) this.world.sfx('thunder');
     for (const b of hit) this.world.damageBuilding(b, Math.round(b.maxHp * (0.25 + this.world.rand() * 0.2)), 'a storm');

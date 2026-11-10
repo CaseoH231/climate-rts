@@ -1,14 +1,28 @@
 // Global settings for the game. Change numbers here to tweak the game.
 
-export const GAME_VERSION = 'v12';
+export const GAME_VERSION = 'v13';
 export const TICK_MS = 50;   // the simulation moves in fixed 50 ms steps (20 per second)
 export const TILE = 32;      // size of one map tile in pixels
-export const MAP_W = 64;     // map width in tiles
-export const MAP_H = 64;     // map height in tiles
+// Map size in tiles. 1 v 1 games use 64 × 64; games with 3–4 sides use a bigger map (see mapSizeFor).
+// These change between games, so always read them when you need them (don't copy them at load time).
+export let MAP_W = 64;
+export let MAP_H = 64;
+export function setMapSize(w, h) { MAP_W = w; MAP_H = h; }
+export function mapSizeFor(numTeams) { return numTeams > 2 ? 88 : 64; }
 export const MAP_SEED = 20261107; // change this for a different map
 
-export const PLAYER_START = { x: 12, y: 12 }; // centre tile of the player's Town Centre
-export const ENEMY_START = { x: 51, y: 50 };  // centre tile of the enemy's Town Centre
+export const PLAYER_START = { x: 12, y: 12 }; // centre tile of Blue's Town Centre (on a 64 × 64 map)
+export const ENEMY_START = { x: 51, y: 50 };  // centre tile of Red's Town Centre (on a 64 × 64 map)
+
+// Up to four sides. 'player' and 'enemy' are Blue and Red (the names come from the 1 v 1 days).
+export const TEAM_IDS = ['player', 'enemy', 'green', 'yellow'];
+export const TEAM_NAMES = { player: 'Blue', enemy: 'Red', green: 'Green', yellow: 'Yellow' };
+
+// Where each side starts on a w × h map: Blue top, Red bottom, Green right, Yellow left (all corners).
+export function startFor(team, w, h) {
+  const i = TEAM_IDS.indexOf(team);
+  return [{ x: 12, y: 12 }, { x: w - 13, y: h - 14 }, { x: w - 13, y: 12 }, { x: 12, y: h - 14 }][i];
+}
 
 export const START_RESOURCES = { food: 200, wood: 200, stone: 100, fuel: 0, clean: 0 };
 export const POP_MAX = 200;
@@ -65,6 +79,8 @@ export const CLIMATE = {
 export const TEAM_COLORS = {
   player: { main: 0x3f6296, dark: 0x253c5e },
   enemy:  { main: 0x93382f, dark: 0x5c201b },
+  green:  { main: 0x3b8044, dark: 0x214a27 },
+  yellow: { main: 0xb58c22, dark: 0x6b5212 },
 };
 
 // Game speeds the player can pick (+ / - keys or the ×1 button in the top bar).

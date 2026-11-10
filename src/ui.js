@@ -72,6 +72,15 @@ export function button(scene, x, y, w, h, label, onClick, opts = {}) {
 }
 
 // Three volume controls (master / effects / ambience) with − and + buttons. Returns the objects created.
+// Screen effects (soft vignette + colour grading on the game view). On by default; slower computers can turn them off.
+const FX_KEY = 'age-of-emissions-fx';
+export function fxEnabled() {
+  try { return localStorage.getItem(FX_KEY) !== 'off'; } catch (e) { return true; }
+}
+function setFx(on) {
+  try { localStorage.setItem(FX_KEY, on ? 'on' : 'off'); } catch (e) { /* ignore */ }
+}
+
 export function volumeRows(scene, x, y, width, depth) {
   const items = [];
   const rows = [['master', 'Master volume'], ['music', 'Music'], ['sfx', 'Sound effects'], ['ambience', 'Ambience']];
@@ -86,6 +95,16 @@ export function volumeRows(scene, x, y, width, depth) {
     const plus = button(scene, x + width - 48, yy, 44, 40, '+', () => { audio.setVolume(key, audio.settings[key] + 0.1); refresh(); }, { depth });
     items.push(txt, minus, plus);
   });
+  const yy = y + rows.length * 48;
+  const fxTxt = scene.add.text(x, yy + 10, '', { fontFamily: FONT_SERIF, fontSize: '17px', color: UI_COL.text, stroke: '#000', strokeThickness: 3 }).setDepth(depth);
+  const fxBtn = button(scene, x + width - 100, yy, 96, 40, '', () => {
+    setFx(!fxEnabled());
+    refreshFx();
+    scene.game.events.emit('fxChanged');
+  }, { depth });
+  const refreshFx = () => { fxTxt.setText('Screen effects'); fxBtn.setLabel ? fxBtn.setLabel(fxEnabled() ? 'On' : 'Off') : null; };
+  refreshFx();
+  items.push(fxTxt, fxBtn);
   return items;
 }
 
