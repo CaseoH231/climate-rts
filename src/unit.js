@@ -1,6 +1,6 @@
 // Units: workers and soldiers. Workers can gather resources and construct buildings.
 import { findPath, smoothPath } from './pathfinding.js';
-import { unitKey, ART_RES, unitTier, ensureUnitTex } from './art.js';
+import { unitKey, ART_RES, unitTier, ensureUnitTex, ensureJobTex, jobContact, ensureCarryTex } from './art.js';
 import { toIso } from './iso.js';
 import { TERRAIN, TILE } from './config.js';
 
@@ -58,7 +58,13 @@ export function hitDamage(def, target) {
 
 const GATHER_RATE = { wood: 0.9, stone: 0.7, food: 0.8, fuel: 1.1 }; // per second (coal is quick to mine!)
 const CARRY_MAX = 10;
-const CARRY_COLOR = { wood: 0x8a6440, stone: 0xa9a59b, food: 0xc9a94e, fuel: 0x1f1f1f };
+// (visual) how each worker job's work cycle goes: ms per cycle, and when in it the blow lands
+const JOB_TIMING = {
+  pick: [780, 540], axe: [660, 430], hammer: [440, 270], hoe: [840, 580], knife: [440, 260],
+  forage: [900, 520], spear: [600, 300], chainsaw: [260, 130], drill: [280, 140],
+};
+// (visual) what flies off when a blow lands
+const HIT_FX = { wood: 'wood', stone: 'stone', fuel: 'coal', berries: 'berries', meat: 'meat', grain: 'soil', build: 'build' };
 const GATHER_WORD = { wood: 'chopping wood', stone: 'mining stone', food: 'foraging', fuel: 'mining coal' };
 
 export class Unit {
@@ -108,11 +114,20 @@ export class Unit {
     this.baseScale = this.sprite.scaleY;
     this.strikeT = 0;   // (visual) how long to keep showing the strike pose
     this.tool = null;
+    // (visual only) the tool in hand, a short step to line up with the work, and the held pose
+    this.job = 'pick';
+    this.vox = 0;
+    this.voy = 0;
+    this.workSpot = null;
+    this.stepping = false;
+    this.holdT = 0;
+    this.carryLook = null;
     const body = [this.sprite];
 
     this.body = body;
 
-    this.carryIcon = scene.add.rectangle(-9, -6, 6, 6, 0xffffff).setStrokeStyle(1, 0x1a1a1a).setVisible(false);
+    ensureCarryTex(scene);
+    this.carryIcon = scene.add.image(-8, -24, 'carry_wood').setScale(1 / ART_RES).setVisible(false);
     const barY = big ? -30 : -38; // above the head (units are drawn at UNIT_SCALE)
     this.hpBg = scene.add.rectangle(-11, barY, 22, 4, 0x000000, 0.65).setOrigin(0, 0.5).setVisible(false);
     this.hpFill = scene.add.rectangle(-10, barY, 20, 2, 0x8fb04a).setOrigin(0, 0.5).setVisible(false);
@@ -192,6 +207,7 @@ export class Unit {
   orderHunt(deer) {
     this.stop();
     this.order = { kind: 'hunt', deer, repath: 0 };
+    this.setJob('spear');
   }
 
   // Run to a building and shelter inside it. `prev` is the job to go back to afterwards.
@@ -235,6 +251,7 @@ export class Unit {
     if (this.order && this.order.farm && this.order.farm.farmer === this) this.order.farm.farmer = null;
     this.order = null;
     this.path = [];
+    this.workSpot = null;
     this.sprite.rotation = 0;
     this.sprite.y = 0;
     this.setFrame(0);
@@ -246,14 +263,146 @@ export class Unit {
     if (tier === this.tier) return;
     this.tier = tier;
     ensureUnitTex(this.scene, this.type, this.team, tier);
-    this.sprite.setTexture(unitKey(this.type, this.team, this.def.vehicle ? 0 : this.frame, tier));
+    if (this.type === 'worker') ensureJobTex(this.scene, this.team, tier, this.job);
+    this.sprite.setTexture(this.texKey(this.def.vehicle ? 0 : this.frame));
+  }
+
+  texKey(f) {
+    return unitKey(this.type, this.team, f, this.tier, this.type === 'worker' ? this.job : null);
   }
 
   setFrame(f) {
-    if (this.def.vehicle || f === this.frame) return;
+    if (this.def.vehicle || f === this.frame || this.holdT > 0) return;
     if (f > 2 && (this.type === 'scout' || this.def.mounted)) f = f === 3 ? 1 : f === 4 ? 2 : 0; // riders only have 3 frames
     this.frame = f;
-    this.sprite.setTexture(unitKey(this.type, this.team, f, this.tier));
+    this.sprite.setTexture(this.texKey(f));
+  }
+
+  // (visual) Pick up the right tool for a job: axe for wood, pick for stone and coal, and so on.
+  setJob(job) {
+    if (this.type !== 'worker' || !job || job === this.job) return;
+    this.job = job;
+    ensureJobTex(this.scene, this.team, this.tier, job);
+    this.sprite.setTexture(this.texKey(this.frame));
+  }
+
+  jobForOrder(o) {
+    if (!o) return null;
+    if (o.kind === 'build') return 'hammer';
+    if (o.kind === 'hunt') return 'spear';
+    if (o.kind !== 'gather') return null;
+    if (o.farm) return 'hoe';
+    if (o.res === 'wood') return 'axe';
+    if (o.res === 'stone' || o.res === 'fuel') return 'pick';
+    const t = this.map.get(o.tx, o.ty);
+    return t === TERRAIN.MEAT ? 'knife' : 'forage';
+  }
+
+  // (visual) Where to stand so the blow lands on the thing being worked: beside the nearest trunk,
+  // rock or bush (or the edge of the building), with the tool's working end on it.
+  aimAt(point) {
+    const home = toIso(this.px, this.py);
+    const side = home.x <= point.x ? 1 : -1;
+    const c = jobContact(this.job, this.tier);
+    // stand beside it (feet level with its base), so the blow reaches across to it
+    const spot = { x: point.x - side * c.x, y: point.base + 2, side };
+    // don't stand inside another worker: shuffle along a little
+    for (const [ox, oy] of [[0, 0], [16, 8], [-16, -8], [16, -8], [-16, 8], [0, 12], [0, -12], [30, 0], [-30, 0]]) {
+      if (!this.spotTaken(spot.x + ox, spot.y + oy)) { spot.x += ox; spot.y += oy; break; }
+    }
+    // never more than a short step from where we really are
+    const dx = spot.x - home.x;
+    const dy = spot.y - home.y;
+    const d = Math.hypot(dx, dy);
+    const MAX = 34;
+    if (d > MAX) { spot.x = home.x + (dx / d) * MAX; spot.y = home.y + (dy / d) * MAX; }
+    this.workSpot = spot;
+  }
+
+  spotTaken(x, y) {
+    for (const u of this.scene.units) {
+      if (u !== this && u.workSpot && u.order && u.order.phase === 'work' && Math.hypot((u.workSpot.x - x) * 0.8, (u.workSpot.y - y) * 1.4) < 13) return true;
+    }
+    return false;
+  }
+
+  // (visual) Farmers work their way around the field.
+  aimAtFarm(f) {
+    const p = toIso((f.tx + 0.6 + Math.random() * (f.w - 1.2)) * TILE, (f.ty + 0.6 + Math.random() * (f.h - 1.2)) * TILE);
+    const home = toIso(this.px, this.py);
+    let dx = p.x - home.x;
+    let dy = p.y - home.y;
+    const d = Math.hypot(dx, dy);
+    if (d > 40) { dx *= 40 / d; dy *= 40 / d; }
+    this.workSpot = { x: home.x + dx, y: home.y + dy, side: Math.random() < 0.5 ? 1 : -1 };
+    this.workTarget = null;
+  }
+
+  aimAtTile(tx, ty) {
+    const anchors = this.map.objectAnchors(tx, ty);
+    if (!anchors.length) { this.workSpot = null; return; }
+    const home = toIso(this.px, this.py);
+    // one of the nearest two (so two workers on one tree don't stand inside each other)
+    const near = anchors.map((a) => ({ a, d: Math.hypot(a.x - home.x, a.y - home.y) })).sort((p, q) => p.d - q.d);
+    const best = near[(Number(this.id) || 0) % Math.min(2, near.length)].a;
+    const side = home.x <= best.x ? 1 : -1;
+    // aim at the near side of a rock or bush, the trunk of a tree
+    this.aimAt({ x: best.x - side * best.w, base: best.y });
+    this.workTarget = best;
+  }
+
+  aimAtBuilding(b) {
+    // the nearest point on the building's footprint, a little way up its wall
+    const x = Math.max(b.tx * TILE, Math.min(this.px, (b.tx + b.w) * TILE));
+    const y = Math.max(b.ty * TILE, Math.min(this.py, (b.ty + b.h) * TILE));
+    const p = toIso(x, y);
+    this.aimAt({ x: p.x, base: p.y });
+    this.workTarget = null;
+  }
+
+  // (visual) Called every frame: step into place for the work, keep the load on the shoulder.
+  updateVisual(delta) {
+    if (this.holdT > 0) this.holdT -= delta;
+    let tx = 0;
+    let ty = 0;
+    const busy = this.order && this.order.phase === 'work' && !this.path.length;
+    const working = busy && this.workSpot;
+    if (working) {
+      const home = toIso(this.px, this.py);
+      tx = this.workSpot.x - home.x;
+      ty = this.workSpot.y - home.y;
+    }
+    const dx = tx - this.vox;
+    const dy = ty - this.voy;
+    const d = Math.hypot(dx, dy);
+    const step = (this.speed || 70) * 1.1 * delta / 1000;
+    if (d <= step || d < 0.5) {
+      this.vox = tx; this.voy = ty;
+      if (this.stepping && working) this.sprite.setFlipX(this.workSpot.side < 0);
+      this.stepping = false;
+    } else {
+      this.vox += (dx / d) * step;
+      this.voy += (dy / d) * step;
+      // walk the little step (only when it's a step into place, not while walking off elsewhere)
+      if (working) {
+        this.stepping = true;
+        if (Math.abs(dx) > 0.5) this.sprite.setFlipX(dx < 0);
+        this.walkPhase += delta * 0.014;
+        const WALK = [0, 3, 1, 3, 0, 4, 2, 4];
+        const ph = ((this.walkPhase % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+        this.setFrame(WALK[Math.floor((ph / (Math.PI * 2)) * 8) % 8]);
+        this.sprite.y = -Math.abs(Math.sin(this.walkPhase)) * 1.4;
+      }
+    }
+    // the load rides on the back shoulder, bobbing with the walk (put down while working)
+    const ci = this.carryIcon;
+    if (ci.visible !== (this.carry >= 0.5 && !busy && !!this.carryLook)) ci.setVisible(!ci.visible);
+    if (ci.visible) {
+      const flip = this.sprite.flipX;
+      ci.setFlipX(flip);
+      ci.x = flip ? 7.5 : -7.5;
+      ci.y = -24 + this.sprite.y;
+    }
   }
 
   // Turn to face a point on the grid (left/right on screen).
@@ -285,6 +434,7 @@ export class Unit {
   orderBuild(b) {
     this.stop();
     this.order = { kind: 'build', building: b, phase: 'goto' };
+    this.setJob('hammer');
     if (!this.walkToAny(this.map.standSpots(b.tx, b.ty, b.w, b.h, this.tile))) this.stop();
   }
 
@@ -292,6 +442,7 @@ export class Unit {
   goToResource() {
     const o = this.order;
     o.phase = 'goto';
+    this.setJob(this.jobForOrder(o));
     o.retried = false;
     let ok;
     if (o.farm) {
@@ -352,22 +503,32 @@ export class Unit {
 
   // Chopping / mining / hammering: raise the tool, then bring it down (with a few chips flying).
   animateWork(dt) {
-    const CYCLE = 620;
+    this.sprite.scaleY = this.baseScale;
+    this.sprite.rotation = 0;
+    if (this.stepping) return; // still stepping into place
+    const tool = this.tier === 2 && this.job === 'axe' ? 'chainsaw' : this.tier === 2 && (this.job === 'pick' || this.job === 'hammer') ? 'drill' : this.job;
+    const [CYCLE, HIT] = JOB_TIMING[tool] || [620, 400];
     const before = this.workAnim % CYCLE;
     this.workAnim += dt;
     const t = this.workAnim % CYCLE;
-    const struck = t < before; // wrapped round: the blow lands now
-    const strike = t < 170;
+    const struck = before < HIT && t >= HIT; // the blow lands now
+    const strike = t >= HIT;
     this.setFrame(strike ? 6 : 5);
-    this.sprite.scaleY = this.baseScale;
-    this.sprite.rotation = strike ? 0.06 : -0.04;
-    this.sprite.y = strike ? 0.6 : -0.8;
-    if (struck && this.scene.renderShots && this.container.visible && this.scene.fx && this.scene.fx.chips) {
-      const o = this.order;
-      const color = o && o.kind === 'build' ? 0xb08a5a
-        : o && o.res === 'wood' ? 0xc79a5b : o && o.res === 'stone' ? 0xa8a29a : o && o.res === 'fuel' ? 0x2b2b2b : 0x8bbf5a;
-      this.scene.fx.chips(this.isoX + (this.sprite.flipX ? -9 : 9), this.isoY - 4, color);
+    if (this.workSpot) this.sprite.setFlipX(this.workSpot.side < 0);
+    // power tools judder rather than swing
+    this.sprite.y = tool === 'chainsaw' || tool === 'drill' ? (Math.random() - 0.5) * 0.8 : strike ? 0.5 : -0.4;
+    const o = this.order;
+    if (struck && this.scene.renderShots && this.container.visible && this.scene.fx && this.scene.fx.workHit) {
+      const kind = o && o.kind === 'build' ? 'build' : HIT_FX[this.carryLook] || null;
+      if (kind) {
+        // where the tool's end (or the reaching hand) is at the moment of the blow
+        const c = jobContact(this.job, this.tier);
+        const flip = this.sprite.flipX ? -1 : 1;
+        this.scene.fx.workHit(kind, { x: this.isoX + flip * c.x, y: this.isoY + c.y }, this, this.workTarget);
+      }
     }
+    // farmers move on along the rows every few strokes
+    if (struck && o && o.farm && ++this.strokes % 4 === 0) this.aimAtFarm(o.farm);
   }
 
   // Standing about: a slow breath so idle people don't look frozen.
@@ -378,9 +539,7 @@ export class Unit {
   }
 
   updateCarryIcon() {
-    const show = this.carry >= 0.5;
-    this.carryIcon.setVisible(show);
-    if (show) this.carryIcon.setFillStyle(CARRY_COLOR[this.carryType]);
+    if (this.carry >= 0.5 && this.carryLook) this.carryIcon.setTexture(`carry_${this.carryLook}`);
   }
 
   // ---------- Every frame ----------
@@ -440,6 +599,16 @@ export class Unit {
         return;
       }
       if (Math.hypot(d.x - this.x, d.y - this.y) < 100) { // close enough to throw a spear
+        if (world.renderShots && this.container.visible && world.fx && world.fx.spear) {
+          // (visual) the throw: hold the follow-through for a moment and send a spear flying
+          this.setJob('spear');
+          this.face(d.x, d.y);
+          this.setFrame(6);
+          this.holdT = 320;
+          const to = toIso(d.x, d.y);
+          const c = jobContact('spear', this.tier);
+          world.fx.spear(this.isoX + (this.sprite.flipX ? -c.x : c.x), this.isoY + c.y, to.x, to.y - 4);
+        }
         const t = world.wildlife.kill(d, world);
         d.meat = t;
         if (t) this.orderGather(t); else this.stop();
@@ -633,8 +802,10 @@ export class Unit {
         return;
       }
       o.phase = 'work';
+      this.setJob('hammer');
+      this.aimAtBuilding(b);
     }
-    this.face(b.cx, b.cy);
+    if (!this.workSpot) this.face(b.cx, b.cy);
     this.animateWork(dt);
     this.workSound(dt, world, 'build');
     if (b.addProgress(dt)) {
@@ -660,10 +831,17 @@ export class Unit {
       }
       if (this.carryType !== o.res) { this.carry = 0; this.carryType = o.res; }
       o.phase = 'work';
+      // (visual) the right tool, and a step to stand right at the tree / rock / bush
+      const job = this.jobForOrder(o);
+      this.setJob(job);
+      this.carryLook = o.farm ? 'grain' : job === 'knife' ? 'meat' : job === 'forage' ? 'berries' : o.res;
+      if (o.farm) this.aimAtFarm(o.farm); else this.aimAtTile(o.tx, o.ty);
+      this.strokes = 0;
+      o.aimed = `${o.tx},${o.ty}`;
     }
 
     if (o.phase === 'work') {
-      if (!o.farm) { const c = this.map.tileCenter(o.tx, o.ty); this.face(c.x, c.y); }
+      if (!o.farm && !this.workSpot) { const c = this.map.tileCenter(o.tx, o.ty); this.face(c.x, c.y); }
       this.animateWork(dt);
       this.workSound(dt, world, o.res === 'wood' ? 'chop' : o.res === 'food' ? 'forage' : 'mine');
       const meat = !o.farm && this.map.get(o.tx, o.ty) === TERRAIN.MEAT; // butchering is quick work

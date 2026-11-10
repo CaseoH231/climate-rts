@@ -666,6 +666,43 @@ export class GameMap {
     return best;
   }
 
+  // Where the things on a resource tile actually stand (tree trunks, rocks, bushes, a carcass), in
+  // screen coordinates, so workers can line up their blows with them. Uses the same random numbers
+  // as drawObject below, so it must follow the same order. (Just for show.)
+  objectAnchors(tx, ty) {
+    const t = this.get(tx, ty);
+    const r = tileRand(tx, ty);
+    const at = (fx, fy) => toIso(tx * TILE + fx, ty * TILE + fy);
+    const out = [];
+    if (t === TERRAIN.FOREST) {
+      const n = 3 + (r() < 0.5 ? 1 : 0);
+      for (let i = 0; i < n; i++) {
+        const p = at(4 + r() * 24, 4 + r() * 24);
+        const size = 8 + r() * 3.5;
+        r(); r();
+        out.push({ x: p.x, y: p.y, hit: p.y - size * 0.5, top: p.y - size * 2.6, w: 2 });
+      }
+    } else if (t === TERRAIN.STONE || t === TERRAIN.COAL) {
+      const coal = t === TERRAIN.COAL;
+      const n = coal ? 5 : 3;
+      for (let i = 0; i < n; i++) {
+        const p = at(7 + r() * 18, 7 + r() * 18);
+        const size = coal ? 4 + r() * 3 : 6 + r() * 4;
+        out.push({ x: p.x, y: p.y, hit: p.y - size * 0.35, w: size * 0.6 });
+      }
+    } else if (t === TERRAIN.MEAT) {
+      const c = at(16, 18);
+      out.push({ x: c.x, y: c.y, hit: c.y - 1, w: 6 });
+    } else if (t === TERRAIN.BERRIES) {
+      for (let i = 0; i < 2; i++) {
+        const p = at(8 + r() * 16, 8 + r() * 16);
+        for (let k = 0; k < 14; k++) r();
+        out.push({ x: p.x, y: p.y, hit: p.y - 5, w: 6 });
+      }
+    }
+    return out;
+  }
+
   // Trees, rocks, coal, bushes and stumps, drawn standing up in isometric view.
   drawObject(ctx, tx, ty) {
     const t = this.get(tx, ty);

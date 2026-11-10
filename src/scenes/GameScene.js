@@ -1931,6 +1931,7 @@ export default class GameScene extends Phaser.Scene {
     }
     // Waiting for the next turn from the server (or a lag spike): don't build up a backlog.
     if (n >= MAX_TICKS_PER_FRAME || this.tick >= limit) this.acc = Math.min(this.acc, TICK_MS);
+    for (const u of this.units) u.updateVisual(delta);
     this.interpolate(this.gameOver ? 1 : this.acc / TICK_MS);
   }
 
@@ -2236,12 +2237,14 @@ export default class GameScene extends Phaser.Scene {
   // Draw units part-way between their last two tick positions, so movement stays smooth at any frame rate.
   interpolate(a) {
     for (const u of this.units) {
-      if (u.ox === undefined) continue;
-      const dx = u.px - u.ox;
-      const dy = u.py - u.oy;
-      if (dx * dx + dy * dy > TILE * TILE * 4) continue; // teleported (left a building): don't slide
-      const iso = toIso(u.ox + dx * a, u.oy + dy * a);
-      u.container.setPosition(iso.x, iso.y);
+      let iso;
+      const dx = u.ox === undefined ? 0 : u.px - u.ox;
+      const dy = u.oy === undefined ? 0 : u.py - u.oy;
+      if (u.ox === undefined || dx * dx + dy * dy > TILE * TILE * 4) iso = toIso(u.px, u.py); // teleported: don't slide
+      else iso = toIso(u.ox + dx * a, u.oy + dy * a);
+      // (plus the little visual step a worker takes to stand right at the tree / rock / wall)
+      u.container.setPosition(iso.x + u.vox, iso.y + u.voy);
+      if (u.voy) u.container.setDepth(iso.y + u.voy);
     }
     this.wildlife.interpolate(a);
   }

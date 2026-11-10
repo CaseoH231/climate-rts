@@ -82,7 +82,11 @@ Online play only works on the Cloudflare site. It won't work when you run the ga
 - **Getting around:** people walk in straight lines where they can, instead of zig-zagging tile by tile. They squeeze diagonally past a corner (between a house and a tree, say) wherever there's visibly room.
 - **Delete:** select your own units or a building and press **Delete** (or the **✕ Delete** button under the portrait). A foundation nobody has started building gives its cost back. Your Town Centre asks you to press twice.
 - Saves from before v13 can't be loaded (games can now have up to four sides).
-- **Animations:** people walk with a smoother stride, raise their axe or pick and bring it down (chips fly), wind up before a sword blow, flinch when hit, breathe while standing about, and stagger before they fall. Rifles kick back, and buildings settle with a puff of dust when finished. All of this is just for show: it never changes the game, so replays and online games stay in sync.
+- **Animations:** people walk with a smoother stride, wind up before a sword blow, flinch when hit, breathe while standing about, and stagger before they fall. Rifles kick back, and buildings settle with a puff of dust when finished.
+- **Workers use the right tool for the job** (like AoE2 villagers): an **axe** for wood, a **pick** for stone and coal, a **hammer** for building, a **hoe** on farms, a **knife** to butcher a deer, a **spear** for hunting (they throw it), and **bare hands and a basket** for berries. With Electric Tools the axe becomes a chainsaw and the pick and hammer a power drill.
+- **Blows land on the thing being worked.** A worker takes a short step to stand right beside the nearest tree trunk, rock, bush or building wall, so the axe bites the trunk, the pick hits the rock and the hand reaches into the bush. Workers sharing a tree spread out around it, and farmers work their way along the rows. Each blow has its own effect: wood chips and falling leaves, rock chips and sparks, coal dust, a berry dropped into the basket, clods of soil, sawdust.
+- **Loads are carried home on the shoulder:** a bundle of logs, a stone block, a sack of coal, a basket of berries, a haunch of venison or a sheaf of wheat.
+- All of this is just for show: it never changes the game, so replays and online games stay in sync.
 
 ## Fog of war
 
@@ -258,6 +262,7 @@ src/scenes/UIScene.js   resource bar, command panel, diamond minimap, climate pa
 - [x] Phase 19½ – AoE2-style game set-up: quick set-ups (1v1, 1v2, 1v3, 2v1, 2v2, 3v1, 1v1v1, 1v1v1v1), every seat set to you / a computer (own level) / closed, team numbers 1–4 or "–", play as any colour, allies start in neighbouring corners — the same in the online lobby
 - [x] Phase 19¾ – Game settings (map size, resources, starting age, population, reveal map, peace time, victory, climate) for single player and online, bridges, smoother movement that squeezes through visible gaps
 - [x] Phase 20 – Polish: better animations (smoother walking, tool swings, sword wind-ups, flinches, falls, building completion), tributes between sides, and a Freeplay practice mode with an economy panel, milestones and personal bests
+- [x] Phase 20½ – Animation overhaul: a tool and working poses for each job, workers lining up with the exact tree / rock / bush / wall they're working, per-job hit effects, carried loads, spear throws
 - [ ] Phase 21 – Gore update: an optional blood & gore setting (off by default) — blood spatter on hits, bodies that stay on the battlefield longer, more dramatic deaths, scorch marks from explosions
 - [ ] Phase 22 – Playtesting feedback
 

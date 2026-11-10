@@ -1459,7 +1459,7 @@ export const FRAMES = [
 ];
 const PERSON_FRAMES = [0, 1, 2, 3, 4, 5, 6];
 const RIDER_FRAMES = [0, 1, 2];
-const PAD = 7; // spare room either side of a person for a swung tool or sword
+const PAD = 12; // spare room either side of a person for a swung tool or sword
 
 // Draw a held tool/weapon (drawn for the normal pose) moved and turned to the current pose's hand.
 function heldTool(ctx, draw) {
@@ -1470,6 +1470,167 @@ function heldTool(ctx, draw) {
   ctx.translate(-23.6, -24.6);
   draw();
   ctx.restore();
+}
+
+// ---------- Worker jobs ----------
+// Workers carry the tool for the job they're doing (like villagers in AoE2), and each job has its
+// own two working poses: 1 = wind-up / reach, 2 = the blow / pull back.
+// hand: where the front hand is; th: tool angle (0 = handle straight up, + = tipped forward);
+// lean: upper body tipped forward; crouch: knees bent.
+let JOB = null;          // which worker job is being drawn (null for soldiers etc.)
+let CONTACT = null;      // filled in while drawing: where the tool's working end is (canvas units)
+export const JOBS = ['pick', 'axe', 'hammer', 'hoe', 'knife', 'spear', 'forage'];
+const REST_TH = 0.28;
+const JOB_POSES = {
+  pick:     [{ hand: [21.2, 12.4], th: -1.15, lean: -0.06 }, { hand: [27.2, 23], th: 1.95, lean: 0.14 }],
+  axe:      [{ hand: [19.4, 12.8], th: -1.25, lean: -0.08 }, { hand: [28.4, 19.6], th: 1.45, lean: 0.08 }],
+  hammer:   [{ hand: [23.6, 13.2], th: -0.9, lean: 0 }, { hand: [27.6, 23.4], th: 1.95, lean: 0.12 }],
+  hoe:      [{ hand: [24.2, 13.2], th: -0.55, lean: -0.04 }, { hand: [26.6, 23], th: 2.2, lean: 0.16 }],
+  knife:    [{ hand: [25, 21], th: 1.3, lean: 0.18, crouch: 3 }, { hand: [27.4, 24.2], th: 2.3, lean: 0.24, crouch: 3 }],
+  spear:    [{ hand: [12.6, 13.2], th: 1.52, lean: -0.12 }, { hand: [28, 16.4], th: 1.52, lean: 0.14, empty: true }],
+  forage:   [{ hand: [29.6, 19.2], lean: 0.12, crouch: 1.5 }, { hand: [19.6, 22.6], lean: 0.04, crouch: 1.5, berries: true }],
+  // electric tools (after Electric Tools)
+  chainsaw: [{ hand: [24.2, 19.6], th: 0.7, lean: 0 }, { hand: [27.4, 21.4], th: 1.6, lean: 0.08 }],
+  drill:    [{ hand: [25.2, 21.6], th: 1.35, lean: 0.04 }, { hand: [26.6, 24.4], th: 1.95, lean: 0.14 }],
+};
+// the electric version of a job's tool, if there is one
+function jobTool(job) {
+  if (UNIT_TIER === 2 && job === 'axe') return 'chainsaw';
+  if (UNIT_TIER === 2 && (job === 'pick' || job === 'hammer')) return 'drill';
+  return job;
+}
+function poseSpec() {
+  if (!JOB || !POSE) return null;
+  return JOB_POSES[jobTool(JOB)][POSE - 1];
+}
+
+// Tools in their own frame: grip at (0, 0), handle pointing up (−y), working end listed as `tip`.
+const TOOLS = {
+  pick: { tip: [6.6, -12.4], draw(ctx) {
+    ctx.strokeStyle = '#6b4a2c'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(0, 1.6); ctx.lineTo(0, -14); ctx.stroke();
+    ctx.strokeStyle = UNIT_TIER === 1 ? '#d5dade' : '#8d9296'; ctx.lineWidth = UNIT_TIER === 1 ? 2.4 : 2;
+    ctx.beginPath(); ctx.moveTo(-4.6, -11.6); ctx.quadraticCurveTo(0, -16.2, 6.6, -12.4); ctx.stroke();
+  } },
+  axe: { tip: [5.8, -12.6], draw(ctx) {
+    ctx.strokeStyle = '#7a5530'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(0, 1.6); ctx.quadraticCurveTo(0.8, -6, 0, -15); ctx.stroke();
+    ctx.fillStyle = UNIT_TIER === 1 ? '#dfe3e6' : '#9aa0a4';
+    ctx.beginPath(); ctx.moveTo(0, -15.4); ctx.lineTo(5.2, -16.6); ctx.quadraticCurveTo(6.6, -12.6, 5.2, -9.4); ctx.lineTo(0, -11.2); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.fillRect(4.4, -15.6, 0.9, 5.4);
+  } },
+  hammer: { tip: [3.4, -10.4], draw(ctx) {
+    ctx.strokeStyle = '#7a5530'; ctx.lineWidth = 1.8; ctx.beginPath(); ctx.moveTo(0, 1.4); ctx.lineTo(0, -10); ctx.stroke();
+    ctx.fillStyle = UNIT_TIER === 1 ? '#c8ced2' : '#6e7276';
+    ctx.fillRect(-3, -12.2, 6.4, 3.4);
+    ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.fillRect(-3, -12.2, 6.4, 0.8);
+  } },
+  hoe: { tip: [4.4, -15.2], draw(ctx) {
+    ctx.strokeStyle = '#7a5530'; ctx.lineWidth = 1.8; ctx.beginPath(); ctx.moveTo(0, 2); ctx.lineTo(0, -17); ctx.stroke();
+    ctx.fillStyle = UNIT_TIER === 1 ? '#c8ced2' : '#7e8286';
+    poly(ctx, [[-0.6, -17.6], [4.8, -16.4], [4.4, -14], [0, -15.4]]); ctx.fill();
+  } },
+  knife: { tip: [0, -7.4], draw(ctx) {
+    ctx.fillStyle = '#3a2a1c'; ctx.fillRect(-0.9, -2.6, 1.8, 3.6);
+    ctx.fillStyle = '#d8dde0'; poly(ctx, [[-1, -2.6], [1, -2.6], [0.4, -7.4], [-1, -6]]); ctx.fill();
+  } },
+  spear: { tip: [0, -21], draw(ctx) {
+    ctx.strokeStyle = '#8a6a44'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(0, 7); ctx.lineTo(0, -18); ctx.stroke();
+    ctx.fillStyle = '#cfd4d8'; poly(ctx, [[-1.4, -18], [1.4, -18], [0, -22]]); ctx.fill();
+  } },
+  chainsaw: { tip: [0, -14], draw(ctx) {
+    ctx.fillStyle = '#e46a1c'; ctx.fillRect(-2.6, -4.4, 6, 5.4);
+    ctx.fillStyle = '#2a2a2a'; ctx.fillRect(-1.6, -1, 3, 2.4);
+    ctx.fillStyle = '#b8bdc1'; ctx.fillRect(-1.1, -15, 2.4, 10.8);
+    ctx.fillStyle = '#4a4a4a'; for (let y = -14.4; y < -4.6; y += 1.6) { ctx.fillRect(-1.6, y, 0.7, 0.8); ctx.fillRect(1.2, y + 0.8, 0.7, 0.8); }
+  } },
+  drill: { tip: [0, -11.6], draw(ctx) {
+    ctx.fillStyle = '#e0b21a'; ctx.fillRect(-2.6, -7, 5.2, 6.4);
+    ctx.fillStyle = '#2a2a2a'; ctx.fillRect(-1.4, -0.8, 2.8, 2.6);
+    ctx.fillStyle = '#9aa0a4'; ctx.fillRect(-0.7, -11.6, 1.4, 4.8);
+  } },
+};
+
+// Draw the worker's tool in the front hand, and note where its working end is.
+function drawJobTool(ctx) {
+  const tool = jobTool(JOB);
+  const spec = poseSpec();
+  if (tool === 'forage') {
+    // a wicker basket in the back hand; berries in the front hand when pulling back from the bush
+    ctx.fillStyle = '#9a7442'; poly(ctx, [[5.2, 23.4], [12.4, 23.4], [11.6, 29], [6, 29]]); ctx.fill();
+    ctx.strokeStyle = '#6e5028'; ctx.lineWidth = 0.6;
+    for (const y of [25, 26.8]) { ctx.beginPath(); ctx.moveTo(5.6, y); ctx.lineTo(12, y); ctx.stroke(); }
+    ctx.strokeStyle = '#6e5028'; ctx.lineWidth = 0.9; ctx.beginPath(); ctx.arc(8.8, 23.4, 3.4, Math.PI, 0); ctx.stroke();
+    ctx.fillStyle = '#a02838'; for (const [x, y] of [[7.4, 23], [9.4, 22.6], [10.6, 23.2]]) { ctx.beginPath(); ctx.arc(x, y, 1, 0, Math.PI * 2); ctx.fill(); }
+    if (spec && spec.berries) {
+      ctx.fillStyle = '#b02a3c'; for (const [dx, dy] of [[-0.8, -1.2], [0.9, -1.4], [0, -2.4]]) { ctx.beginPath(); ctx.arc(HAND.x + dx, HAND.y + dy, 0.95, 0, Math.PI * 2); ctx.fill(); }
+    }
+    if (POSE === 1) CONTACT = toCanvas(ctx, HAND.x + 1, HAND.y);
+    return;
+  }
+  if (spec && spec.empty) return; // the spear has been thrown
+  const T = TOOLS[tool];
+  const th = spec ? spec.th : (tool === 'spear' ? 0.08 : REST_TH);
+  ctx.save();
+  ctx.translate(HAND.x, HAND.y);
+  ctx.rotate(th);
+  T.draw(ctx);
+  // where the working end ended up, back in canvas units (undo the art scale and the padding)
+  const m = ctx.getTransform();
+  const res = ART_RES * UNIT_SCALE;
+  const px = m.a * T.tip[0] + m.c * T.tip[1] + m.e;
+  const py = m.b * T.tip[0] + m.d * T.tip[1] + m.f;
+  if (POSE === (tool === 'spear' ? 1 : 2)) CONTACT = { x: px / res - PAD, y: py / res };
+  ctx.restore();
+}
+
+// A point in the current drawing frame, back in plain canvas units (undoing art scale and padding).
+function toCanvas(ctx, x, y) {
+  const m = ctx.getTransform();
+  const res = ART_RES * UNIT_SCALE;
+  return { x: (m.a * x + m.c * y + m.e) / res - PAD, y: (m.b * x + m.d * y + m.f) / res };
+}
+
+// What a worker carries home, shown on the shoulder.
+export const CARRY_LOOKS = ['wood', 'stone', 'fuel', 'berries', 'meat', 'grain'];
+export function ensureCarryTex(scene) {
+  if (scene.textures.exists('carry_wood')) return;
+  const D = {
+    wood: (ctx) => { // a bundle of logs
+      for (const [y, l] of [[6, 13], [3.6, 12], [8.4, 11]]) {
+        ctx.fillStyle = '#7a5532'; ctx.fillRect(1.5, y - 1.3, l, 2.6);
+        ctx.fillStyle = '#c9a26a'; ctx.beginPath(); ctx.ellipse(1.5 + l, y, 1, 1.3, 0, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.fillStyle = '#4a3520'; ctx.fillRect(6, 2, 1, 8.2);
+    },
+    stone: (ctx) => { ctx.fillStyle = hgrad(ctx, 3, 12, ['#ddd5c2', '#9a917f', '#5e574a']); poly(ctx, [[3, 9.5], [4, 4], [8.5, 2.6], [12, 5], [11.4, 9.8]]); ctx.fill(); },
+    fuel: (ctx) => { // a sack of coal
+      ctx.fillStyle = '#6e6250'; ctx.beginPath(); ctx.ellipse(7.5, 6.6, 5.4, 4.4, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#1a1816'; ctx.beginPath(); ctx.ellipse(7.5, 3.2, 3.6, 1.6, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#4a4034'; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.moveTo(5, 3.6); ctx.lineTo(10, 3.6); ctx.stroke();
+    },
+    berries: (ctx) => { // a basket full of berries
+      ctx.fillStyle = '#9a7442'; poly(ctx, [[2.4, 5], [12.6, 5], [11.4, 10.6], [3.6, 10.6]]); ctx.fill();
+      ctx.strokeStyle = '#6e5028'; ctx.lineWidth = 0.6; for (const y of [7, 9]) { ctx.beginPath(); ctx.moveTo(3, y); ctx.lineTo(12, y); ctx.stroke(); }
+      ctx.fillStyle = '#a02838'; for (const [x, y] of [[4.6, 4.4], [6.8, 3.6], [9, 4.2], [11, 4.6], [7.8, 5]]) { ctx.beginPath(); ctx.arc(x, y, 1.2, 0, Math.PI * 2); ctx.fill(); }
+    },
+    meat: (ctx) => { // a haunch over the shoulder
+      ctx.fillStyle = '#9b4a34'; ctx.beginPath(); ctx.ellipse(6, 6.4, 4.8, 3.4, -0.3, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#e9dcc4'; ctx.fillRect(9.6, 3.2, 3.6, 1.6);
+      ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.beginPath(); ctx.ellipse(5, 5.2, 2.4, 1.1, -0.3, 0, Math.PI * 2); ctx.fill();
+    },
+    grain: (ctx) => { // a sheaf of wheat
+      ctx.strokeStyle = '#c9a443'; ctx.lineWidth = 1;
+      for (let i = -2; i <= 2; i++) { ctx.beginPath(); ctx.moveTo(7.5 + i * 0.5, 11); ctx.lineTo(7.5 + i * 1.5, 1.8); ctx.stroke(); }
+      ctx.fillStyle = '#e2c25a'; for (let i = -2; i <= 2; i++) { ctx.beginPath(); ctx.ellipse(7.5 + i * 1.5, 2.6, 0.9, 1.8, 0, 0, Math.PI * 2); ctx.fill(); }
+      ctx.fillStyle = '#8a6a2a'; ctx.fillRect(5.6, 7, 3.8, 1.2);
+    },
+  };
+  for (const k of CARRY_LOOKS) makeUnitCanvas(scene, `carry_${k}`, 15, 12, D[k]);
+}
+
+// Where each job's blow lands, relative to the feet, in screen pixels (for lining workers up).
+const CONTACTS = {};
+export function jobContact(job, tier = 0) {
+  return CONTACTS[`${job}|${tier}`] || { x: 16, y: -14 };
 }
 
 // Colour helpers for the figures: mix a #rrggbb colour towards white (amt > 0) or black (amt < 0).
@@ -1510,7 +1671,24 @@ function figure(ctx, team, opts) {
     ctx.fillRect(fx - 1.7, fy - 3, 3.4, 2.6);
     ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.fillRect(fx - 1.2, fy - 2.8, 1, 2);
   };
-  if (s >= 0) { leg(18.6, s); leg(13.4, -s); } else { leg(13.4, -s); leg(18.6, s); }
+  const spec = poseSpec();
+  const crouch = (spec && spec.crouch) || 0;
+  if (crouch) {
+    // bent knees: the hips drop and the legs splay
+    const hip = 25.5 + crouch;
+    for (const [x, kx] of [[13.4, 11.2], [18.6, 21.4]]) {
+      ctx.strokeStyle = x < 16 ? tone(trousers, -0.25) : trousers; ctx.lineWidth = 3.8;
+      ctx.beginPath(); ctx.moveTo(x, hip); ctx.lineTo(kx, hip + 3.4); ctx.lineTo(x + (x < 16 ? -1.2 : 1.2), 31.4); ctx.stroke();
+      ctx.fillStyle = '#2a1d13'; ctx.beginPath(); ctx.ellipse(x + (x < 16 ? -0.8 : 1.6), 33, 2.5, 1.5, 0, 0, Math.PI * 2); ctx.fill();
+    }
+  } else if (s >= 0) { leg(18.6, s); leg(13.4, -s); } else { leg(13.4, -s); leg(18.6, s); }
+  // the upper body leans into the work (turning about the hips) and drops when crouching
+  ctx.save();
+  if (spec && (spec.lean || crouch)) {
+    ctx.translate(16, 26 + crouch);
+    ctx.rotate(spec.lean || 0);
+    ctx.translate(-16, -26);
+  }
 
   // --- arms behind the body swing opposite to the legs ---
   const body = opts.body || c.main;
@@ -1518,8 +1696,10 @@ function figure(ctx, team, opts) {
   const arm = (x, swing, front) => {
     let hx = x + swing * 0.9;
     let hy = 24.6;
-    if (front && POSE === 1) { hx = 24.4; hy = 13.6; }  // raised above the shoulder
-    if (front && POSE === 2) { hx = 26.4; hy = 22.2; }  // swung forward and down
+    if (front && spec) { hx = spec.hand[0]; hy = spec.hand[1]; }
+    else if (front && POSE === 1) { hx = 24.4; hy = 13.6; }  // raised above the shoulder
+    else if (front && POSE === 2) { hx = 26.4; hy = 22.2; }  // swung forward and down
+    if (!front && JOB === 'forage') { hx = 9; hy = 24.6; }   // holding the basket
     ctx.strokeStyle = front ? sleeve : tone(sleeve, -0.25);
     ctx.lineWidth = 3.3;
     const bend = x + (x < 16 ? -0.8 : 0.8);
@@ -1609,6 +1789,7 @@ function figure(ctx, team, opts) {
 
   if (opts.head) opts.head(ctx, c);
   if (opts.item) opts.item(ctx, c);
+  ctx.restore();
 }
 
 // Helmets for upgraded units.
@@ -1657,25 +1838,7 @@ export const UNIT_ART = {
       ctx.fillStyle = '#9c8a55';
       ctx.fillRect(13, 3, 6, 4);
     },
-    item: (ctx) => heldTool(ctx, () => {
-      if (UNIT_TIER === 2) { // power drill
-        ctx.fillStyle = '#e0b21a'; ctx.fillRect(22, 17, 7, 5);
-        ctx.fillStyle = '#2a2a2a'; ctx.fillRect(23, 22, 3, 4); ctx.fillRect(29, 18.5, 3, 1.5);
-        return;
-      }
-      ctx.strokeStyle = '#6b4a2c';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(24, 26);
-      ctx.lineTo(28, 12);
-      ctx.stroke();
-      ctx.strokeStyle = UNIT_TIER === 1 ? '#d5dade' : '#8d9296';
-      ctx.lineWidth = UNIT_TIER === 1 ? 2.6 : 2;
-      ctx.beginPath();
-      ctx.moveTo(24, 11);
-      ctx.quadraticCurveTo(28, 9, 31, 13);
-      ctx.stroke();
-    }),
+    item: (ctx) => drawJobTool(ctx),
   }),
   soldier: (ctx, team) => figure(ctx, team, {
     armour: UNIT_TIER === 1 ? 'plate' : UNIT_TIER === 2 ? 'camo' : null,
@@ -2305,7 +2468,32 @@ export function makeUnitCanvas(scene, key, w, h, draw) {
 }
 
 export function buildingKey(type, team, style = 0) { return `b_${type}_${team}${style ? `_s${style}` : ''}`; }
-export function unitKey(type, team, frame = 0, tier = 0) { return `u_${type}_${team}${frame ? `_w${frame}` : ''}${tier ? `_t${tier}` : ''}`; }
+export function unitKey(type, team, frame = 0, tier = 0, job = null) {
+  return `u_${type}_${team}${frame ? `_w${frame}` : ''}${tier ? `_t${tier}` : ''}${job && job !== 'pick' ? `_${job}` : ''}`;
+}
+
+// Draw a worker's frames for one job (tool) and upgrade tier, if not drawn yet.
+export function ensureJobTex(scene, team, tier, job) {
+  if (scene.textures.exists(unitKey('worker', team, 6, tier, job))) return;
+  UNIT_TIER = tier;
+  JOB = job;
+  try {
+    PERSON_FRAMES.forEach((frame) => {
+      LEG_STEP = FRAMES[frame].step;
+      POSE = FRAMES[frame].pose;
+      CONTACT = null;
+      makeUnitCanvas(scene, unitKey('worker', team, frame, tier, job), 32 + PAD * 2, 40, (ctx) => { ctx.translate(PAD, 0); UNIT_ART.worker(ctx, team); });
+      if (CONTACT && POSE === (job === 'spear' ? 1 : job === 'forage' ? 1 : 2)) {
+        CONTACTS[`${job}|${tier}`] = { x: (CONTACT.x - 16) * UNIT_SCALE, y: (CONTACT.y - 34.4) * UNIT_SCALE };
+      }
+    });
+  } finally {
+    LEG_STEP = 0;
+    POSE = 0;
+    UNIT_TIER = 0;
+    JOB = null;
+  }
+}
 
 // Draw a building's texture in a given era style (if it hasn't been drawn yet).
 export function ensureBuildingTex(scene, type, team, style, def) {
@@ -2330,6 +2518,7 @@ export function unitTier(type, upgrades) {
 
 // Draw a unit's textures for an upgrade tier (if not drawn yet).
 export function ensureUnitTex(scene, type, team, tier) {
+  if (type === 'worker') { ensureJobTex(scene, team, tier, 'pick'); return; }
   if (!tier || scene.textures.exists(unitKey(type, team, 0, tier))) return;
   UNIT_TIER = tier;
   try {
@@ -2357,7 +2546,9 @@ export function generateArt(scene, buildingTypes, teams = ['player', 'enemy']) {
         draw(ctx, team);
       }, ART_RES);
     }
+    ensureJobTex(scene, team, 0, 'pick');
     for (const [type, draw] of Object.entries(UNIT_ART)) {
+      if (type === 'worker') continue;
       // standing, four walking poses, wind-up and strike
       PERSON_FRAMES.forEach((frame) => {
         LEG_STEP = FRAMES[frame].step;

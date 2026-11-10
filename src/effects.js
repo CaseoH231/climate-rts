@@ -277,6 +277,86 @@ export class Effects {
     }
   }
 
+  // A blow landing on whatever a worker is working (all just for show).
+  workHit(kind, at, u, target) {
+    const s = this.scene;
+    const flip = u.sprite.flipX ? -1 : 1;
+    const bits = (n, color, spread, up, size = 1.6, life = 380) => {
+      for (let i = 0; i < n; i++) {
+        const c = s.add.rectangle(at.x, at.y, size + Math.random() * 0.8, size + Math.random() * 0.8, color).setDepth(at.y + 20);
+        const vx = (Math.random() - 0.5) * spread - flip * spread * 0.3; // mostly back towards the worker
+        s.tweens.add({ targets: c, x: at.x + vx, angle: Math.random() * 360, duration: life, ease: 'Linear' });
+        s.tweens.add({ targets: c, y: at.y - up - Math.random() * up, duration: life * 0.4, ease: 'Quad.easeOut', yoyo: true, hold: 0, onComplete: () => c.destroy() });
+      }
+    };
+    const spark = () => {
+      const sp = s.add.star(at.x, at.y, 4, 0.6, 2.4, 0xfff4c0).setDepth(at.y + 21);
+      s.tweens.add({ targets: sp, scale: 0.2, alpha: 0, angle: 45, duration: 140, onComplete: () => sp.destroy() });
+    };
+    const puff = (tint, scale = 0.35, alpha = 0.45) => {
+      const d = s.add.image(at.x, at.y + 2, 'fx_puff').setTint(tint).setAlpha(alpha).setScale(scale).setDepth(at.y + 19);
+      s.tweens.add({ targets: d, y: d.y - 5, scale: scale * 2.6, alpha: 0, duration: 520, onComplete: () => d.destroy() });
+    };
+    if (kind === 'wood') {
+      bits(3, 0xd8b27a, 16, 5);
+      // a couple of leaves shaken loose from the crown
+      if (target && target.top != null) {
+        for (let i = 0; i < 2; i++) {
+          if (Math.random() < 0.35) continue;
+          const lx = target.x + (Math.random() - 0.5) * 14;
+          const ly = target.top + Math.random() * 8;
+          const leaf = s.add.ellipse(lx, ly, 2.4, 1.3, Math.random() < 0.5 ? 0x5e8a3a : 0x3f6a2a).setDepth(target.y + 30);
+          const drop = target.y - ly + 2;
+          s.tweens.add({ targets: leaf, y: ly + drop, duration: 900 + Math.random() * 500, ease: 'Sine.easeIn', onComplete: () => s.tweens.add({ targets: leaf, alpha: 0, duration: 400, onComplete: () => leaf.destroy() }) });
+          s.tweens.add({ targets: leaf, x: lx + 5, angle: 120, duration: 360, yoyo: true, repeat: 2, ease: 'Sine.easeInOut' });
+        }
+      }
+    } else if (kind === 'stone') {
+      bits(3, 0xb9b2a4, 14, 5); spark();
+    } else if (kind === 'coal') {
+      bits(3, 0x2a2826, 14, 5); spark(); puff(0x3a3634, 0.3, 0.35);
+    } else if (kind === 'berries') {
+      // a berry goes from the bush into the basket, and the leaves rustle
+      bits(2, 0x4f7a33, 10, 3, 1.4, 300);
+      const b = s.add.circle(at.x, at.y, 1.3, 0xb02a3c).setDepth(at.y + 22);
+      const bx = u.isoX - flip * 8.3;
+      const by = u.isoY - 11;
+      s.tweens.add({ targets: b, x: bx, duration: 260, ease: 'Linear' });
+      s.tweens.add({ targets: b, y: Math.min(at.y, by) - 5, duration: 130, ease: 'Quad.easeOut', yoyo: true, onComplete: () => { b.y = by; b.destroy(); } });
+    } else if (kind === 'meat') {
+      bits(2, 0x7a4a34, 8, 2, 1.2, 260);
+    } else if (kind === 'soil') {
+      bits(3, 0x7a5a3a, 12, 4); puff(0x9c8a68, 0.3, 0.4);
+    } else if (kind === 'build') {
+      bits(2, 0xe2cfa0, 12, 4, 1.3); puff(0xb3a68c, 0.28, 0.4);
+      if (Math.random() < 0.4) spark();
+    }
+  }
+
+  // A thrown hunting spear.
+  spear(x0, y0, x1, y1) {
+    const s = this.scene;
+    const ang = Math.atan2(y1 - y0, x1 - x0);
+    const sp = s.add.rectangle(x0, y0, 14, 1.4, 0x8a6a44).setRotation(ang).setDepth(Math.max(y0, y1) + 30);
+    const tip = s.add.rectangle(x0, y0, 3, 2, 0xcfd4d8).setRotation(ang).setDepth(Math.max(y0, y1) + 31);
+    const d = Math.hypot(x1 - x0, y1 - y0);
+    const dur = Math.max(160, d * 2.2);
+    const arc = Math.min(18, d * 0.15);
+    s.tweens.addCounter({
+      from: 0, to: 1, duration: dur,
+      onUpdate: (tw) => {
+        const t = tw.getValue();
+        const x = x0 + (x1 - x0) * t;
+        const y = y0 + (y1 - y0) * t - Math.sin(t * Math.PI) * arc;
+        sp.setPosition(x, y);
+        tip.setPosition(x + Math.cos(ang) * 7, y + Math.sin(ang) * 7);
+      },
+      onComplete: () => {
+        s.tweens.add({ targets: [sp, tip], alpha: 0, delay: 900, duration: 500, onComplete: () => { sp.destroy(); tip.destroy(); } });
+      },
+    });
+  }
+
   // A building settling as it's finished: a little drop and a ring of dust.
   completeBounce(b) {
     const s = this.scene;
