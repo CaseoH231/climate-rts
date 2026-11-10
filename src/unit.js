@@ -307,29 +307,49 @@ export class Unit {
     const c = jobContact(this.job, this.tier);
     // stand beside it (feet level with its base), so the blow reaches across to it,
     // on open ground (not in among other trees, rocks or buildings) and not inside another worker
-    const MAX = 34; // never more than a short step from where we really are
-    for (const [ox, oy] of [[0, 0], [0, 6], [6, 3], [-6, 3], [16, 8], [-16, -8], [16, -8], [-16, 8], [0, 12], [0, -12]]) {
-      const x = point.x - side * c.x + ox;
-      const y = point.base + 2 + oy;
-      if (Math.hypot(x - home.x, y - home.y) > MAX) continue;
-      if (!this.spotClear(x, y) || this.spotTaken(x, y)) continue;
-      this.workSpot = { x, y, side };
-      return true;
+    // Start at the ideal spot (where the tool's end lands right on it) and, if that's blocked, slide back
+    // towards where we really stand until there's clear ground, so we always end up as close as we can.
+    const MAX = 50; // never more than a short step from where we really are
+    // (the 3D-rendered workers come with where their blow lands over the ground — gx, gy — which is
+    //  what decides where to stand; the older drawn ones only know the sideways reach)
+    const ix = point.x - side * (c.gx != null ? c.gx : c.x);
+    const iy = point.base + (c.gy != null ? -c.gy + 1 : 2);
+    for (const t of [0, 0.12, 0.24, 0.36, 0.5, 0.65, 0.8]) {
+      // (a little up or down the screen keeps the sideways reach; that's tried before giving ground)
+      for (const dy of [0, 5, -5, 10, -10, 15, -15]) {
+        const x = ix + (home.x - ix) * t;
+        const y = iy + (home.y - iy) * t + dy;
+        if (Math.hypot(x - home.x, y - home.y) > MAX) continue;
+        if (!this.spotClear(x, y, point) || this.spotTaken(x, y)) continue;
+        this.workSpot = { x, y, side };
+        return true;
+      }
     }
     return false;
   }
 
   // (visual) Can a worker stand here? Open, walkable ground, and not right on another tree trunk.
-  spotClear(x, y) {
+  // The ground may be the tree / rock / bush tile itself (we step up to the edge of a wood or a quarry),
+  // but never water or a building, and never right on top of another trunk, rock or bush.
+  spotClear(x, y, target = null) {
     const w = fromIso(x, y);
     const tx = Math.floor(w.x / TILE);
     const ty = Math.floor(w.y / TILE);
-    if (!this.map.inBounds(tx, ty) || !this.map.isWalkable(tx, ty, this.team)) return false;
+    if (!this.map.inBounds(tx, ty)) return false;
+    const o = this.order;
+    const ownTile = o && o.tx === tx && o.ty === ty;
+    if (!ownTile && !this.map.isWalkable(tx, ty, this.team)) return false;
+    if (ownTile && this.map.buildingAt && this.map.buildingAt(tx, ty)) return false;
     const trees = this.scene.trees;
-    if (trees) {
-      for (let yy = ty - 1; yy <= ty + 1; yy++) for (let xx = tx - 1; xx <= tx + 1; xx++) {
-        if (!this.map.inBounds(xx, yy) || this.map.get(xx, yy) !== TERRAIN.FOREST) continue;
-        for (const a of trees.standingAnchors(xx, yy)) if (Math.hypot(a.x - x, (a.y - y) * 1.6) < 9) return false;
+    for (let yy = ty - 1; yy <= ty + 1; yy++) for (let xx = tx - 1; xx <= tx + 1; xx++) {
+      if (!this.map.inBounds(xx, yy)) continue;
+      const t = this.map.get(xx, yy);
+      const things = t === TERRAIN.FOREST ? (trees ? trees.standingAnchors(xx, yy) : []) : this.map.objectAnchors(xx, yy);
+      for (const a of things) {
+        if (target && target.anchor && Math.abs(a.x - target.anchor.x) < 0.6 && Math.abs(a.y - target.anchor.y) < 0.6) continue; // (the one we're working)
+        // trunks are thin; bushes and rocks are as wide as they're drawn
+        const r = t === TERRAIN.FOREST ? 8 : 6 + (a.w || 4) * 1.3;
+        if (Math.hypot(a.x - x, (a.y - 2 - y) * 1.6) < r) return false;
       }
     }
     return true;
@@ -337,7 +357,7 @@ export class Unit {
 
   spotTaken(x, y) {
     for (const u of this.scene.units) {
-      if (u !== this && u.workSpot && u.order && u.order.phase === 'work' && Math.hypot((u.workSpot.x - x) * 0.8, (u.workSpot.y - y) * 1.4) < 13) return true;
+      if (u !== this && u.workSpot && u.order && u.order.phase === 'work' && Math.hypot((u.workSpot.x - x) * 0.8, (u.workSpot.y - y) * 1.4) < 15) return true;
     }
     return false;
   }
@@ -369,7 +389,7 @@ export class Unit {
       const pref = home.x <= a.x ? 1 : -1;
       for (const side of [pref, -pref]) {
         // aim at the near side of a rock or bush, the trunk of a tree
-        if (this.aimAt({ x: a.x - side * a.w, base: a.y }, side)) { this.workTarget = a; return; }
+        if (this.aimAt({ x: a.x - side * a.w, base: a.y, anchor: a }, side)) { this.workTarget = a; return; }
       }
     }
     // nowhere good: just work from where we stand, facing it
