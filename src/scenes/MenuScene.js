@@ -77,6 +77,20 @@ export default class MenuScene extends Phaser.Scene {
     super('MenuScene');
   }
 
+  // Load the 3D-rendered building sprites (see tools/render_buildings.py), if any have been made.
+  preload() {
+    if (this.textures.exists('b3d_loaded')) return;
+    this.load.json('b3d_manifest', 'assets/buildings/manifest.json');
+    this.load.on('filecomplete-json-b3d_manifest', (key, type, list) => {
+      for (const name of list || []) {
+        for (const team of ['player', 'enemy', 'green', 'yellow']) {
+          this.load.image(`b3d_${name}_${team}`, `assets/buildings/${name}_${team}.png`);
+        }
+      }
+    });
+    this.load.once('complete', () => { if (!this.textures.exists('b3d_loaded')) this.textures.addCanvas('b3d_loaded', document.createElement('canvas')); });
+  }
+
   create() {
     setWorldSize(64, 64); // the menu's background is a corner of a 1 v 1 map
     generateArt(this, BUILDING_TYPES);

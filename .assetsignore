@@ -9,3 +9,4 @@ wrangler.jsonc
 wrangler.toml
 .assetsignore
 README.md
+tools
