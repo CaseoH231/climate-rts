@@ -168,8 +168,19 @@ function drawPine(ctx, v) {
   ctx.beginPath(); ctx.moveTo(cx, top - 2); ctx.lineTo(cx + 2.4, top + 6); ctx.lineTo(cx - 2.4, top + 6); ctx.closePath(); ctx.fill();
 }
 
+// What's left after a tree is felled: a stump with a pale cut top.
+function drawStump(ctx) {
+  ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(8, 11, 6, 2.2, 0, 0, Math.PI * 2); ctx.fill();
+  const g = ctx.createLinearGradient(4, 0, 12, 0);
+  g.addColorStop(0, '#6a5440'); g.addColorStop(1, '#2e2219');
+  ctx.fillStyle = g; ctx.fillRect(4.6, 5.4, 6.8, 5.6);
+  ctx.fillStyle = '#c8a878'; ctx.beginPath(); ctx.ellipse(8, 5.4, 3.4, 1.4, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = 'rgba(120,90,60,0.8)'; ctx.lineWidth = 0.4; ctx.beginPath(); ctx.ellipse(8, 5.4, 1.8, 0.7, 0, 0, Math.PI * 2); ctx.stroke();
+}
+
 export function ensureTreeTex(scene) {
   if (scene.textures.exists('tree_oak_0')) return;
+  makeCanvas(scene, 'tree_stump', 16, 13, drawStump, ART_RES);
   for (let v = 0; v < OAKS; v++) makeCanvas(scene, `tree_oak_${v}`, OAK_W, OAK_H, (ctx) => drawOak(ctx, v), ART_RES);
   for (let v = 0; v < PINES; v++) makeCanvas(scene, `tree_pine_${v}`, PINE_W, PINE_H, (ctx) => drawPine(ctx, v), ART_RES);
 }
@@ -184,9 +195,24 @@ export class TreeLayer {
   constructor(scene, map) {
     this.scene = scene;
     this.map = map;
-    this.sprites = new Map(); // tile index → images
+    this.sprites = new Map(); // tile index → images (one per tree, null once felled)
+    this.felled = new Map();  // tile index → set of felled tree numbers
+    this.lastHit = new Map(); // tile index → the tree number last chopped
     ensureTreeTex(scene);
+    this.starting = true;
     for (let y = 0; y < map.h; y++) for (let x = 0; x < map.w; x++) this.refresh(x, y);
+    this.starting = false;
+  }
+
+  // The trees still standing on a tile (for workers to pick from).
+  standingAnchors(x, y) {
+    if (this.map.get(x, y) !== TERRAIN.FOREST) return [];
+    const f = this.felled.get(y * this.map.w + x);
+    return this.map.objectAnchors(x, y).filter((a, k) => !(f && f.has(k)));
+  }
+
+  isStanding(x, y, a) {
+    return !!a && this.standingAnchors(x, y).some((b) => Math.abs(b.x - a.x) < 0.5 && Math.abs(b.y - a.y) < 0.5);
   }
 
   // How many of this tile's trees are still standing.
@@ -197,32 +223,93 @@ export class TreeLayer {
     return Math.max(1, Math.ceil(n * frac - 0.001));
   }
 
+  makeTree(a) {
+    const key = a.pine ? `tree_pine_${Math.floor(a.hue * PINES) % PINES}` : `tree_oak_${Math.floor(a.hue * OAKS) % OAKS}`;
+    const oy = (a.pine ? PINE_BASE / PINE_H : OAK_BASE / OAK_H);
+    const img = this.scene.add.image(a.x, a.y, key).setOrigin(0.5, oy).setScale(a.scale / ART_RES).setDepth(a.y);
+    if (a.flip) img.setFlipX(true);
+    return img;
+  }
+
+  makeStump(a, fade) {
+    const img = this.scene.add.image(a.x, a.y, 'tree_stump').setOrigin(0.5, 0.85).setScale(a.scale * 0.9 / ART_RES).setDepth(a.y - 0.5);
+    // stumps weather away after a while
+    this.scene.tweens.add({ targets: img, alpha: 0, delay: fade ? 45000 : 20000, duration: 4000, onComplete: () => img.destroy() });
+  }
+
   refresh(x, y) {
     const i = y * this.map.w + x;
-    const old = this.sprites.get(i);
     const forest = this.map.get(x, y) === TERRAIN.FOREST;
-    const anchors = forest ? this.map.objectAnchors(x, y) : [];
-    const keep = forest ? this.standing(x, y, anchors.length) : 0;
-    if (old && old.length === keep) return;
-    if (old) for (const s of old) s.destroy();
-    if (!keep) { this.sprites.delete(i); return; }
-    const list = [];
-    for (const a of anchors.slice(0, keep)) {
-      const key = a.pine ? `tree_pine_${Math.floor(a.hue * PINES) % PINES}` : `tree_oak_${Math.floor(a.hue * OAKS) % OAKS}`;
-      const oy = (a.pine ? PINE_BASE / PINE_H : OAK_BASE / OAK_H);
-      const img = this.scene.add.image(a.x, a.y, key).setOrigin(0.5, oy).setScale(a.scale / ART_RES).setDepth(a.y);
-      if (a.flip) img.setFlipX(true);
-      list.push(img);
+    let list = this.sprites.get(i);
+    if (!forest) {
+      // gone: cut down to the last tree, burnt or flooded
+      if (list) {
+        const anchors = this.map.objectAnchors.call({ ...this.map, get: () => TERRAIN.FOREST }, x, y);
+        list.forEach((img, k) => {
+          if (!img) return;
+          if (this.map.get(x, y) === TERRAIN.GRASS && this.scene.renderShots) this.fall(img, anchors[k], k, i);
+          else img.destroy();
+        });
+      }
+      this.sprites.delete(i); this.felled.delete(i); this.lastHit.delete(i);
+      return;
     }
-    this.sprites.set(i, list);
+    const anchors = this.map.objectAnchors(x, y);
+    if (!list) {
+      list = anchors.map((a) => this.makeTree(a));
+      this.sprites.set(i, list);
+      this.felled.set(i, new Set());
+    }
+    const felled = this.felled.get(i);
+    const want = this.standing(x, y, anchors.length);
+    // fell trees one at a time until the right number are left: the one being chopped first,
+    // otherwise the one nearest the front
+    while (anchors.length - felled.size > want) {
+      let k = this.lastHit.get(i);
+      if (k == null || felled.has(k)) {
+        k = -1;
+        for (let j = anchors.length - 1; j >= 0; j--) if (!felled.has(j)) { k = j; break; }
+      }
+      if (k < 0) break;
+      felled.add(k);
+      const img = list[k];
+      list[k] = null;
+      if (img) {
+        if (this.starting || !this.scene.renderShots) { img.destroy(); this.makeStump(anchors[k], false); }
+        else this.fall(img, anchors[k], k, i);
+      }
+    }
+  }
+
+  // Timber! The tree topples away from the axe, lands with a thump and some leaves, then fades.
+  fall(img, a, k, i) {
+    const s = this.scene;
+    const hit = this.lastHitSide && this.lastHitSide.get(i);
+    const dir = hit ? hit : (img.x % 2 < 1 ? 1 : -1);
+    this.makeStump(a, true);
+    s.tweens.add({
+      targets: img, angle: 84 * dir, duration: 950, ease: 'Quad.easeIn',
+      onComplete: () => {
+        s.tweens.add({ targets: img, angle: 80 * dir, duration: 120, yoyo: true, ease: 'Sine.easeOut' });
+        if (s.fx && s.fx.treeLanded) s.fx.treeLanded(img.x + dir * 34 * a.scale, img.y - 4, a.pine);
+        s.tweens.add({ targets: img, alpha: 0, delay: 3500, duration: 1500, onComplete: () => img.destroy() });
+      },
+    });
   }
 
   // A tree shakes when it's chopped.
-  shake(x, y, a) {
-    const list = this.sprites.get(y * this.map.w + x);
+  shake(x, y, a, side = 1) {
+    const i = y * this.map.w + x;
+    const list = this.sprites.get(i);
     if (!list) return;
-    const img = list.find((s) => Math.abs(s.x - a.x) < 0.5 && Math.abs(s.y - a.y) < 0.5);
-    if (!img || img.shaking) return;
+    const k = list.findIndex((s) => s && Math.abs(s.x - a.x) < 0.5 && Math.abs(s.y - a.y) < 0.5);
+    if (k < 0) return;
+    // remember which tree is being chopped, and from which side (it falls away from the axe)
+    this.lastHit.set(i, k);
+    if (!this.lastHitSide) this.lastHitSide = new Map();
+    this.lastHitSide.set(i, side);
+    const img = list[k];
+    if (img.shaking) return;
     img.shaking = true;
     this.scene.tweens.add({ targets: img, angle: { from: -1.6, to: 1.2 }, duration: 70, yoyo: true, repeat: 1, ease: 'Sine.easeInOut',
       onComplete: () => { img.angle = 0; img.shaking = false; } });

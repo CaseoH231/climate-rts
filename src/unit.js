@@ -1,7 +1,7 @@
 // Units: workers and soldiers. Workers can gather resources and construct buildings.
 import { findPath, smoothPath } from './pathfinding.js';
 import { unitKey, ART_RES, UNIT_SPRITE_SCALE, unitTier, ensureUnitTex, ensureJobTex, jobContact, ensureCarryTex } from './art.js';
-import { toIso } from './iso.js';
+import { toIso, fromIso } from './iso.js';
 import { TERRAIN, TILE } from './config.js';
 
 // attack = damage per hit, range in pixels, cooldown in seconds between hits,
@@ -300,23 +300,39 @@ export class Unit {
 
   // (visual) Where to stand so the blow lands on the thing being worked: beside the nearest trunk,
   // rock or bush (or the edge of the building), with the tool's working end on it.
-  aimAt(point) {
+  // Returns false if there's nowhere sensible to stand on this side.
+  aimAt(point, side = null) {
     const home = toIso(this.px, this.py);
-    const side = home.x <= point.x ? 1 : -1;
+    if (side == null) side = home.x <= point.x ? 1 : -1;
     const c = jobContact(this.job, this.tier);
-    // stand beside it (feet level with its base), so the blow reaches across to it
-    const spot = { x: point.x - side * c.x, y: point.base + 2, side };
-    // don't stand inside another worker: shuffle along a little
-    for (const [ox, oy] of [[0, 0], [16, 8], [-16, -8], [16, -8], [-16, 8], [0, 12], [0, -12], [30, 0], [-30, 0]]) {
-      if (!this.spotTaken(spot.x + ox, spot.y + oy)) { spot.x += ox; spot.y += oy; break; }
+    // stand beside it (feet level with its base), so the blow reaches across to it,
+    // on open ground (not in among other trees, rocks or buildings) and not inside another worker
+    const MAX = 34; // never more than a short step from where we really are
+    for (const [ox, oy] of [[0, 0], [0, 6], [6, 3], [-6, 3], [16, 8], [-16, -8], [16, -8], [-16, 8], [0, 12], [0, -12]]) {
+      const x = point.x - side * c.x + ox;
+      const y = point.base + 2 + oy;
+      if (Math.hypot(x - home.x, y - home.y) > MAX) continue;
+      if (!this.spotClear(x, y) || this.spotTaken(x, y)) continue;
+      this.workSpot = { x, y, side };
+      return true;
     }
-    // never more than a short step from where we really are
-    const dx = spot.x - home.x;
-    const dy = spot.y - home.y;
-    const d = Math.hypot(dx, dy);
-    const MAX = 34;
-    if (d > MAX) { spot.x = home.x + (dx / d) * MAX; spot.y = home.y + (dy / d) * MAX; }
-    this.workSpot = spot;
+    return false;
+  }
+
+  // (visual) Can a worker stand here? Open, walkable ground, and not right on another tree trunk.
+  spotClear(x, y) {
+    const w = fromIso(x, y);
+    const tx = Math.floor(w.x / TILE);
+    const ty = Math.floor(w.y / TILE);
+    if (!this.map.inBounds(tx, ty) || !this.map.isWalkable(tx, ty, this.team)) return false;
+    const trees = this.scene.trees;
+    if (trees) {
+      for (let yy = ty - 1; yy <= ty + 1; yy++) for (let xx = tx - 1; xx <= tx + 1; xx++) {
+        if (!this.map.inBounds(xx, yy) || this.map.get(xx, yy) !== TERRAIN.FOREST) continue;
+        for (const a of trees.standingAnchors(xx, yy)) if (Math.hypot(a.x - x, (a.y - y) * 1.6) < 9) return false;
+      }
+    }
+    return true;
   }
 
   spotTaken(x, y) {
@@ -339,16 +355,27 @@ export class Unit {
   }
 
   aimAtTile(tx, ty) {
-    const anchors = this.map.objectAnchors(tx, ty);
+    const trees = this.scene.trees;
+    const anchors = trees && this.map.get(tx, ty) === TERRAIN.FOREST ? trees.standingAnchors(tx, ty) : this.map.objectAnchors(tx, ty);
     if (!anchors.length) { this.workSpot = null; return; }
     const home = toIso(this.px, this.py);
     // one of the nearest two (so two workers on one tree don't stand inside each other)
     const near = anchors.map((a) => ({ a, d: Math.hypot(a.x - home.x, a.y - home.y) })).sort((p, q) => p.d - q.d);
-    const best = near[(Number(this.id) || 0) % Math.min(2, near.length)].a;
-    const side = home.x <= best.x ? 1 : -1;
-    // aim at the near side of a rock or bush, the trunk of a tree
-    this.aimAt({ x: best.x - side * best.w, base: best.y });
-    this.workTarget = best;
+    // try the nearest things first (staggered so two workers don't pick the same one), from
+    // either side, and use the first with clear ground to stand on
+    const first = (Number(this.id) || 0) % Math.min(2, near.length);
+    const order = [...near.slice(first), ...near.slice(0, first)].map((n) => n.a);
+    for (const a of order) {
+      const pref = home.x <= a.x ? 1 : -1;
+      for (const side of [pref, -pref]) {
+        // aim at the near side of a rock or bush, the trunk of a tree
+        if (this.aimAt({ x: a.x - side * a.w, base: a.y }, side)) { this.workTarget = a; return; }
+      }
+    }
+    // nowhere good: just work from where we stand, facing it
+    const a = order[0];
+    this.workSpot = { x: home.x, y: home.y, side: home.x <= a.x ? 1 : -1 };
+    this.workTarget = a;
   }
 
   aimAtBuilding(b) {
@@ -356,7 +383,11 @@ export class Unit {
     const x = Math.max(b.tx * TILE, Math.min(this.px, (b.tx + b.w) * TILE));
     const y = Math.max(b.ty * TILE, Math.min(this.py, (b.ty + b.h) * TILE));
     const p = toIso(x, y);
-    this.aimAt({ x: p.x, base: p.y });
+    this.workSpot = null;
+    if (!this.aimAt({ x: p.x, base: p.y })) {
+      const home = toIso(this.px, this.py);
+      this.workSpot = { x: home.x, y: home.y, side: home.x <= p.x ? 1 : -1 };
+    }
     this.workTarget = null;
   }
 
@@ -525,7 +556,11 @@ export class Unit {
         const c = jobContact(this.job, this.tier);
         const flip = this.sprite.flipX ? -1 : 1;
         this.scene.fx.workHit(kind, { x: this.isoX + flip * c.x, y: this.isoY + c.y }, this, this.workTarget);
-        if (kind === 'wood' && this.scene.trees && this.workTarget && o) this.scene.trees.shake(o.tx, o.ty, this.workTarget);
+        if (kind === 'wood' && this.scene.trees && this.workTarget && o) {
+          // the tree we were chopping has fallen: move on to the next one
+          if (!this.scene.trees.isStanding(o.tx, o.ty, this.workTarget)) this.aimAtTile(o.tx, o.ty);
+          else this.scene.trees.shake(o.tx, o.ty, this.workTarget, this.workSpot ? this.workSpot.side : 1);
+        }
       }
     }
     // farmers move on along the rows every few strokes

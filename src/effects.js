@@ -333,6 +333,22 @@ export class Effects {
     }
   }
 
+  // A felled tree hitting the ground: a burst of dust and leaves along the trunk.
+  treeLanded(x, y, pine) {
+    const s = this.scene;
+    for (let i = 0; i < 5; i++) {
+      const d = s.add.image(x + (Math.random() - 0.5) * 40, y + (Math.random() - 0.5) * 8, 'fx_puff')
+        .setTint(0xa89a7c).setAlpha(0.55).setScale(0.4).setDepth(y + 10);
+      s.tweens.add({ targets: d, y: d.y - 8, scale: 1.6, alpha: 0, duration: 800 + Math.random() * 400, onComplete: () => d.destroy() });
+    }
+    for (let i = 0; i < 8; i++) {
+      const lx = x + (Math.random() - 0.5) * 36;
+      const leaf = s.add.ellipse(lx, y - 4, 2.4, 1.3, pine ? 0x2e4a30 : (Math.random() < 0.5 ? 0x5e8a3a : 0x3f6a2a)).setDepth(y + 11);
+      s.tweens.add({ targets: leaf, y: y - 10 - Math.random() * 10, x: lx + (Math.random() - 0.5) * 16, angle: 200, duration: 300, yoyo: true, ease: 'Quad.easeOut',
+        onComplete: () => s.tweens.add({ targets: leaf, alpha: 0, duration: 600, onComplete: () => leaf.destroy() }) });
+    }
+  }
+
   // A thrown hunting spear.
   spear(x0, y0, x1, y1) {
     const s = this.scene;

@@ -676,6 +676,20 @@ export class GameMap {
   // Where the things on a resource tile actually stand (tree trunks, rocks, bushes, a carcass), in
   // screen coordinates, so workers can line up their blows with them. Uses the same random numbers
   // as drawObject below, so it must follow the same order. (Just for show.)
+  // How much of a resource tile is left, 0–1 (for drawing it running down in stages).
+  fracLeft(x, y) {
+    const t = this.get(x, y);
+    const res = TERRAIN_RESOURCE[t];
+    if (!res) return 0;
+    const full = TERRAIN_AMOUNT[t] || RESOURCE_AMOUNT[res];
+    return Math.max(0, Math.min(1, this.amount[y * this.w + x] / full));
+  }
+
+  // Which drawing stage a resource tile is at (0–6); the ground is repainted when it changes.
+  stageOf(x, y) {
+    return Math.ceil(this.fracLeft(x, y) * 6);
+  }
+
   objectAnchors(tx, ty) {
     const t = this.get(tx, ty);
     const r = tileRand(tx, ty);
@@ -695,19 +709,22 @@ export class GameMap {
     } else if (t === TERRAIN.STONE || t === TERRAIN.COAL) {
       const coal = t === TERRAIN.COAL;
       const n = coal ? 5 : 3;
+      const left = this.fracLeft(tx, ty) * n;
       for (let i = 0; i < n; i++) {
         const p = at(7 + r() * 18, 7 + r() * 18);
         const size = coal ? 4 + r() * 3 : 6 + r() * 4;
-        out.push({ x: p.x, y: p.y, hit: p.y - size * 0.35, w: size * 0.6 });
+        if (i < Math.ceil(left - 0.001)) out.push({ x: p.x, y: p.y, hit: p.y - size * 0.35, w: size * 0.6 });
       }
     } else if (t === TERRAIN.MEAT) {
       const c = at(16, 18);
       out.push({ x: c.x, y: c.y, hit: c.y - 1, w: 6 });
     } else if (t === TERRAIN.BERRIES) {
+      const f = this.fracLeft(tx, ty);
       for (let i = 0; i < 2; i++) {
         const p = at(8 + r() * 16, 8 + r() * 16);
         for (let k = 0; k < 14; k++) r();
-        out.push({ x: p.x, y: p.y, hit: p.y - 5, w: 6 });
+        const bf = Math.max(0, Math.min(1, i === 0 ? f * 2 : (f - 0.5) * 2));
+        if (bf > 0) out.push({ x: p.x, y: p.y, hit: p.y - 5, w: 6 * (0.5 + 0.5 * bf) });
       }
     }
     return out;
@@ -799,15 +816,29 @@ export class GameMap {
       }
       const n = coal ? 5 : 3;
       const rocks = [];
-      for (let i = 0; i < n; i++) rocks.push({ p: at(7 + r() * 18, 7 + r() * 18), s: coal ? 4 + r() * 3 : 6 + r() * 4 });
+      // mined away in stages: whole rocks go one by one, and the last one shrinks first
+      const left = this.fracLeft(tx, ty) * n;
+      for (let i = 0; i < n; i++) {
+        const rock = { p: at(7 + r() * 18, 7 + r() * 18), s: coal ? 4 + r() * 3 : 6 + r() * 4 };
+        rock.keep = i < Math.ceil(left - 0.001);
+        if (rock.keep && i === Math.ceil(left - 0.001) - 1) rock.s *= 0.55 + 0.45 * Math.min(1, left - i);
+        rocks.push(rock);
+      }
       rocks.sort((a, b) => a.p.y - b.p.y);
-      for (const { p, s: size } of rocks) {
+      for (const { p, s: size, keep } of rocks) {
         const pts = [];
         const k = 7;
         for (let j = 0; j < k; j++) {
           const a = (j / k) * Math.PI * 2;
           const rr = size * (0.75 + r() * 0.35);
           pts.push([p.x + Math.cos(a) * rr, p.y - size * 0.4 + Math.sin(a) * rr * 0.58]);
+        }
+        const crack = r();
+        if (!keep) {
+          // a mined-out rock leaves a scatter of chippings
+          ctx.fillStyle = coal ? 'rgba(20,18,16,0.6)' : 'rgba(140,132,116,0.7)';
+          for (let j = 0; j < 4; j++) ctx.fillRect(pts[j][0], p.y - 1 + j * 0.6, 1.2, 0.9);
+          continue;
         }
         ctx.fillStyle = 'rgba(0,0,0,0.3)';
         ctx.beginPath();
@@ -835,12 +866,26 @@ export class GameMap {
         }
         // a crack or two, and (for coal) a glint
         ctx.strokeStyle = coal ? 'rgba(0,0,0,0.5)' : 'rgba(60,54,44,0.55)'; ctx.lineWidth = 0.6;
-        ctx.beginPath(); ctx.moveTo(cxp, cyp); ctx.lineTo(cxp + size * (r() - 0.3) * 0.8, cyp + size * 0.6); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(cxp, cyp); ctx.lineTo(cxp + size * (crack - 0.3) * 0.8, cyp + size * 0.6); ctx.stroke();
         if (coal) { ctx.fillStyle = 'rgba(200,205,215,0.5)'; ctx.fillRect(cxp - 1, cyp - 0.5, 1, 1); }
       }
     } else if (t === TERRAIN.MEAT) {
-      // a deer lying on its side
+      // a deer lying on its side… then less of it, then just the bones
       const c = at(16, 18);
+      const f = this.fracLeft(tx, ty);
+      if (f < 0.34) {
+        ctx.fillStyle = 'rgba(0,0,0,0.2)';
+        ctx.beginPath(); ctx.ellipse(c.x + 1, c.y + 1, 9, 3, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#e8dcc6'; ctx.lineWidth = 0.9; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(c.x - 7, c.y); ctx.lineTo(c.x + 6, c.y); ctx.stroke(); // spine
+        for (let k = -5; k <= 3; k += 2) { ctx.beginPath(); ctx.arc(c.x + k, c.y - 0.5, 2.6, Math.PI * 1.05, Math.PI * 1.95); ctx.stroke(); } // ribs
+        ctx.fillStyle = '#e8dcc6'; ctx.beginPath(); ctx.ellipse(c.x + 9, c.y - 1, 2.4, 1.6, 0.4, 0, Math.PI * 2); ctx.fill(); // skull
+        if (f > 0.12) { ctx.fillStyle = '#8a3e2c'; ctx.beginPath(); ctx.ellipse(c.x - 2, c.y, 3.5, 1.4, 0, 0, Math.PI * 2); ctx.fill(); }
+        return;
+      }
+      if (f < 0.67) { // half butchered: smaller, with the haunches gone
+        ctx.save(); ctx.translate(c.x, c.y); ctx.scale(0.8, 0.85); ctx.translate(-c.x, -c.y);
+      }
       ctx.fillStyle = 'rgba(0,0,0,0.3)';
       ctx.beginPath(); ctx.ellipse(c.x + 2, c.y + 2, 12, 4, 0, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = '#6b4a2e'; ctx.lineWidth = 1.6; ctx.lineCap = 'round';
@@ -853,25 +898,37 @@ export class GameMap {
       ctx.fillStyle = '#9a6a3e'; ctx.beginPath(); ctx.ellipse(c.x + 11, c.y - 2, 3.5, 2.2, 0.4, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = '#5a4026'; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(c.x + 12, c.y - 4); ctx.lineTo(c.x + 15, c.y - 8); ctx.moveTo(c.x + 13.5, c.y - 6); ctx.lineTo(c.x + 16, c.y - 6); ctx.stroke();
+      if (f < 0.67) {
+        ctx.fillStyle = '#9a3e2e'; ctx.beginPath(); ctx.ellipse(c.x - 5, c.y - 1, 4, 3, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+      }
     } else if (t === TERRAIN.BERRIES) {
+      // picked in stages: berries go first, the bush shrinks, then the second bush is stripped bare
+      const f = this.fracLeft(tx, ty);
       for (let i = 0; i < 2; i++) {
         const p = at(8 + r() * 16, 8 + r() * 16);
+        const bf = Math.max(0, Math.min(1, i === 0 ? f * 2 : (f - 0.5) * 2));
+        const k = 0.55 + 0.45 * bf;
+        const berries = [];
+        for (let j = 0; j < 7; j++) berries.push([p.x - 6 * k + r() * 12 * k, p.y - 10 * k + r() * 9 * k]);
+        if (bf <= 0) { // a bare, broken stem
+          ctx.strokeStyle = '#4a3a26'; ctx.lineWidth = 0.9;
+          ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - 2, p.y - 4); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + 2.5, p.y - 3); ctx.stroke();
+          continue;
+        }
         ctx.fillStyle = 'rgba(0,0,0,0.3)';
         ctx.beginPath();
-        ctx.ellipse(p.x + 3, p.y + 1, 8, 3.5, 0, 0, Math.PI * 2);
+        ctx.ellipse(p.x + 3 * k, p.y + 1, 8 * k, 3.5 * k, 0, 0, Math.PI * 2);
         ctx.fill();
-        const gr = ctx.createRadialGradient(p.x - 2, p.y - 8, 1, p.x, p.y - 5, 9);
-        gr.addColorStop(0, '#6f8f45'); gr.addColorStop(1, '#22361a');
+        const gr = ctx.createRadialGradient(p.x - 2 * k, p.y - 8 * k, 1, p.x, p.y - 5 * k, 9 * k);
+        gr.addColorStop(0, bf > 0.4 ? '#6f8f45' : '#7a8a4a'); gr.addColorStop(1, '#22361a');
         ctx.fillStyle = gr;
         ctx.beginPath();
-        ctx.ellipse(p.x, p.y - 5, 9, 7, 0, 0, Math.PI * 2);
+        ctx.ellipse(p.x, p.y - 5 * k, 9 * k, 7 * k, 0, 0, Math.PI * 2);
         ctx.fill();
-        for (let k = 0; k < 7; k++) {
-          ctx.fillStyle = '#a02838';
-          ctx.beginPath();
-          ctx.arc(p.x - 6 + r() * 12, p.y - 10 + r() * 9, 1.4, 0, Math.PI * 2);
-          ctx.fill();
-        }
+        const shown = Math.ceil(7 * bf - 0.001);
+        ctx.fillStyle = '#a02838';
+        for (let j = 0; j < shown; j++) { ctx.beginPath(); ctx.arc(berries[j][0], berries[j][1], 1.4, 0, Math.PI * 2); ctx.fill(); }
       }
     } else if (t === TERRAIN.ASH) {
       for (let i = 0; i < 2; i++) {

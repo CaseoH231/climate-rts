@@ -1,6 +1,6 @@
 // Global settings for the game. Change numbers here to tweak the game.
 
-export const GAME_VERSION = 'v18';
+export const GAME_VERSION = 'v19';
 export const TICK_MS = 50;   // the simulation moves in fixed 50 ms steps (20 per second)
 export const TILE = 32;      // size of one map tile in pixels
 // Map size in tiles. 1 v 1 games use 64 × 64; games with 3–4 sides use a bigger map (see mapSizeFor).

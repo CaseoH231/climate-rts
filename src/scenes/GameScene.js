@@ -132,7 +132,20 @@ export default class GameScene extends Phaser.Scene {
     this.add.image(0, 0, 'terrain').setOrigin(0).setDepth(-1);
     this.map.onTileChanged = (x, y) => this.redrawTile(x, y);
     this.trees = new TreeLayer(this, this.map);
-    this.map.onHarvest = (x, y) => this.trees.refresh(x, y);
+    // (for show) as things are gathered they run down in stages: trees fall one by one, bushes and
+    // rocks shrink — repaint a tile's ground only when its stage changes
+    this.harvestStage = new Map();
+    this.map.onHarvest = (x, y) => {
+      if (this.map.get(x, y) === TERRAIN.FOREST) { this.trees.refresh(x, y); return; }
+      const k = y * this.map.w + x;
+      const st = this.map.stageOf(x, y);
+      if (this.harvestStage.get(k) === st) return;
+      const first = !this.harvestStage.has(k);
+      this.harvestStage.set(k, st);
+      if (first && st === 6) return; // still untouched
+      this.map.renderRegion(this.terrainCtx, x - 1, y - 1, x + 1, y + 1);
+      this.terrainDirty = true;
+    };
 
     // --- Camera ---
     const cam = this.cameras.main;
