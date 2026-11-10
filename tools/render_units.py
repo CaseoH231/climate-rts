@@ -14,6 +14,8 @@ UNIT_RES, UNIT_SCALE = 3, 0.86             # must match art.js
 PERSON = (56, 40, 28, 34.4)               # canvas w, h and where the feet are (art.js: 32 + 2·PAD, origin 0.5/0.86)
 RIDER = (44, 40, 22, 36)                  # the scout's canvas (origin 0.5/0.9)
 K = 19.8                                  # canvas units per metre: a 1.75 m person is ~30 units tall, like the drawn ones
+FACING = 35                               # people face screen-right, turned 10° towards the camera so you see their faces
+                                          # (side-on, so a blow lands beside them: they can stand next to what they work)
 FRAMES = [(0, 0), (1, 0), (-1, 0), (0.5, 0), (-0.5, 0), (0, 1), (0, 2)]  # (leg step, pose) for frames 0–6
 JOBS = ['pick', 'axe', 'hammer', 'hoe', 'knife', 'spear', 'forage']
 
@@ -352,7 +354,12 @@ def key(utype, team, frame, job=None, tier=0):
     return f"u_{utype}_{team}{f'_w{frame}' if frame else ''}{f'_t{tier}' if tier else ''}{f'_{job}' if job and job != 'pick' else ''}"
 
 
+CONTACTS_ONLY = '--contacts-only' in sys.argv
+
+
 def shoot(sc, name):
+    if CONTACTS_ONLY:
+        return
     sc.render.filepath = os.path.join(OUT, name + '.png')
     bpy.ops.render.render(write_still=True)
 
@@ -360,9 +367,14 @@ def shoot(sc, name):
 def contact_of(sc, cam, tip, canvas):
     W, H, fx, fy = canvas
     bpy.context.view_layer.update()
-    p = world_to_camera_view(sc, cam, tip.matrix_world.translation)
+    w = tip.matrix_world.translation
+    p = world_to_camera_view(sc, cam, w)
     cx, cy = p.x * W, (1 - p.y) * H
-    return {'x': round((cx - fx) * UNIT_SCALE, 2), 'y': round((cy - fy) * UNIT_SCALE, 2)}
+    # also the point on the ground right under it: how far in front of the feet the blow lands
+    g = world_to_camera_view(sc, cam, Vector((w.x, w.y, 0)))
+    gx, gy = g.x * W, (1 - g.y) * H
+    return {'x': round((cx - fx) * UNIT_SCALE, 2), 'y': round((cy - fy) * UNIT_SCALE, 2),
+            'gx': round((gx - fx) * UNIT_SCALE, 2), 'gy': round((gy - fy) * UNIT_SCALE, 2)}
 
 
 def render_person(utype, team, keys, contacts, tier=0):
@@ -372,6 +384,7 @@ def render_person(utype, team, keys, contacts, tier=0):
         sc, cam = setup(PERSON)
         M = materials(team)
         person = Person(M, utype, job, tier)
+        person.root.rotation_euler.z = math.radians(FACING)
         spec = worker_spec(job) if utype == 'worker' else SPECS[utype]
         for f, (step, p) in enumerate(FRAMES):
             person.pose(step, p, spec)
@@ -391,6 +404,7 @@ def render_scout(team, keys):
     sc, cam = setup(RIDER)
     M = materials(team)
     root = empty(None)
+    root.rotation_euler.z = math.radians(FACING)
     h, legs = horse(M, root)
     rider = Person(M, 'scout')
     rider.root.parent = root
