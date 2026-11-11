@@ -89,12 +89,16 @@ def wood(name, rgb, scale=8):
     return m
 
 
-STYLE = 0  # 0 Coal Age (timber and plaster), 1 Industrial (brick, slate and iron)
+STYLE = 0  # 0 Coal Age (timber and plaster), 1 Industrial (brick, slate, iron), 2 Modern (concrete, glass, steel)
 
 
 def make_materials(team_hex):
     lin = lambda h: srgb(h)
     return {
+        'concrete': noisy('concrete', lin(0xb8b4a8), var=0.08, scale=22, bump=0.12),
+        'panel': noisy('panel', lin(0x8e9298), var=0.06, scale=18, bump=0.08, rough=0.6),
+        'steelroof': bricks('steelroof', lin(0x4e545a), lin(0x454b50), lin(0x33383c), scale=3, row=1.0, width=0.08, bump=0.3, rough=0.55),
+        'glasswall': principled('glasswall', lin(0x6e94aa), 0.15)[0],
         'brick': bricks('brick', lin(0xa8684a), lin(0x865240), lin(0x6a5048), scale=7, row=0.16, width=0.42, bump=0.5),
         'glassb': principled('glassb', lin(0x9ab2c0), 0.25)[0],
         'ironwork': principled('ironwork', lin(0x3a3e42), 0.5, )[0],
@@ -294,7 +298,19 @@ def mill(M):
 
 
 def frame_walls(x0, x1, y0, y1, z0, H, M, bays=2):
-    """Walls in the age's style: plaster in a dark timber frame (Coal), or brick with stone sills (Industrial)."""
+    """Walls in the age's style: timber-framed plaster (Coal), brick (Industrial), or concrete and glass (Modern)."""
+    if STYLE >= 2:
+        box(((x0 + x1) / 2, (y0 + y1) / 2, z0 + H / 2), (x1 - x0, y1 - y0, H), M['concrete'])
+        # a band of glass around the upper wall, with steel mullions
+        bz = z0 + H * 0.62
+        bh = H * 0.34
+        box(((x0 + x1) / 2, (y0 + y1) / 2, bz + bh / 2), (x1 - x0 + 0.02, y1 - y0 + 0.02, bh), M['glasswall'])
+        n = max(3, bays * 2)
+        for i in range(n + 1):
+            box((x0 + (x1 - x0) * i / n, y1 + 0.012, bz + bh / 2), (0.025, 0.02, bh), M['metal'])
+            box((x1 + 0.012, y0 + (y1 - y0) * i / n, bz + bh / 2), (0.02, 0.025, bh), M['metal'])
+        box(((x0 + x1) / 2, (y0 + y1) / 2, z0 + 0.04), (x1 - x0 + 0.04, y1 - y0 + 0.04, 0.08), M['panel'])
+        return
     if STYLE >= 1:
         box(((x0 + x1) / 2, (y0 + y1) / 2, z0 + H / 2), (x1 - x0, y1 - y0, H), M['brick'])
         # stone quoins on the corners and a sill course
@@ -321,15 +337,25 @@ def frame_walls(x0, x1, y0, y1, z0, H, M, bays=2):
 
 
 def roof_mat(M, kind='roof'):
+    if STYLE >= 2:
+        return M['steelroof']
     return M['slate'] if STYLE >= 1 else M[kind]
 
 
 def gable_mat(M):
+    if STYLE >= 2:
+        return M['concrete']
     return M['brick'] if STYLE >= 1 else M['plaster']
 
 
 def windows(xs, y, z, M, face='y'):
     for x in xs:
+        if STYLE >= 2:  # one wide pane with a steel frame
+            if face == 'y':
+                box((x, y, z), (0.26, 0.03, 0.16), M['glasswall']); box((x, y + 0.012, z), (0.28, 0.02, 0.02), M['metal'])
+            else:
+                box((y, x, z), (0.03, 0.26, 0.16), M['glasswall']); box((y + 0.012, x, z), (0.02, 0.28, 0.02), M['metal'])
+            continue
         if face == 'y':
             box((x, y, z), (0.16, 0.03, 0.18 if STYLE >= 1 else 0.14), M['window']); box((x, y + 0.015, z), (0.025, 0.02, 0.19 if STYLE >= 1 else 0.15), M['timber' if STYLE < 1 else 'ironwork'])
             if STYLE >= 1:
@@ -514,6 +540,12 @@ def fishing_dock(M):
 
 
 def smokestack(x, y, z0, h, M, r=0.1):
+    if STYLE >= 2:  # a steel flue with bands and a red tip
+        cyl((x, y, z0 + h / 2), r * 0.8, h, M['metal'], v=14)
+        for t in (0.35, 0.7):
+            cyl((x, y, z0 + h * t), r * 0.9, 0.05, M['ironwork'], v=14)
+        cyl((x, y, z0 + h - 0.05), r * 0.85, 0.1, noisy('redtip', srgb(0xb03028), var=0.08), v=14)
+        return
     cyl((x, y, z0 + h / 2), r, h, M['brick'], v=14)
     cyl((x, y, z0 + h - 0.04), r + 0.03, 0.08, M['stone'], v=14)
     cyl((x, y, z0 + h + 0.03), r - 0.02, 0.06, M['dark'], v=14)
@@ -581,10 +613,118 @@ def workshop(M):
     box((x1 - 0.05, y1 + 0.04, 0.62), (0.14, 0.02, 0.36), M['team'])
 
 
+def flat_roof(x0, x1, y0, y1, z, M, lip=0.05):
+    box(((x0 + x1) / 2, (y0 + y1) / 2, z + 0.03), (x1 - x0 + 0.06, y1 - y0 + 0.06, 0.06), M['panel'])
+    for (cx, cy, w, d) in ((x0, (y0 + y1) / 2, 0.04, y1 - y0 + 0.06), (x1, (y0 + y1) / 2, 0.04, y1 - y0 + 0.06),
+                           ((x0 + x1) / 2, y0, x1 - x0 + 0.06, 0.04), ((x0 + x1) / 2, y1, x1 - x0 + 0.06, 0.04)):
+        box((cx, cy, z + 0.06 + lip / 2), (w, d, lip), M['concrete'])
+
+
+def apartments(M):
+    # a three-storey block of flats: concrete, window bands, balconies, a flat roof with vents
+    x0, x1, y0, y1 = 0.2, 1.8, -1.8, -0.35
+    H = 1.5
+    box(((x0 + x1) / 2, (y0 + y1) / 2, 0.04), (x1 - x0 + 0.15, y1 - y0 + 0.15, 0.08), M['paving'])
+    box(((x0 + x1) / 2, (y0 + y1) / 2, H / 2), (x1 - x0, y1 - y0, H), M['concrete'])
+    for storey in range(3):
+        z = 0.32 + storey * 0.44
+        for x in (x0 + 0.3, x0 + 0.8, x1 - 0.3):
+            box((x, y1 + 0.012, z), (0.3, 0.025, 0.22), M['glasswall'])
+        for y in (y0 + 0.35, y1 - 0.45):
+            box((x1 + 0.012, y, z), (0.025, 0.3, 0.22), M['glasswall'])
+        # balconies jutting from the front face, with team-coloured rails
+        if storey:
+            for x in (x0 + 0.3, x1 - 0.3):
+                box((x, y1 + 0.12, z - 0.14), (0.4, 0.24, 0.03), M['concrete'])
+                box((x, y1 + 0.235, z - 0.05), (0.4, 0.018, 0.16), M['team'])
+                for sx in (-1, 1):
+                    box((x + sx * 0.19, y1 + 0.12, z - 0.05), (0.018, 0.22, 0.16), M['panel'])
+    box((x0 + 0.55, y1 + 0.02, 0.22), (0.26, 0.03, 0.4), M['dark'])  # entrance
+    flat_roof(x0, x1, y0, y1, H, M)
+    for (vx, vy) in ((x0 + 0.35, y0 + 0.35), (x1 - 0.4, y0 + 0.5)):
+        box((vx, vy, H + 0.12), (0.18, 0.14, 0.12), M['metal'])
+    box((x1 - 0.2, y1 - 0.1, H + 0.2), (0.02, 0.14, 0.3), M['team'])
+
+
+def office(M):
+    # a small glass office tower on a concrete podium
+    x0, x1, y0, y1 = 0.25, 1.75, -1.75, -0.3
+    box(((x0 + x1) / 2, (y0 + y1) / 2, 0.11), (x1 - x0, y1 - y0, 0.22), M['concrete'])
+    gx0, gx1, gy0, gy1 = x0 + 0.12, x1 - 0.12, y0 + 0.12, y1 - 0.12
+    H = 1.9
+    box(((gx0 + gx1) / 2, (gy0 + gy1) / 2, 0.22 + H / 2), (gx1 - gx0, gy1 - gy0, H), M['glasswall'])
+    # floor slabs and mullions showing through the glass
+    for f in range(1, 5):
+        box(((gx0 + gx1) / 2, (gy0 + gy1) / 2, 0.22 + H * f / 5), (gx1 - gx0 + 0.015, gy1 - gy0 + 0.015, 0.035), M['panel'])
+    for i in range(5):
+        box((gx0 + (gx1 - gx0) * i / 4, gy1 + 0.01, 0.22 + H / 2), (0.02, 0.015, H), M['metal'])
+        box((gx1 + 0.01, gy0 + (gy1 - gy0) * i / 4, 0.22 + H / 2), (0.015, 0.02, H), M['metal'])
+    flat_roof(gx0, gx1, gy0, gy1, 0.22 + H, M)
+    box(((gx0 + gx1) / 2, (gy0 + gy1) / 2, 0.22 + H + 0.14), (0.25, 0.2, 0.16), M['metal'])  # plant room
+    box((gx1 - 0.1, gy1 - 0.1, 0.22 + H + 0.25), (0.02, 0.12, 0.3), M['team'])
+    box((x1 - 0.35, y1 + 0.02, 0.4), (0.3, 0.03, 0.34), M['dark'])  # lobby door
+    for (bx, by) in ((x0 + 0.2, y1 - 0.15), (x0 + 0.45, y1 - 0.1)):
+        cyl((bx, by, 0.3), 0.05, 0.16, M['team'], v=10)  # planters
+
+
+def factory(M):
+    # a modern plant: two metal-clad halls with curved roofs, steel flues, a loading bay and crates
+    box((1.5, -1.5, 0.05), (2.9, 2.9, 0.1), M['paving'])
+    for (ya, yb) in ((-2.4, -1.55), (-1.45, -0.6)):
+        x0, x1 = 0.3, 2.3
+        box(((x0 + x1) / 2, (ya + yb) / 2, 0.1 + 0.3), (x1 - x0, yb - ya, 0.6), M['panel'])
+        # a curved (barrel) roof out of thin slats
+        for k in range(7):
+            t = k / 6
+            yv = ya + (yb - ya) * t
+            zv = 0.7 + math.sin(t * math.pi) * 0.22
+            box(((x0 + x1) / 2, yv, zv), (x1 - x0 + 0.1, (yb - ya) / 6 + 0.02, 0.035), M['steelroof'])
+        box(((x0 + x1) / 2, (ya + yb) / 2, 0.55), (x1 - x0 + 0.02, yb - ya - 0.1, 0.18), M['glasswall'])
+    smokestack(0.55, -2.15, 0.9, 1.1, M, r=0.1)
+    smokestack(0.85, -2.15, 0.9, 0.9, M, r=0.08)
+    # loading bay: a raised dock, roller door, crates and a forklift-ish tug
+    box((2.45, -1.0, 0.16), (0.3, 0.7, 0.16), M['concrete'])
+    box((2.32, -1.0, 0.42), (0.03, 0.4, 0.34), M['metal'])
+    for (cx, cy, s2) in ((2.6, -2.2, 0.2), (2.62, -1.95, 0.16), (2.45, -2.1, 0.17)):
+        box((cx, cy, 0.1 + s2 / 2), (s2, s2, s2), M['plank'])
+    box((2.6, -0.45, 0.17), (0.3, 0.18, 0.14), M['team'])
+    for dx in (-0.1, 0.1):
+        cyl((2.6 + dx, -0.38, 0.06), 0.045, 0.04, M['dark'], rot=(math.pi / 2, 0, 0), v=10)
+    box((0.42, -0.72, 0.5), (0.14, 0.02, 0.3), M['team'])
+
+
+def radar(M):
+    # a radar station: a concrete cabin, a lattice mast and a big dish aimed at the sky
+    x0, x1, y0, y1 = 0.3, 1.3, -1.45, -0.55
+    frame_walls(x0, x1, y0, y1, 0.06, 0.5, M, bays=2)
+    flat_roof(x0, x1, y0, y1, 0.56, M)
+    box(((x0 + x1) / 2, (y0 + y1) / 2, 0.03), (x1 - x0 + 0.3, y1 - y0 + 0.3, 0.06), M['paving'])
+    windows([(x0 + x1) / 2], y1 + 0.02, 0.36, M)
+    box((x1 + 0.015, (y0 + y1) / 2, 0.26), (0.03, 0.22, 0.36), M['dark'])
+    # mast
+    mx, my = 1.45, -1.5
+    for (ox, oy) in ((-0.08, -0.08), (0.08, -0.08), (-0.08, 0.08), (0.08, 0.08)):
+        box((mx + ox, my + oy, 0.45), (0.025, 0.025, 0.9), M['ironwork'])
+    for z in (0.3, 0.6, 0.9):
+        box((mx, my, z), (0.19, 0.19, 0.022), M['ironwork'])
+    # a big white dish on a yoke, tipped up and facing the camera
+    dz = 1.0
+    cyl((mx, my, dz), 0.05, 0.16, M['metal'], v=10)
+    bpy.ops.mesh.primitive_cone_add(vertices=24, radius1=0.5, radius2=0.14, depth=0.2, location=(0, 0, 0))
+    dish = bpy.context.object
+    link(dish, M['cream'])
+    dish.location = (mx + 0.2, my + 0.2, dz + 0.3)
+    dish.rotation_euler = (math.radians(58), 0, math.radians(-135))
+    # feed horn out of the dish's mouth
+    box((mx + 0.33, my + 0.33, dz + 0.46), (0.025, 0.025, 0.34), M['metal'], rot=(math.radians(58) * -0.7071, math.radians(58) * -0.7071, 0))
+    box((x0 + 0.1, y1 + 0.03, 0.4), (0.12, 0.02, 0.3), M['team'])
+
+
 BUILDINGS = {'house': (house, 2, 2), 'lumber_camp': (lumber_camp, 1, 1), 'mining_camp': (mining_camp, 1, 1), 'mill': (mill, 2, 2),
              'town_centre': (town_centre, 3, 3), 'barracks': (barracks, 3, 3), 'tower': (tower, 2, 2), 'market': (market, 3, 3),
              'wall': (wall, 1, 1), 'gate': (gate, 1, 1), 'fishing_dock': (fishing_dock, 2, 2),
-             'power_plant': (power_plant, 3, 3), 'workshop': (workshop, 3, 3)}
+             'power_plant': (power_plant, 3, 3), 'workshop': (workshop, 3, 3),
+             'apartments': (apartments, 2, 2), 'office': (office, 2, 2), 'factory': (factory, 3, 3), 'radar': (radar, 2, 2)}
 
 
 # ---------- scene, camera and render ----------

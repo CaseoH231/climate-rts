@@ -2523,9 +2523,12 @@ export function ensureJobTex(scene, team, tier, job) {
 
 // Draw a building's texture in a given era style (if it hasn't been drawn yet).
 export function ensureBuildingTex(scene, type, team, style, def) {
-  // a 3D-rendered version (made by tools/render_buildings.py) wins over the drawn one, if there is one
-  const rendered = `b3d_${type}_s${style}_${team}`;
-  if (scene.textures.exists(rendered)) return rendered;
+  // a 3D-rendered version (made by tools/render_buildings.py) wins over the drawn one, if there is one;
+  // an age without its own render yet uses the newest rendered look below it
+  for (let st = style; st >= 0; st--) {
+    const rendered = `b3d_${type}_s${st}_${team}`;
+    if (scene.textures.exists(rendered)) return rendered;
+  }
   const key = buildingKey(type, team, style);
   if (scene.textures.exists(key) || !BUILDING_ART[type]) return key;
   const info = buildingTexInfo(def);

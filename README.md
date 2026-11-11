@@ -274,7 +274,8 @@ src/scenes/UIScene.js   resource bar, command panel, diamond minimap, climate pa
 - [x] Phase 20⅞ – Harvest stages: trees fall (away from the axe) and leave stumps, berry bushes are stripped and shrink, rocks are mined away one by one, carcasses go down to bones; workers only stand on open ground to work
 - [x] Phase 20⁹⁄₁₀ – 3D-rendered Coal Age: every Coal Age building (except the farm, tree plot, bridge and wind pump) and every Coal Age unit (worker with all seven tools and its upgraded look, soldier, archer, scout on horseback), modelled and rendered in Blender
 - [x] 3D-rendered Industrial Age: every building gets a brick-and-slate Industrial look (stone quoins, iron window frames, sills), two new buildings (coal power plant with a tall smokestack and transformer yard; workshop with a sawtooth factory roof and gear sign), the rifleman, medic and field cannon, and the steel look soldiers and archers get from Iron Weapons
-- [ ] 3D-rendered Modern, Transition and Green Ages (one age at a time)
+- [x] 3D-rendered Modern Age: a concrete, glass and steel look for every building, four new buildings (apartment block with balconies, glass office tower, modern factory with curved halls and a loading bay, radar station), the armoured car, hard-hat workers with chainsaws and power drills (Electric Tools), riot soldiers with clear shields and composite helmets for everyone (Body Armour) — ages without their own render yet use the newest look below them
+- [ ] 3D-rendered Transition and Green Ages
 - [x] Phase 20¹⁵⁄₁₆ – Performance: off-screen trees leave the scene in blocks, the scene is only re-sorted when something moves to a new row, fog redraws only when sight changes, and ground changes upload only the changed patch of the texture
 - [ ] Phase 21 – Gore update: an optional blood & gore setting (off by default) — blood spatter on hits, bodies that stay on the battlefield longer, more dramatic deaths, scorch marks from explosions
 - [ ] Phase 22 – Playtesting feedback
@@ -308,5 +309,6 @@ To re-render (needs Blender's Python module: `pip install bpy`, with Python 3.11
 
     python tools/render_buildings.py                      # all buildings, in all four team colours
     python tools/render_buildings.py --style=1            # the Industrial Age look of each building
+    python tools/render_buildings.py --style=2            # the Modern Age look
     python tools/render_units.py worker worker1 soldier archer scout
     python tools/pack_atlases.py                          # pack them into assets/atlas

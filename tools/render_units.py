@@ -18,6 +18,13 @@ FACING = 35                               # people face screen-right, turned 10Â
                                           # (side-on, so a blow lands beside them: they can stand next to what they work)
 FRAMES = [(0, 0), (1, 0), (-1, 0), (0.5, 0), (-0.5, 0), (0, 1), (0, 2)]  # (leg step, pose) for frames 0â€“6
 JOBS = ['pick', 'axe', 'hammer', 'hoe', 'knife', 'spear', 'forage']
+# with Electric Tools, the axe becomes a chainsaw and the pick and hammer a power drill
+def job_tool(job, tier):
+    if tier >= 2 and job == 'axe':
+        return 'chainsaw'
+    if tier >= 2 and job in ('pick', 'hammer'):
+        return 'drill'
+    return job
 
 
 def srgb(h):
@@ -52,7 +59,9 @@ def materials(team):
         'leather': mat('leather', 0x6a4a2c, 0.65, noise=0.2), 'wicker': mat('wicker', 0x9a7442, 0.9, noise=0.35, scale=150),
         'berry': mat('berry', 0xa02838, 0.4), 'horse': mat('horse', 0x6b4a2e, 0.7, noise=0.12), 'mane': mat('mane', 0x2a1e14, 0.9),
         'string': mat('string', 0xe8e0c8, 0.9), 'cream': mat('cream', 0xe2d6b6, 0.85, noise=0.08),
-        'red': mat('red', 0xb02828, 0.6),
+        'red': mat('red', 0xb02828, 0.6), 'hivis': mat('hivis', 0xe8c428, 0.8, noise=0.08),
+        'kevlar': mat('kevlar', 0x33373c, 0.8, noise=0.12), 'orange': mat('orange', 0xe46a1c, 0.6),
+        'yellow': mat('yellow', 0xe0b21a, 0.55),
     }
 
 
@@ -134,6 +143,21 @@ def tool(kind, hand, M):
         bpy.ops.mesh.primitive_cone_add(vertices=6, radius1=0.05, radius2=0, depth=0.18, location=(0, 0, -1.09), rotation=(math.pi, 0, 0))
         add(bpy.context.object, g, M['steel'])
         tip = empty(g, (0, 0, -1.14))
+    elif kind == 'chainsaw':
+        cube(g, (0, 0, -0.05), (0.2, 0.1, 0.16), M['orange'])          # body
+        cube(g, (-0.06, 0, 0.08), (0.08, 0.03, 0.1), M['kevlar'])      # rear handle (in the hand)
+        cube(g, (0.08, 0, -0.1), (0.03, 0.14, 0.03), M['kevlar'])      # front bar handle
+        cube(g, (0, 0, -0.42), (0.05, 0.016, 0.6), M['steel'])         # bar
+        cube(g, (0, 0, -0.42), (0.56, 0.026, 0.026), M['iron']).rotation_euler = (0, math.pi / 2, 0)
+        tip = empty(g, (0, 0, -0.72))
+    elif kind == 'drill':
+        cube(g, (0, 0, -0.03), (0.12, 0.07, 0.18), M['yellow'])        # body
+        cube(g, (-0.02, 0, 0.1), (0.05, 0.03, 0.08), M['kevlar'])      # grip
+        rod(g, -0.12, -0.34, 0.016, M['steel'])                        # bit
+        tip = empty(g, (0, 0, -0.36))
+    elif kind == 'baton':
+        rod(g, 0.05, -0.3, 0.018, M['kevlar'])
+        tip = empty(g, (0, 0, -0.32))
     elif kind == 'rifle':
         rod(g, 0.14, -0.3, 0.03, M['wood'])                       # stock
         cube(g, (0.03, 0, 0.1), (0.14, 0.035, 0.1), M['wood'])    # butt
@@ -172,6 +196,15 @@ class Person:
         cube(self.spine, (0, 0, 0.0), (0.27, 0.39, 0.06), M['belt'])
         if kind == 'worker' and tier == 1:  # a leather apron over the tabard
             taper_box(self.spine, -0.3, 0.2, 0.2, 0.16, 0.03, 0.03, M['leather']).location.x = 0.15
+        if kind == 'worker' and tier == 2:  # a hi-vis vest with reflective bands, team colour on the shoulders
+            taper_box(self.spine, -0.06, 0.5, 0.38, 0.46, 0.26, 0.28, M['hivis'])
+            for z in (0.12, 0.3):
+                cube(self.spine, (0.145, 0, z), (0.012, 0.42, 0.045), M['cream'])
+            cube(self.spine, (0, 0, 0.52), (0.26, 0.46, 0.05), M['team'])
+        elif tier == 2:  # a dark armoured vest with a team patch
+            taper_box(self.spine, -0.06, 0.5, 0.4, 0.47, 0.27, 0.29, M['kevlar'])
+            cube(self.spine, (0.15, 0.1, 0.32), (0.015, 0.11, 0.11), M['team'])
+            cube(self.spine, (0.15, -0.08, 0.1), (0.03, 0.1, 0.08), M['kevlar'])  # pouch
         neck = empty(self.spine, (0, 0, 0.56))
         ball(neck, (0, 0, 0.05), 0.045, M['skin'], sz=1.4)
         self.head = empty(neck, (0, 0, 0.14))
@@ -192,7 +225,17 @@ class Person:
 
     def hat(self, kind, M):
         h = self.head
-        if kind == 'worker' and self.tier == 1:  # a felt cap
+        if kind == 'worker' and self.tier == 2:  # a yellow hard hat
+            ball(h, (0, 0, 0.04), 0.125, M['yellow'], sz=0.75)
+            cube(h, (0, 0, 0.0), (0.3, 0.21, 0.02), M['yellow'])
+        elif self.tier == 2 and kind == 'medic':  # a white helmet with a red cross
+            ball(h, (0, 0, 0.03), 0.125, M['cream'], sz=0.85)
+            cube(h, (0.115, 0.0, 0.05), (0.012, 0.016, 0.05), M['red'])
+            cube(h, (0.115, 0.0, 0.05), (0.012, 0.05, 0.016), M['red'])
+        elif self.tier == 2 and kind in ('soldier', 'rifleman', 'archer', 'scout'):  # a modern composite helmet
+            ball(h, (-0.005, 0, 0.03), 0.127, M['kevlar'], sz=0.9)
+            rod(h, -0.005, 0.03, 0.128, M['team'], v=16)
+        elif kind == 'worker' and self.tier == 1:  # a felt cap
             ball(h, (-0.01, 0, 0.04), 0.118, M['leather'], sz=0.8)
             cube(h, (0.1, 0, 0.03), (0.08, 0.16, 0.015), M['leather'])
         elif kind == 'worker':  # a straw hat
@@ -217,6 +260,15 @@ class Person:
 
     def extras(self, kind, job, M):
         R, L = self.hands['R'], self.hands['L']
+        if kind == 'soldier' and self.tier == 2:
+            # riot kit: a baton and a clear shield with a team stripe
+            self.toolgrip, self.tip = tool('baton', R, M)
+            sh = empty(self.el['L'], (0.08, 0.05, -0.18))
+            clear = mat('clear', 0xb8ccd8, 0.15); clear.node_tree.nodes['Principled BSDF'].inputs['Alpha'].default_value = 0.4
+            clear.blend_method = 'BLEND'
+            cube(sh, (0, 0.02, 0), (0.34, 0.015, 0.5), clear)
+            cube(sh, (0, 0.03, 0.18), (0.3, 0.012, 0.07), M['team'])
+            return
         if kind == 'worker':
             if job == 'forage':
                 b = empty(L, (0, 0, -0.08))
@@ -225,7 +277,7 @@ class Person:
                     ball(b, (x, y, 0.045), 0.025, M['berry'])
                 self.berries = [ball(R, (0.02, 0, -0.03), 0.024, M['berry'])]
             else:
-                self.toolgrip, self.tip = tool(job, R, M)
+                self.toolgrip, self.tip = tool(job_tool(job, self.tier), R, M)
         elif kind == 'soldier':
             self.toolgrip, self.tip = tool('sword', R, M)
             sh = empty(self.el['L'], (0.06, 0.04, -0.16))
@@ -305,6 +357,9 @@ class Person:
 # Two-handed tools put the left hand on the handle too.
 REST_TOOL = {'rest': {'R': (10, 70), 'L': (0, 10), 't': 95, 'holdR': True}}
 WORKER_POSES = {
+    # power tools are held low and pushed into the work, not swung
+    'chainsaw': [{'R': (55, 35), 'L': (45, 45), 't': 60, 'lean': 2}, {'R': (65, 20), 'L': (55, 35), 't': 78, 'lean': 10}],
+    'drill': [{'R': (45, 45), 'L': (30, 50), 't': 15, 'lean': 2}, {'R': (55, 30), 'L': (40, 40), 't': 25, 'lean': 10}],
     'pick': [{'R': (165, 25), 'L': (155, 35), 't': 80, 'lean': -6}, {'R': (65, 10), 'L': (60, 20), 't': 35, 'lean': 16}],
     'axe': [{'R': (160, 40), 'L': (148, 50), 't': 75, 'lean': -6}, {'R': (80, 0), 'L': (75, 10), 't': 10, 'lean': 8}],
     'hammer': [{'R': (150, 50), 't': 20, 'lean': -2}, {'R': (60, 25), 't': 30, 'lean': 12}],
@@ -327,11 +382,14 @@ SPECS = {
 }
 
 
-def worker_spec(job):
-    rest = {'R': (8, 10), 'L': (0, 60), 'holdL': True} if job == 'forage' else REST_TOOL['rest']
-    if job == 'spear':
+def worker_spec(job, tier=0):
+    t = job_tool(job, tier)
+    rest = {'R': (8, 10), 'L': (0, 60), 'holdL': True} if t == 'forage' else REST_TOOL['rest']
+    if t == 'spear':
         rest = {'R': (10, 70), 'L': (0, 10), 't': 170, 'holdR': True}
-    return {'rest': rest, 'poses': WORKER_POSES[job]}
+    if t in ('chainsaw', 'drill'):
+        rest = {'R': (25, 45), 'L': (0, 15), 't': 30, 'holdR': True}
+    return {'rest': rest, 'poses': WORKER_POSES[t]}
 
 
 # ---------- horse (for the scout) ----------
@@ -415,7 +473,7 @@ def render_person(utype, team, keys, contacts, tier=0):
         M = materials(team)
         person = Person(M, utype, job, tier)
         person.root.rotation_euler.z = math.radians(FACING)
-        spec = worker_spec(job) if utype == 'worker' else SPECS[utype]
+        spec = worker_spec(job, tier) if utype == 'worker' else SPECS[utype]
         for f, (step, p) in enumerate(FRAMES):
             person.pose(step, p, spec)
             k = key(utype, team, f, job, tier)
@@ -464,13 +522,44 @@ def render_cannon(team, keys):
     shoot(sc, k); keys.append(k)
 
 
-def render_scout(team, keys):
+def render_armoured_car(team, keys):
+    # a six-wheeled armoured car with a small turret, in the team's colours
+    sc, cam = setup(PERSON)
+    M = materials(team)
+    root = empty(None)
+    root.rotation_euler.z = math.radians(FACING)
+    hull = taper_box(root, 0.5, 0.95, 0.75, 0.6, 1.7, 1.3, M['kevlar'])
+    taper_box(root, 0.28, 0.5, 0.8, 0.78, 1.8, 1.75, M['kevlar'])
+    # angled nose and team stripe
+    cube(root, (0.0, 0, 0.72), (1.74, 0.72, 0.06), M['team'])
+    for side, y in ((1, 0.42), (-1, -0.42)):
+        for x in (-0.6, 0, 0.6):
+            w = empty(root, (x, y, 0.26))
+            bpy.ops.mesh.primitive_cylinder_add(vertices=16, radius=0.26, depth=0.18, location=(0, 0, 0), rotation=(math.pi / 2, 0, 0))
+            add(bpy.context.object, w, M['boots'])
+            bpy.ops.mesh.primitive_cylinder_add(vertices=12, radius=0.12, depth=0.19, location=(0, 0.01 * side, 0), rotation=(math.pi / 2, 0, 0))
+            add(bpy.context.object, w, M['iron'])
+    # turret with a stubby gun facing ahead
+    t = empty(root, (0.25, 0, 0.95))
+    taper_box(t, 0, 0.26, 0.5, 0.4, 0.55, 0.45, M['kevlar'])
+    cube(t, (0.08, 0, 0.28), (0.4, 0.4, 0.04), M['team'])
+    g = cube(t, (0.5, 0, 0.14), (0.5, 0.06, 0.06), M['iron'])
+    cube(t, (0.1, 0.18, 0.2), (0.1, 0.1, 0.14), M['iron'])  # hatch
+    # headlights and a radio whip
+    for y in (0.25, -0.25):
+        ball(root, (0.86, y, 0.5), 0.045, M['cream'])
+    rod(root, 1.0, 1.7, 0.008, M['iron'], x=-0.7)
+    k = key('armoured_car', team, 0)
+    shoot(sc, k); keys.append(k)
+
+
+def render_scout(team, keys, tier=0):
     sc, cam = setup(RIDER)
     M = materials(team)
     root = empty(None)
     root.rotation_euler.z = math.radians(FACING)
     h, legs = horse(M, root)
-    rider = Person(M, 'scout')
+    rider = Person(M, 'scout', tier=tier)
     rider.root.parent = root
     rider.root.location = (0.0, 0, 0.52)
     # seated: thighs forward and apart, a lance held upright
@@ -486,7 +575,7 @@ def render_scout(team, keys):
             top, low = legs[name]
             top.rotation_euler = (0, -math.radians(a), 0)
             low.rotation_euler = (0, math.radians(kb) * (-1 if name[0] == 'F' else 1), 0)
-        k = key('scout', team, f)
+        k = key('scout', team, f, tier=tier)
         shoot(sc, k); keys.append(k)
 
 
@@ -504,12 +593,14 @@ if __name__ == '__main__':
             new = []
             if t == 'scout':
                 render_scout(team, new)
+            elif t in ('scout1', 'scout2'):
+                render_scout(team, new, tier=int(t[-1]))
             elif t == 'cannon':
                 render_cannon(team, new)
-            elif t == 'worker1':  # the worker after the Coal Age tool upgrades
-                render_person('worker', team, new, contacts, tier=1)
-            elif t in ('soldier1', 'archer1'):  # the steel look after Iron Weapons
-                render_person(t[:-1], team, new, contacts, tier=1)
+            elif t == 'armoured_car':
+                render_armoured_car(team, new)
+            elif t[-1] in '12':  # an upgrade tier of a person (worker1, soldier2, rifleman1, ...)
+                render_person(t[:-1], team, new, contacts, tier=int(t[-1]))
             else:
                 render_person(t, team, new, contacts)
             keys.update(new)
