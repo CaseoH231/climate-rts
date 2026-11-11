@@ -51,7 +51,8 @@ def materials(team):
         'iron': mat('iron', 0x7c8288, 0.45, metal=0.9), 'mail': mat('mail', 0x8a9096, 0.5, metal=0.8, noise=0.35, scale=400),
         'leather': mat('leather', 0x6a4a2c, 0.65, noise=0.2), 'wicker': mat('wicker', 0x9a7442, 0.9, noise=0.35, scale=150),
         'berry': mat('berry', 0xa02838, 0.4), 'horse': mat('horse', 0x6b4a2e, 0.7, noise=0.12), 'mane': mat('mane', 0x2a1e14, 0.9),
-        'string': mat('string', 0xe8e0c8, 0.9),
+        'string': mat('string', 0xe8e0c8, 0.9), 'cream': mat('cream', 0xe2d6b6, 0.85, noise=0.08),
+        'red': mat('red', 0xb02828, 0.6),
     }
 
 
@@ -133,6 +134,12 @@ def tool(kind, hand, M):
         bpy.ops.mesh.primitive_cone_add(vertices=6, radius1=0.05, radius2=0, depth=0.18, location=(0, 0, -1.09), rotation=(math.pi, 0, 0))
         add(bpy.context.object, g, M['steel'])
         tip = empty(g, (0, 0, -1.14))
+    elif kind == 'rifle':
+        rod(g, 0.14, -0.3, 0.03, M['wood'])                       # stock
+        cube(g, (0.03, 0, 0.1), (0.14, 0.035, 0.1), M['wood'])    # butt
+        rod(g, -0.28, -0.92, 0.018, M['iron'])                    # barrel
+        cube(g, (0.02, 0, -0.34), (0.05, 0.02, 0.06), M['iron'])  # lock
+        tip = empty(g, (0, 0, -0.95))
     elif kind == 'sword':
         rod(g, 0.06, -0.04, 0.026, M['leather'])
         cube(g, (0, 0, -0.05), (0.2, 0.05, 0.04), M['iron'])
@@ -197,6 +204,14 @@ class Person:
         elif kind == 'archer':  # a team-coloured hood
             ball(h, (-0.015, 0, 0.02), 0.122, M['team'], sz=1.05)
             ball(h, (0.03, 0, -0.01), 0.1, M['skin'])
+        elif kind == 'rifleman':  # a peaked cap with a team band
+            ball(h, (0, 0, 0.055), 0.115, M['boots'], sz=0.6)
+            cube(h, (0.1, 0, 0.035), (0.09, 0.14, 0.018), M['boots'])
+            rod(h, 0.0, 0.035, 0.117, M['team'], v=16)
+        elif kind == 'medic':  # a pale field cap with a red cross
+            ball(h, (0, 0, 0.045), 0.117, M['cream'], sz=0.65)
+            cube(h, (0.105, 0.0, 0.06), (0.012, 0.016, 0.05), M['red'])
+            cube(h, (0.105, 0.0, 0.06), (0.012, 0.05, 0.016), M['red'])
         else:
             ball(h, (-0.02, 0, 0.04), 0.108, M['hair'], sz=0.9)
 
@@ -218,6 +233,15 @@ class Person:
             add(bpy.context.object, sh, M['team'])
             bpy.ops.mesh.primitive_uv_sphere_add(segments=12, ring_count=6, radius=0.05, location=(0, 0.02, 0)); add(bpy.context.object, sh, M['iron'])
             rod(sh, -0.2, 0.2, 0.012, M['iron']).rotation_euler = (math.pi / 2, 0, 0)
+        elif kind == 'rifleman':
+            self.toolgrip, self.tip = tool('rifle', R, M)
+        elif kind == 'medic':
+            # a satchel with a red cross on a shoulder strap
+            sa = cube(self.spine, (0.02, -0.2, 0.02), (0.1, 0.16, 0.14), M['cream'])
+            cube(self.spine, (0.08, -0.2, 0.02), (0.012, 0.025, 0.09), M['red'])
+            cube(self.spine, (0.08, -0.2, 0.02), (0.012, 0.09, 0.025), M['red'])
+            strap = cube(self.spine, (0, 0.02, 0.3), (0.26, 0.05, 0.03), M['leather'])
+            strap.rotation_euler = (math.radians(50), 0, 0)
         elif kind == 'archer':
             bow = empty(L)
             for k in range(10):  # a curved bow, upright in the left hand
@@ -290,6 +314,12 @@ WORKER_POSES = {
     'forage': [{'R': (78, 5), 'lean': 12, 'crouch': 0.06}, {'R': (20, 95), 'lean': 4, 'crouch': 0.06}],
 }
 SPECS = {
+    # rifle at port arms; poses: take aim (level), fire
+    'rifleman': {'rest': {'R': (30, 55), 'L': (0, 15), 't': 35, 'holdR': True},
+                 'poses': [{'R': (85, 5), 'L': (70, 38), 't': 4, 'lean': 2}, {'R': (87, 4), 'L': (72, 36), 't': 2, 'lean': -2}]},
+    # reaching into the satchel, then kneeling to treat someone
+    'medic': {'rest': {'R': (0, 12), 'L': (10, 25)},
+              'poses': [{'R': (40, 70), 'L': (20, 40), 'lean': 8}, {'R': (65, 20), 'L': (50, 30), 'lean': 14, 'crouch': 0.12}]},
     'soldier': {'rest': {'R': (15, 45), 'L': (30, 70), 't': 100, 'holdR': True, 'holdL': True},
                 'poses': [{'R': (165, 40), 'L': (35, 75), 't': 35, 'lean': -6}, {'R': (80, 10), 'L': (40, 70), 't': 20, 'lean': 10}]},
     'archer': {'rest': {'R': (0, 10), 'L': (15, 20), 'holdL': True},
@@ -400,6 +430,40 @@ def render_person(utype, team, keys, contacts, tier=0):
                     contacts[job] = contact_of(sc, cam, person.tip, PERSON)
 
 
+# The field cannon: a bronze barrel on a two-wheeled carriage (one frame; vehicles don't animate).
+def render_cannon(team, keys):
+    sc, cam = setup(PERSON)
+    M = materials(team)
+    root = empty(None)
+    root.rotation_euler.z = math.radians(FACING)
+    bronze = mat('bronze', 0x8a6a30, 0.35, metal=1.0)
+    for side, y in ((1, 0.26), (-1, -0.26)):
+        w = empty(root, (0, y, 0.34))
+        bpy.ops.mesh.primitive_cylinder_add(vertices=18, radius=0.34, depth=0.07, location=(0, 0, 0), rotation=(math.pi / 2, 0, 0))
+        add(bpy.context.object, w, M['wood'])
+        bpy.ops.mesh.primitive_cylinder_add(vertices=18, radius=0.36, depth=0.04, location=(0, y * 0.02, 0), rotation=(math.pi / 2, 0, 0))
+        add(bpy.context.object, w, M['iron'])  # tyre
+        for k in range(6):
+            a = k * math.pi / 3
+            cube(w, (math.cos(a) * 0.17, 0.015 * side, math.sin(a) * 0.17), (0.3, 0.025, 0.045), M['wood'], rot=(0, -a, 0))
+        ball(w, (0, 0.045 * side, 0), 0.06, M['iron'])
+    # trail (the carriage beams running back to the ground)
+    for y in (0.1, -0.1):
+        cube(root, (-0.45, y, 0.22), (0.95, 0.07, 0.09), M['wood'], rot=(0, -0.22, 0))
+    cube(root, (0.05, 0, 0.36), (0.3, 0.46, 0.08), M['wood'])  # axle block
+    # barrel, tipped up a little
+    b = empty(root, (0.1, 0, 0.47)); b.rotation_euler = (0, math.radians(-78), 0)
+    bpy.ops.mesh.primitive_cone_add(vertices=20, radius1=0.1, radius2=0.08, depth=0.8, location=(0, 0, 0.45))
+    add(bpy.context.object, b, bronze)
+    rod(b, -0.45, 0.14, 0.095, bronze, v=20)
+    ball(b, (0, 0, -0.45), 0.1, bronze)
+    for z in (-0.3, 0.05):
+        rod(b, z, z + 0.035, 0.115, bronze, v=20)
+    cube(root, (0.02, 0, 0.56), (0.05, 0.3, 0.04), M['team'])  # a team band on the axle
+    k = key('cannon', team, 0)
+    shoot(sc, k); keys.append(k)
+
+
 def render_scout(team, keys):
     sc, cam = setup(RIDER)
     M = materials(team)
@@ -440,8 +504,12 @@ if __name__ == '__main__':
             new = []
             if t == 'scout':
                 render_scout(team, new)
+            elif t == 'cannon':
+                render_cannon(team, new)
             elif t == 'worker1':  # the worker after the Coal Age tool upgrades
                 render_person('worker', team, new, contacts, tier=1)
+            elif t in ('soldier1', 'archer1'):  # the steel look after Iron Weapons
+                render_person(t[:-1], team, new, contacts, tier=1)
             else:
                 render_person(t, team, new, contacts)
             keys.update(new)

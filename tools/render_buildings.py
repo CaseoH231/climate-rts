@@ -89,9 +89,15 @@ def wood(name, rgb, scale=8):
     return m
 
 
+STYLE = 0  # 0 Coal Age (timber and plaster), 1 Industrial (brick, slate and iron)
+
+
 def make_materials(team_hex):
     lin = lambda h: srgb(h)
     return {
+        'brick': bricks('brick', lin(0xa8684a), lin(0x865240), lin(0x6a5048), scale=7, row=0.16, width=0.42, bump=0.5),
+        'glassb': principled('glassb', lin(0x9ab2c0), 0.25)[0],
+        'ironwork': principled('ironwork', lin(0x3a3e42), 0.5, )[0],
         'plaster': noisy('plaster', lin(0xc9b998), var=0.12, scale=18, bump=0.15),
         'timber': wood('timber', lin(0x4a3220)),
         'plank': wood('plank', lin(0x6e5236), scale=22),
@@ -207,10 +213,10 @@ def house(M):
     box((x0 + 0.12, y1 + 0.03, 0.12 + H * 0.55), (0.14, 0.02, 0.3), M['team'])
     # roof (ridge along x) with gable ends
     rise = 0.62
-    gable_roof(x0, x1, y0, y1, zt, rise, M['roof'], along='x')
+    gable_roof(x0, x1, y0, y1, zt, rise, roof_mat(M), along='x')
     for x in (x0, x1):
-        gable_end(x, y0, y1, zt, rise, M['plaster'], along='x')
-    box(((x0 + x1) / 2, (y0 + y1) / 2, zt + rise + 0.05), (x1 - x0 + 0.4, 0.07, 0.07), M['timber'])
+        gable_end(x, y0, y1, zt, rise, gable_mat(M), along='x')
+    box(((x0 + x1) / 2, (y0 + y1) / 2, zt + rise + 0.05), (x1 - x0 + 0.4, 0.07, 0.07), M['timber'] if STYLE < 1 else M['ironwork'])
     box((x0 + 0.35, y0 + 0.4, zt + 0.55), (0.16, 0.16, 0.6), M['stone'])  # chimney
     # yard clutter
     cyl((x1 + 0.12, y1 + 0.15, 0.09), 0.07, 0.18, M['plank'], v=12)
@@ -259,7 +265,7 @@ def mill(M):
     cx, cy = 1.0, -1.0
     cyl((cx, cy, 0.06), 0.62, 0.12, M['stone'], v=28)
     o = cone((cx, cy, 0.12 + 0.55), 0.48, 0.38, 1.1, M['plaster'], v=28)  # whitewashed stone
-    cone((cx, cy, 1.22 + 0.25), 0.46, 0.02, 0.5, M['thatch'], v=28)
+    cone((cx, cy, 1.22 + 0.25), 0.46, 0.02, 0.5, roof_mat(M, 'thatch'), v=28)
     # door and window facing the camera (towards +x, −y)
     box((cx + 0.33, cy + 0.3, 0.32), (0.06, 0.22, 0.32), M['plank'], rot=(0, 0, 0.75))
     box((cx + 0.3, cy + 0.27, 0.85), (0.04, 0.12, 0.14), M['window'], rot=(0, 0, 0.75))
@@ -288,7 +294,15 @@ def mill(M):
 
 
 def frame_walls(x0, x1, y0, y1, z0, H, M, bays=2):
-    """Plastered walls in a dark timber frame (posts, rails, a few braces)."""
+    """Walls in the age's style: plaster in a dark timber frame (Coal), or brick with stone sills (Industrial)."""
+    if STYLE >= 1:
+        box(((x0 + x1) / 2, (y0 + y1) / 2, z0 + H / 2), (x1 - x0, y1 - y0, H), M['brick'])
+        # stone quoins on the corners and a sill course
+        for x in (x0, x1):
+            for y in (y0, y1):
+                box((x, y, z0 + H / 2), (0.07, 0.07, H), M['stone'])
+        box(((x0 + x1) / 2, (y0 + y1) / 2, z0 + H - 0.03), (x1 - x0 + 0.05, y1 - y0 + 0.05, 0.06), M['stone'])
+        return
     box(((x0 + x1) / 2, (y0 + y1) / 2, z0 + H / 2), (x1 - x0, y1 - y0, H), M['plaster'])
     for i in range(bays + 1):
         x = x0 + (x1 - x0) * i / bays
@@ -306,16 +320,30 @@ def frame_walls(x0, x1, y0, y1, z0, H, M, bays=2):
         box((x, (y0 + y1) / 2, z0 + H * 0.5), (0.052, y1 - y0, 0.035), M['timber'])
 
 
+def roof_mat(M, kind='roof'):
+    return M['slate'] if STYLE >= 1 else M[kind]
+
+
+def gable_mat(M):
+    return M['brick'] if STYLE >= 1 else M['plaster']
+
+
 def windows(xs, y, z, M, face='y'):
     for x in xs:
         if face == 'y':
-            box((x, y, z), (0.16, 0.03, 0.14), M['window']); box((x, y + 0.015, z), (0.025, 0.02, 0.15), M['timber'])
-            for sx in (-1, 1):
-                box((x + sx * 0.12, y + 0.01, z), (0.07, 0.02, 0.16), M['plank'])  # shutters
+            box((x, y, z), (0.16, 0.03, 0.18 if STYLE >= 1 else 0.14), M['window']); box((x, y + 0.015, z), (0.025, 0.02, 0.19 if STYLE >= 1 else 0.15), M['timber' if STYLE < 1 else 'ironwork'])
+            if STYLE >= 1:
+                box((x, y + 0.01, z - 0.11), (0.2, 0.03, 0.03), M['stone'])  # sill
+            else:
+                for sx in (-1, 1):
+                    box((x + sx * 0.12, y + 0.01, z), (0.07, 0.02, 0.16), M['plank'])  # shutters
         else:
-            box((y, x, z), (0.03, 0.16, 0.14), M['window']); box((y + 0.015, x, z), (0.02, 0.025, 0.15), M['timber'])
-            for sx in (-1, 1):
-                box((y + 0.01, x + sx * 0.12, z), (0.02, 0.07, 0.16), M['plank'])
+            box((y, x, z), (0.03, 0.16, 0.18 if STYLE >= 1 else 0.14), M['window']); box((y + 0.015, x, z), (0.02, 0.025, 0.19 if STYLE >= 1 else 0.15), M['timber' if STYLE < 1 else 'ironwork'])
+            if STYLE >= 1:
+                box((y + 0.01, x, z - 0.11), (0.03, 0.2, 0.03), M['stone'])
+            else:
+                for sx in (-1, 1):
+                    box((y + 0.01, x + sx * 0.12, z), (0.02, 0.07, 0.16), M['plank'])
 
 
 def battlements(cx, cy, r, z, M, n=10, round_=True, w=None, d=None):
@@ -373,9 +401,9 @@ def town_centre(M):
     arch_door(1.5, y1 + 0.03, 0.14, M, w=0.36, h=0.5)
     for x in (0.8, 2.2):
         box((x, y1 + 0.05, 0.75), (0.14, 0.02, 0.42), M['team'])
-    gable_roof(x0, x1, y0, y1, zt, 0.75, M['slate'], along='x')
+    gable_roof(x0, x1, y0, y1, zt, 0.75, roof_mat(M, 'slate'), along='x')
     for x in (x0, x1):
-        gable_end(x, y0, y1, zt, 0.75, M['plaster'], along='x')
+        gable_end(x, y0, y1, zt, 0.75, gable_mat(M), along='x')
     box(((x0 + x1) / 2, (y0 + y1) / 2, zt + 0.8), (x1 - x0 + 0.4, 0.08, 0.08), M['timber'])
     M2 = dict(M); M2['team_roof'] = M['team']
     round_tower(0.75, -0.75, 0.32, 2.3, M2)
@@ -401,7 +429,7 @@ def barracks(M):
     arch_door(x1 + 0.03, (y0 + y1) / 2, 0.1, M, w=0.4, h=0.5, face='x')
     for y in ((y0 + y1) / 2 - 0.4, (y0 + y1) / 2 + 0.4):
         box((x1 + 0.05, y, 0.6), (0.02, 0.16, 0.44), M['team'])
-    gable_roof(x0, x1, y0, y1, zt, 0.7, M['shingle'], over=0.15, along='x')
+    gable_roof(x0, x1, y0, y1, zt, 0.7, roof_mat(M, 'shingle'), over=0.15, along='x')
     for x in (x0, x1):
         gable_end(x, y0, y1, zt, 0.7, M['stone'], along='x')
     # the yard: a weapon rack, a straw training dummy, an archery target
@@ -428,9 +456,9 @@ def market(M):
     box((1.5, -1.5, 0.05), (2.9, 2.9, 0.1), M['paving'])
     # a small tiled house at the back
     frame_walls(0.25, 1.25, -1.25, -0.25, 0.1, 0.55, M, bays=2)
-    gable_roof(0.25, 1.25, -1.25, -0.25, 0.65, 0.45, M['roof'], along='y')
+    gable_roof(0.25, 1.25, -1.25, -0.25, 0.65, 0.45, roof_mat(M), along='y')
     for y in (-1.25, -0.25):
-        gable_end(y, 0.25, 1.25, 0.65, 0.45, M['plaster'], along='y')
+        gable_end(y, 0.25, 1.25, 0.65, 0.45, gable_mat(M), along='y')
     windows([0.75], -0.23, 0.45, M)
     # three striped stalls: one in the team colour, two in market colours
     def stall(cx, cy, stripe):
@@ -472,9 +500,9 @@ def fishing_dock(M):
         for y in (-0.1, -1.0, -1.9):
             cyl((x, y, 0.0), 0.04, 0.3, M['timber'], v=8)
     frame_walls(0.25, 1.05, -1.0, -0.25, 0.13, 0.5, M, bays=2)
-    gable_roof(0.25, 1.05, -1.0, -0.25, 0.63, 0.35, M['shingle'], along='x')
+    gable_roof(0.25, 1.05, -1.0, -0.25, 0.63, 0.35, roof_mat(M, 'shingle'), along='x')
     for x in (0.25, 1.05):
-        gable_end(x, -1.0, -0.25, 0.63, 0.35, M['plaster'], along='x')
+        gable_end(x, -1.0, -0.25, 0.63, 0.35, gable_mat(M), along='x')
     for x in (1.35, 1.75):
         cyl((x, -0.4, 0.4), 0.015, 0.55, M['timber'], v=6)
     net = mesh([(1.35, -0.4, 0.65), (1.75, -0.4, 0.65), (1.75, -0.4, 0.25), (1.35, -0.4, 0.25)], [(0, 1, 2, 3)], M['straw'])
@@ -485,9 +513,78 @@ def fishing_dock(M):
     box((0.6, -0.25, 0.4), (0.02, 0.12, 0.2), M['team'])
 
 
+def smokestack(x, y, z0, h, M, r=0.1):
+    cyl((x, y, z0 + h / 2), r, h, M['brick'], v=14)
+    cyl((x, y, z0 + h - 0.04), r + 0.03, 0.08, M['stone'], v=14)
+    cyl((x, y, z0 + h + 0.03), r - 0.02, 0.06, M['dark'], v=14)
+
+
+def power_plant(M):
+    # a brick generating hall, a tall smokestack, a coal heap with a cart, and a transformer yard
+    box((1.5, -1.5, 0.05), (2.9, 2.9, 0.1), M['paving'])
+    x0, x1, y0, y1 = 0.3, 2.1, -2.3, -0.5
+    frame_walls(x0, x1, y0, y1, 0.1, 0.95, M, bays=3)
+    zt = 1.05
+    # tall arched windows glowing with furnace light
+    for x in (x0 + 0.35, x0 + 0.9, x1 - 0.35):
+        box((x, y1 + 0.02, 0.62), (0.18, 0.03, 0.5), M['window'])
+        cyl((x, y1 + 0.02, 0.87), 0.09, 0.035, M['window'], rot=(math.pi / 2, 0, 0), v=14)
+    arch_door(x1 + 0.03, (y0 + y1) / 2, 0.1, M, w=0.44, h=0.6, face='x')
+    gable_roof(x0, x1, y0, y1, zt, 0.5, roof_mat(M), along='y')
+    for y in (y0, y1):
+        gable_end(y, x0, x1, zt, 0.5, gable_mat(M), along='y')
+    smokestack(x0 + 0.35, y0 + 0.35, zt + 0.3, 1.5, M, r=0.14)
+    # coal heap and cart
+    o = cone((2.55, -2.45, 0.22), 0.3, 0.02, 0.44, M['coal'], v=10); o.rotation_euler = (0, 0, 0.3)
+    box((2.5, -1.7, 0.12), (0.26, 0.16, 0.12), M['metal'])
+    box((2.5, -1.7, 0.19), (0.24, 0.14, 0.03), M['coal'])
+    # transformer yard: two cylinders with iron frames behind a fence
+    for (tx, ty) in ((2.55, -0.65), (2.55, -1.1)):
+        cyl((tx, ty, 0.22), 0.1, 0.36, M['metal'], v=12)
+        box((tx, ty, 0.44), (0.16, 0.16, 0.03), M['ironwork'])
+    for k in range(5):
+        box((2.3, -0.45 - k * 0.22, 0.12), (0.02, 0.02, 0.24), M['ironwork'])
+    box((2.3, -0.9, 0.22), (0.02, 0.92, 0.02), M['ironwork'])
+    box((x0 + 0.1, y1 + 0.04, 0.7), (0.14, 0.02, 0.4), M['team'])
+
+
+def workshop(M):
+    # a brick workshop with a sawtooth (factory) roof, a gear over the door, crates and barrels
+    box((1.5, -1.5, 0.05), (2.9, 2.9, 0.1), M['paving'])
+    x0, x1, y0, y1 = 0.35, 2.4, -2.4, -0.6
+    frame_walls(x0, x1, y0, y1, 0.1, 0.72, M, bays=3)
+    zt = 0.82
+    windows([x0 + 0.4, (x0 + x1) / 2, x1 - 0.4], y1 + 0.02, 0.55, M)
+    arch_door(x1 + 0.03, (y0 + y1) / 2, 0.1, M, w=0.4, h=0.52, face='x')
+    # sawtooth roof: three slanted teeth with glass on the steep side
+    teeth = 3
+    tw = (x1 - x0) / teeth
+    for k in range(teeth):
+        xa = x0 + k * tw
+        v = [(xa, y0 - 0.1, zt), (xa, y1 + 0.1, zt), (xa + tw, y1 + 0.1, zt + 0.3), (xa + tw, y0 - 0.1, zt + 0.3)]
+        v += [(p[0], p[1], p[2] + 0.05) for p in v]
+        mesh(v, [(0, 1, 2, 3), (4, 5, 6, 7), (0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7)], roof_mat(M))
+        mesh([(xa + tw, y0 - 0.1, zt), (xa + tw, y1 + 0.1, zt), (xa + tw, y1 + 0.1, zt + 0.3), (xa + tw, y0 - 0.1, zt + 0.3)], [(0, 1, 2, 3)], M['glassb'])
+        for j in range(4):
+            yb = y0 - 0.1 + (j + 0.5) * (y1 - y0 + 0.2) / 4
+            box((xa + tw, yb, zt + 0.15), (0.015, 0.02, 0.3), M['ironwork'])
+    # a big gear on the front gable
+    gx, gy, gz = (x0 + x1) / 2, y1 + 0.04, 0.9
+    cyl((gx, gy, gz), 0.14, 0.03, M['ironwork'], rot=(math.pi / 2, 0, 0), v=12)
+    for k in range(8):
+        a = k * math.pi / 4
+        box((gx + math.cos(a) * 0.16, gy, gz + math.sin(a) * 0.16), (0.05, 0.03, 0.05), M['ironwork'], rot=(0, a, 0))
+    smokestack(x0 + 0.25, y0 + 0.3, zt, 0.9, M, r=0.09)
+    for (bx, by) in ((2.65, -1.2), (2.65, -1.5), (2.62, -1.35)):
+        cyl((bx, by, 0.11), 0.08, 0.22, M['plank'], v=12)
+    box((2.6, -2.2, 0.13), (0.24, 0.24, 0.26), M['plank'])
+    box((x1 - 0.05, y1 + 0.04, 0.62), (0.14, 0.02, 0.36), M['team'])
+
+
 BUILDINGS = {'house': (house, 2, 2), 'lumber_camp': (lumber_camp, 1, 1), 'mining_camp': (mining_camp, 1, 1), 'mill': (mill, 2, 2),
              'town_centre': (town_centre, 3, 3), 'barracks': (barracks, 3, 3), 'tower': (tower, 2, 2), 'market': (market, 3, 3),
-             'wall': (wall, 1, 1), 'gate': (gate, 1, 1), 'fishing_dock': (fishing_dock, 2, 2)}
+             'wall': (wall, 1, 1), 'gate': (gate, 1, 1), 'fishing_dock': (fishing_dock, 2, 2),
+             'power_plant': (power_plant, 3, 3), 'workshop': (workshop, 3, 3)}
 
 
 # ---------- scene, camera and render ----------
@@ -532,6 +629,8 @@ def setup_scene(w, h):
 
 
 def render(btype, style=0, teams=TEAMS):
+    global STYLE
+    STYLE = style
     fn, w, h = BUILDINGS[btype]
     os.makedirs(OUT, exist_ok=True)
     for team, hexv in teams.items():
@@ -557,9 +656,11 @@ def clean_alpha(path):
 
 if __name__ == '__main__':
     args = [a for a in sys.argv[1:] if not a.startswith('-')]
+    styles = [int(a.split('=')[1]) for a in sys.argv[1:] if a.startswith('--style=')] or [0]
     types = args or list(BUILDINGS)
     for t in types:
-        render(t)
+        for st in styles:
+            render(t, style=st)
     # the game reads this list to know which buildings have rendered art
     have = sorted({f.rsplit('_', 1)[0] for f in os.listdir(OUT) if f.endswith('.png')})
     with open(os.path.join(OUT, 'manifest.json'), 'w') as f:
