@@ -665,6 +665,43 @@ export const BUILDING_POINTS = {
   hydro_dam: { smoke: [P(34, 60, 2), P(52, 60, 2)] },
 };
 
+// The 3D-rendered sprites arrive packed on a few big sheets. Cutting all of them out up front is slow and
+// uses a lot of memory (most belong to teams and ages a game never uses), so each one is cut out the first
+// time the game asks for its texture: the texture manager's lookups are wrapped to do that on demand.
+export function installRenderedTextures(tm, frames, sheets) {
+  const lazy = new Map();
+  for (const [key, [sheet, x, y, w, h]] of Object.entries(frames || {})) {
+    if (sheets[sheet] && !tm.exists(key)) lazy.set(key, [sheets[sheet], x, y, w, h]);
+  }
+  const make = (key) => {
+    const f = lazy.get(key);
+    lazy.delete(key); // (first, so creating it below doesn't come back here)
+    const [img, x, y, w, h] = f;
+    const tex = tm.createCanvas(key, w, h);
+    tex.getContext().drawImage(img, x, y, w, h, 0, 0, w, h);
+    tex.refresh();
+  };
+  for (const name of ['exists', 'get', 'getFrame']) {
+    const orig = tm[name].bind(tm);
+    tm[name] = (key, ...rest) => {
+      if (lazy.size && typeof key === 'string' && lazy.has(key)) make(key);
+      return orig(key, ...rest);
+    };
+  }
+  return lazy.size;
+}
+
+// Where smoke / steam / spray comes out of the 3D-rendered buildings (tools/render_buildings.py records
+// the real chimney tops and vents), by building type and look; the drawn art's points otherwise.
+const RENDERED_POINTS = {};
+export function setRenderedPoints(points) { Object.assign(RENDERED_POINTS, points || {}); }
+export function emitterPoints(type, texKey) {
+  const m = /^b3d_.+_s(\d)_/.exec(texKey || '');
+  const r = m && RENDERED_POINTS[type] && RENDERED_POINTS[type][m[1]];
+  if (r && r.length) return r.map(([x, y, z]) => P(x, y, z));
+  return (BUILDING_POINTS[type] && BUILDING_POINTS[type].smoke) || [];
+}
+
 export const BUILDING_ART = {
   town_centre(ctx, team) {
     isoShadow(ctx, 6, 6, 90, 90, 40);

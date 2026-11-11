@@ -13,6 +13,7 @@ TEAMS = {'player': 0x3f6296, 'enemy': 0x93382f, 'green': 0x3b8044, 'yellow': 0xb
 UNIT_RES, UNIT_SCALE = 3, 0.86             # must match art.js
 PERSON = (56, 40, 28, 34.4)               # canvas w, h and where the feet are (art.js: 32 + 2·PAD, origin 0.5/0.86)
 RIDER = (44, 40, 22, 36)                  # the scout's canvas (origin 0.5/0.9)
+VEHICLE = (56, 40, 28, 28.8)              # cannon, armoured car, e-tank (origin 0.5/0.72)
 K = 19.8                                  # canvas units per metre: a 1.75 m person is ~30 units tall, like the drawn ones
 FACING = 35                               # people face screen-right, turned 10° towards the camera so you see their faces
                                           # (side-on, so a blow lands beside them: they can stand next to what they work)
@@ -490,7 +491,7 @@ def render_person(utype, team, keys, contacts, tier=0):
 
 # The field cannon: a bronze barrel on a two-wheeled carriage (one frame; vehicles don't animate).
 def render_cannon(team, keys):
-    sc, cam = setup(PERSON)
+    sc, cam = setup(VEHICLE)
     M = materials(team)
     root = empty(None)
     root.rotation_euler.z = math.radians(FACING)
@@ -524,10 +525,11 @@ def render_cannon(team, keys):
 
 def render_armoured_car(team, keys):
     # a six-wheeled armoured car with a small turret, in the team's colours
-    sc, cam = setup(PERSON)
+    sc, cam = setup(VEHICLE)
     M = materials(team)
     root = empty(None)
     root.rotation_euler.z = math.radians(FACING)
+    root.scale = (0.85, 0.85, 0.85)
     hull = taper_box(root, 0.5, 0.95, 0.75, 0.6, 1.7, 1.3, M['kevlar'])
     taper_box(root, 0.28, 0.5, 0.8, 0.78, 1.8, 1.75, M['kevlar'])
     # angled nose and team stripe
@@ -550,6 +552,37 @@ def render_armoured_car(team, keys):
         ball(root, (0.86, y, 0.5), 0.045, M['cream'])
     rod(root, 1.0, 1.7, 0.008, M['iron'], x=-0.7)
     k = key('armoured_car', team, 0)
+    shoot(sc, k); keys.append(k)
+
+
+def render_e_tank(team, keys):
+    # an electric battle tank: low sloped hull, tracks with road wheels, a long gun,
+    # glowing blue battery strips instead of exhausts
+    sc, cam = setup(VEHICLE)
+    M = materials(team)
+    glow = mat('glow', 0x6ad8ff, 0.3)
+    em = glow.node_tree.nodes['Principled BSDF']
+    em.inputs['Emission Color'].default_value = (0.35, 0.85, 1.0, 1); em.inputs['Emission Strength'].default_value = 2.5
+    root = empty(None)
+    root.rotation_euler.z = math.radians(FACING)
+    root.scale = (0.72, 0.72, 0.72)
+    taper_box(root, 0.32, 0.72, 1.2, 0.95, 2.1, 1.7, M['kevlar'])          # hull
+    cube(root, (0.95, 0, 0.5), (0.3, 1.1, 0.3), M['kevlar'], rot=(0, 0.55, 0))  # sloped glacis
+    cube(root, (0, 0, 0.74), (1.6, 0.9, 0.04), M['team'])
+    for y in (0.62, -0.62):
+        taper_box(root, 0.0, 0.42, 0.3, 0.3, 2.2, 2.0, M['boots']).location.y = y   # track
+        for x in (-0.75, -0.25, 0.25, 0.75):
+            bpy.ops.mesh.primitive_cylinder_add(vertices=14, radius=0.16, depth=0.32, location=(x, y, 0.2), rotation=(math.pi / 2, 0, 0))
+            add(bpy.context.object, root, M['iron'])
+        cube(root, (0, y * 1.02, 0.52), (1.4, 0.04, 0.05), glow)  # battery strip
+    t = empty(root, (-0.05, 0, 0.74))
+    taper_box(t, 0, 0.32, 0.85, 0.65, 1.0, 0.8, M['kevlar'])
+    cube(t, (0.05, 0, 0.33), (0.6, 0.5, 0.03), M['team'])
+    g = rod(t, 0, 1.25, 0.05, M['iron'], v=12)
+    g.rotation_euler = (0, math.pi / 2, 0); g.location = (0.55, 0, 0.16)
+    cube(t, (1.15, 0, 0.16), (0.14, 0.14, 0.14), M['iron'])  # muzzle
+    cube(t, (-0.2, 0.25, 0.36), (0.14, 0.14, 0.08), M['iron'])  # sensor
+    k = key('e_tank', team, 0)
     shoot(sc, k); keys.append(k)
 
 
@@ -599,6 +632,8 @@ if __name__ == '__main__':
                 render_cannon(team, new)
             elif t == 'armoured_car':
                 render_armoured_car(team, new)
+            elif t == 'e_tank':
+                render_e_tank(team, new)
             elif t[-1] in '12':  # an upgrade tier of a person (worker1, soldier2, rifleman1, ...)
                 render_person(t[:-1], team, new, contacts, tier=int(t[-1]))
             else:

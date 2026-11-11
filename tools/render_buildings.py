@@ -89,12 +89,24 @@ def wood(name, rgb, scale=8):
     return m
 
 
-STYLE = 0  # 0 Coal Age (timber and plaster), 1 Industrial (brick, slate, iron), 2 Modern (concrete, glass, steel)
+STYLE = 0  # 0 Coal (timber, plaster), 1 Industrial (brick, slate), 2 Modern (concrete, glass, steel),
+           # 3 Transition (white render, timber accents, solar roofs), 4 Green (cedar cladding, planted roofs)
+EMIT = []  # where smoke / steam / spray comes out, in game pixels (x, y, height), recorded per render
+
+
+def emit_at(x, y, z):
+    """Note an emitter at Blender (x, y, z) in tiles (game y = −Blender y)."""
+    EMIT.append([round(x * TILE, 1), round(-y * TILE, 1), round(z * TILE, 1)])
 
 
 def make_materials(team_hex):
     lin = lambda h: srgb(h)
     return {
+        'render': noisy('render', lin(0xe6e0d0), var=0.05, scale=25, bump=0.05),
+        'cedar': bricks('cedar', lin(0xa06c40), lin(0x8a5a34), lin(0x4a3220), scale=9, row=1.0, width=0.07, bump=0.35, rough=0.8),
+        'pvroof': bricks('pvroof', lin(0x1e3550), lin(0x243e5e), lin(0xa8b0b8), scale=7, row=0.5, width=0.5, bump=0.1, rough=0.25),
+        'greenroof': noisy('greenroof', lin(0x5a7a34), var=0.4, scale=40, bump=0.7, rough=1.0),
+        'leaf': noisy('leaf', lin(0x4e7a32), var=0.35, scale=25, bump=0.6, rough=0.95),
         'concrete': noisy('concrete', lin(0xb8b4a8), var=0.08, scale=22, bump=0.12),
         'panel': noisy('panel', lin(0x8e9298), var=0.06, scale=18, bump=0.08, rough=0.6),
         'steelroof': bricks('steelroof', lin(0x4e545a), lin(0x454b50), lin(0x33383c), scale=3, row=1.0, width=0.08, bump=0.3, rough=0.55),
@@ -151,6 +163,11 @@ def cyl(c, r, d, m, rot=(0, 0, 0), v=16):
 
 def cone(c, r1, r2, d, m, v=24):
     bpy.ops.mesh.primitive_cone_add(vertices=v, radius1=r1, radius2=r2, depth=d, location=c)
+    return link(bpy.context.object, m)
+
+
+def ball(_parent, c, r, m):
+    bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=2, radius=r, location=c)
     return link(bpy.context.object, m)
 
 
@@ -298,7 +315,25 @@ def mill(M):
 
 
 def frame_walls(x0, x1, y0, y1, z0, H, M, bays=2):
-    """Walls in the age's style: timber-framed plaster (Coal), brick (Industrial), or concrete and glass (Modern)."""
+    """Walls in the age's style: timber-framed plaster (Coal), brick (Industrial), concrete and glass (Modern),
+    white render with timber and glass (Transition), cedar cladding with tall glass (Green)."""
+    if STYLE >= 3:
+        wall = M['render'] if STYLE == 3 else M['cedar']
+        box(((x0 + x1) / 2, (y0 + y1) / 2, z0 + H / 2), (x1 - x0, y1 - y0, H), wall)
+        # tall glazing on the two faces you can see, in slim frames
+        n = max(2, bays)
+        for i in range(n):
+            t = (i + 0.5) / n
+            box((x0 + (x1 - x0) * t, y1 + 0.012, z0 + H * 0.55), ((x1 - x0) / n * 0.55, 0.02, H * 0.6), M['glasswall'])
+            box((x1 + 0.012, y0 + (y1 - y0) * t, z0 + H * 0.55), (0.02, (y1 - y0) / n * 0.55, H * 0.6), M['glasswall'])
+        if STYLE == 3:  # a timber band under the eaves
+            box(((x0 + x1) / 2, (y0 + y1) / 2, z0 + H - 0.05), (x1 - x0 + 0.03, y1 - y0 + 0.03, 0.1), M['cedar'])
+        else:  # ivy climbing the corners
+            for (cx, cy) in ((x0, y1), (x1, y1), (x1, y0)):
+                for k in range(4):
+                    ball(None, (cx + (k % 2) * 0.03, cy + 0.02, z0 + 0.08 + k * H * 0.18), 0.06 + 0.02 * (k % 2), M['leaf'])
+        box(((x0 + x1) / 2, (y0 + y1) / 2, z0 + 0.04), (x1 - x0 + 0.04, y1 - y0 + 0.04, 0.08), M['concrete'])
+        return
     if STYLE >= 2:
         box(((x0 + x1) / 2, (y0 + y1) / 2, z0 + H / 2), (x1 - x0, y1 - y0, H), M['concrete'])
         # a band of glass around the upper wall, with steel mullions
@@ -337,12 +372,20 @@ def frame_walls(x0, x1, y0, y1, z0, H, M, bays=2):
 
 
 def roof_mat(M, kind='roof'):
+    if STYLE == 3:
+        return M['pvroof']
+    if STYLE >= 4:
+        return M['greenroof']
     if STYLE >= 2:
         return M['steelroof']
     return M['slate'] if STYLE >= 1 else M[kind]
 
 
 def gable_mat(M):
+    if STYLE == 3:
+        return M['render']
+    if STYLE >= 4:
+        return M['cedar']
     if STYLE >= 2:
         return M['concrete']
     return M['brick'] if STYLE >= 1 else M['plaster']
@@ -540,6 +583,7 @@ def fishing_dock(M):
 
 
 def smokestack(x, y, z0, h, M, r=0.1):
+    emit_at(x, y, z0 + h + 0.05)
     if STYLE >= 2:  # a steel flue with bands and a red tip
         cyl((x, y, z0 + h / 2), r * 0.8, h, M['metal'], v=14)
         for t in (0.35, 0.7):
@@ -614,7 +658,15 @@ def workshop(M):
 
 
 def flat_roof(x0, x1, y0, y1, z, M, lip=0.05):
-    box(((x0 + x1) / 2, (y0 + y1) / 2, z + 0.03), (x1 - x0 + 0.06, y1 - y0 + 0.06, 0.06), M['panel'])
+    box(((x0 + x1) / 2, (y0 + y1) / 2, z + 0.03), (x1 - x0 + 0.06, y1 - y0 + 0.06, 0.06), M['greenroof'] if STYLE >= 4 else M['panel'])
+    if STYLE == 3:  # rows of tilted solar panels
+        rows = max(1, int((y1 - y0) / 0.32))
+        for k in range(rows):
+            yc = y0 + (k + 0.5) * (y1 - y0) / rows
+            box(((x0 + x1) / 2, yc, z + 0.12), (x1 - x0 - 0.15, 0.22, 0.02), M['pvroof'], rot=(-0.45, 0, 0))
+    elif STYLE >= 4:  # little shrubs on a planted roof
+        for k in range(5):
+            ball(None, (x0 + 0.15 + (x1 - x0 - 0.3) * ((k * 0.37) % 1), y0 + 0.15 + (y1 - y0 - 0.3) * ((k * 0.61) % 1), z + 0.1), 0.07, M['leaf'])
     for (cx, cy, w, d) in ((x0, (y0 + y1) / 2, 0.04, y1 - y0 + 0.06), (x1, (y0 + y1) / 2, 0.04, y1 - y0 + 0.06),
                            ((x0 + x1) / 2, y0, x1 - x0 + 0.06, 0.04), ((x0 + x1) / 2, y1, x1 - x0 + 0.06, 0.04)):
         box((cx, cy, z + 0.06 + lip / 2), (w, d, lip), M['concrete'])
@@ -720,11 +772,150 @@ def radar(M):
     box((x0 + 0.1, y1 + 0.03, 0.4), (0.12, 0.02, 0.3), M['team'])
 
 
+def solar(M):
+    # a small solar farm: rows of tilted panels on posts over gravel, an inverter cabinet, a team flag
+    box((1.0, -1.0, 0.02), (1.95, 1.95, 0.04), M['paving'])
+    for k in range(4):
+        y = -1.75 + k * 0.46
+        for xs in (0.12, 1.02):
+            for px in (0.12, 0.62):
+                box((xs + px + 0.11, y + 0.05, 0.1), (0.03, 0.03, 0.16), M['metal'])
+            box((xs + 0.45, y, 0.22), (0.86, 0.34, 0.03), M['pvroof'], rot=(-0.5, 0, 0))
+            box((xs + 0.45, y - 0.15, 0.13), (0.86, 0.02, 0.02), M['metal'])
+    box((1.88, -0.12, 0.16), (0.16, 0.12, 0.28), M['panel'])  # inverter
+    box((1.95, -0.12, 0.2), (0.012, 0.08, 0.1), M['team'])
+    flag(0.1, -0.1, 0.0, M, h=0.5)
+
+
+def hydro_dam(M):
+    # a concrete dam across a little valley: the reservoir behind (up the screen), the spillway and
+    # turbine house in front, white water at its foot
+    water = principled('resv', srgb(0x4f86a2), 0.04)[0]
+    box((0.45, -1.0, 0.4), (0.9, 1.96, 0.03), water)  # reservoir, filled nearly to the crest
+    for k in range(6):  # rocky banks at each end
+        for y in (-1.92, -0.08):
+            cone((0.1 + k * 0.15, y, 0.24), 0.11, 0.02, 0.48, M['rock'], v=7)
+    # the dam wall: thick and sloping on the downstream side
+    v = [(0.9, -1.98, 0), (0.9, -0.02, 0), (0.9, -0.02, 0.5), (0.9, -1.98, 0.5),
+         (1.35, -1.98, 0), (1.35, -0.02, 0), (1.05, -0.02, 0.5), (1.05, -1.98, 0.5)]
+    mesh(v, [(0, 1, 2, 3), (4, 5, 6, 7), (0, 1, 5, 4), (3, 2, 6, 7), (0, 3, 7, 4), (1, 2, 6, 5)], M['concrete'])
+    box((0.98, -1.0, 0.53), (0.18, 2.0, 0.06), M['concrete'])  # crest road
+    for k in range(9):
+        box((1.05, -1.95 + k * 0.24, 0.6), (0.03, 0.03, 0.08), M['metal'])
+    # spillway gates and the water pouring out of them
+    for y in (-1.25, -0.75):
+        box((1.06, y, 0.3), (0.04, 0.22, 0.3), M['dark'])
+        v = [(1.08, y - 0.1, 0.32), (1.08, y + 0.1, 0.32), (1.5, y + 0.12, 0.03), (1.5, y - 0.12, 0.03)]
+        mesh(v, [(0, 1, 2, 3)], principled('foam', srgb(0xd8eef4), 0.3)[0])
+        emit_at(1.55, y, 0.05)
+    box((1.65, -1.0, 0.015), (0.6, 1.96, 0.03), water)  # river below
+    # turbine house with a team stripe and power lines
+    box((1.65, -1.75, 0.25), (0.5, 0.4, 0.5), M['render'] if STYLE >= 3 else M['concrete'])
+    flat_roof(1.4, 1.9, -1.95, -1.55, 0.5, M)
+    box((1.9, -1.75, 0.38), (0.02, 0.36, 0.06), M['team'])
+    for y in (-0.3, -0.05):
+        box((1.8, y, 0.4), (0.03, 0.03, 0.8), M['ironwork'])
+    box((1.8, -0.17, 0.78), (0.03, 0.34, 0.03), M['ironwork'])
+
+
+def carbon_capture(M):
+    # direct air capture: a wall of big fans, CO2 storage tanks, pipework, a control cabin
+    box((1.5, -1.5, 0.04), (2.9, 2.9, 0.08), M['paving'])
+    # the collector: a long box with a grid of round fans on its face and top
+    cx0, cx1, cy0, cy1 = 0.25, 2.0, -2.6, -1.75
+    box(((cx0 + cx1) / 2, (cy0 + cy1) / 2, 0.08 + 0.45), (cx1 - cx0, cy1 - cy0, 0.9), M['panel'])
+    for i in range(4):
+        for j in range(2):
+            x = cx0 + 0.22 + i * 0.43
+            z = 0.32 + j * 0.42
+            cyl((x, cy1 + 0.02, z), 0.17, 0.04, M['dark'], rot=(math.pi / 2, 0, 0), v=20)
+            cyl((x, cy1 + 0.04, z), 0.04, 0.02, M['metal'], rot=(math.pi / 2, 0, 0), v=10)
+            for b in range(3):
+                box((x, cy1 + 0.035, z), (0.3, 0.012, 0.035), M['metal'], rot=(0, b * math.pi / 3, 0))
+    box(((cx0 + cx1) / 2, (cy0 + cy1) / 2, 0.98), (cx1 - cx0 + 0.04, cy1 - cy0 + 0.04, 0.03), M['concrete'])
+    box(((cx0 + cx1) / 2, cy1 + 0.01, 0.9), (cx1 - cx0, 0.03, 0.06), M['team'])
+    # storage tanks
+    for (tx, ty) in ((2.45, -2.35), (2.45, -1.7)):
+        cyl((tx, ty, 0.08 + 0.55), 0.24, 1.1, M['cream'], v=24)
+        ball(None, (tx, ty, 1.18), 0.24, M['cream'])
+        cyl((tx, ty, 0.6), 0.25, 0.06, M['team'], v=24)
+    # pipes from the collector to the tanks and down into the ground (storage underground)
+    box((2.2, -2.0, 0.7), (0.5, 0.06, 0.06), M['metal'])
+    box((2.2, -1.2, 0.3), (0.06, 1.0, 0.06), M['metal'])
+    cyl((2.2, -0.75, 0.15), 0.1, 0.3, M['metal'], v=12)
+    # control cabin
+    frame_walls(0.4, 1.2, -1.2, -0.45, 0.08, 0.45, M, bays=2)
+    flat_roof(0.4, 1.2, -1.2, -0.45, 0.53, M)
+
+
+def geothermal(M):
+    # a geothermal plant: a turbine hall, two squat cooling towers letting off steam, looping pipes
+    box((1.5, -1.5, 0.04), (2.9, 2.9, 0.08), M['paving'])
+    frame_walls(1.4, 2.6, -1.6, -0.45, 0.08, 0.6, M, bays=2)
+    flat_roof(1.4, 2.6, -1.6, -0.45, 0.68, M)
+    for (tx, ty, h) in ((0.75, -0.85, 1.3), (0.95, -2.05, 1.1)):
+        # a hyperboloid-ish tower: wide base, narrow waist, flared top
+        cone((tx, ty, 0.08 + h * 0.3), 0.5, 0.36, h * 0.6, M['concrete'], v=28)
+        cone((tx, ty, 0.08 + h * 0.8), 0.36, 0.42, h * 0.4, M['concrete'], v=28)
+        cyl((tx, ty, 0.08 + h - 0.02), 0.38, 0.02, M['dark'], v=28)
+        cyl((tx, ty, 0.08 + h * 0.45), 0.43, 0.05, M['team'], v=28)
+        emit_at(tx, ty, 0.08 + h + 0.05)
+    # pipework with expansion loops
+    for y in (-2.45, -2.3):
+        box((1.7, y, 0.2), (1.8, 0.06, 0.06), M['metal'])
+        for x in (1.2, 2.0):
+            box((x, y, 0.35), (0.06, 0.06, 0.3), M['metal'])
+            box((x + 0.15, y, 0.5), (0.36, 0.06, 0.06), M['metal'])
+            box((x + 0.3, y, 0.35), (0.06, 0.06, 0.3), M['metal'])
+    # the wellhead
+    cyl((2.5, -2.5, 0.25), 0.1, 0.4, M['metal'], v=12)
+    box((2.5, -2.5, 0.5), (0.3, 0.06, 0.06), M['dark'])
+
+
+def restoration(M):
+    # a climate restoration project: a green-roofed lodge, a greenhouse, a pond, seedlings and young trees
+    box((2.0, -2.0, 0.02), (3.9, 3.9, 0.04), principled('soil', srgb(0x6a5a3e), 0.95)[0])
+    # lodge
+    frame_walls(0.3, 1.6, -1.3, -0.3, 0.04, 0.5, M, bays=2)
+    gable_roof(0.3, 1.6, -1.3, -0.3, 0.54, 0.3, M['greenroof'], along='x')
+    for x in (0.3, 1.6):
+        gable_end(x, -1.3, -0.3, 0.54, 0.3, M['cedar'], along='x')
+    # greenhouse: a glass box with a glass ridge roof and a white frame
+    gx0, gx1, gy0, gy1 = 2.2, 3.6, -1.2, -0.35
+    glass = principled('ghglass', srgb(0xcfe6e8), 0.1)[0]
+    box(((gx0 + gx1) / 2, (gy0 + gy1) / 2, 0.25), (gx1 - gx0, gy1 - gy0, 0.42), glass)
+    gable_roof(gx0, gx1, gy0, gy1, 0.46, 0.22, glass, over=0.02, thick=0.02, along='x')
+    for k in range(6):
+        x = gx0 + k * (gx1 - gx0) / 5
+        box((x, gy1 + 0.005, 0.25), (0.02, 0.02, 0.42), M['cream'])
+    for k in range(5):
+        ball(None, (gx0 + 0.25 + k * 0.25, (gy0 + gy1) / 2, 0.1), 0.08, M['leaf'])
+    # pond with reeds
+    cyl((1.0, -3.0, 0.035), 0.55, 0.02, M['water'], v=28)
+    for k in range(8):
+        a = k * 0.7
+        cyl((1.0 + math.cos(a) * 0.55, -3.0 + math.sin(a) * 0.55, 0.12), 0.012, 0.18, M['leaf'], v=5)
+    # rows of seedlings and some young trees
+    for r_ in range(4):
+        for c_ in range(7):
+            ball(None, (2.15 + c_ * 0.24, -2.0 - r_ * 0.4, 0.07), 0.045, M['leaf'])
+    for (tx, ty, h) in ((0.4, -2.2, 0.6), (0.4, -3.6, 0.75), (1.9, -3.6, 0.55), (3.6, -3.6, 0.7), (3.7, -1.6, 0.6)):
+        cyl((tx, ty, h * 0.4), 0.025, h * 0.8, M['log'], v=8)
+        ball(None, (tx, ty, h * 0.85), 0.18, M['leaf'])
+        ball(None, (tx + 0.08, ty + 0.05, h * 0.75), 0.13, M['leaf'])
+    flag(1.75, -0.2, 0.04, M, h=0.6)
+
+
 BUILDINGS = {'house': (house, 2, 2), 'lumber_camp': (lumber_camp, 1, 1), 'mining_camp': (mining_camp, 1, 1), 'mill': (mill, 2, 2),
              'town_centre': (town_centre, 3, 3), 'barracks': (barracks, 3, 3), 'tower': (tower, 2, 2), 'market': (market, 3, 3),
              'wall': (wall, 1, 1), 'gate': (gate, 1, 1), 'fishing_dock': (fishing_dock, 2, 2),
              'power_plant': (power_plant, 3, 3), 'workshop': (workshop, 3, 3),
-             'apartments': (apartments, 2, 2), 'office': (office, 2, 2), 'factory': (factory, 3, 3), 'radar': (radar, 2, 2)}
+             'apartments': (apartments, 2, 2), 'office': (office, 2, 2), 'factory': (factory, 3, 3), 'radar': (radar, 2, 2),
+             'solar': (solar, 2, 2), 'hydro_dam': (hydro_dam, 2, 2), 'carbon_capture': (carbon_capture, 3, 3),
+             'geothermal': (geothermal, 3, 3), 'restoration': (restoration, 4, 4)}
+# the age each building first appears in (no point rendering a look from before it existed)
+ERA = {'power_plant': 1, 'workshop': 1, 'apartments': 2, 'office': 2, 'factory': 2, 'radar': 2,
+       'solar': 3, 'hydro_dam': 3, 'carbon_capture': 3, 'geothermal': 4, 'restoration': 4}
 
 
 # ---------- scene, camera and render ----------
@@ -772,14 +963,33 @@ def render(btype, style=0, teams=TEAMS):
     global STYLE
     STYLE = style
     fn, w, h = BUILDINGS[btype]
+    if style < ERA.get(btype, 0):
+        return
     os.makedirs(OUT, exist_ok=True)
     for team, hexv in teams.items():
         sc = setup_scene(w, h)
+        EMIT.clear()
         fn(make_materials(hexv))
+        # The models are written with their 'front' on the y1 (game-north) wall, but the camera sees the
+        # x1 and y0 walls: mirror across the footprint so fronts face the viewer.
+        ROOT_OBJ.scale.y = -1
+        ROOT_OBJ.location.y = -h
+        for e in EMIT:
+            e[1] = round(h * TILE - e[1], 1)
+        save_points(btype, style)
         path = os.path.join(OUT, f'{btype}_s{style}_{team}.png')
         sc.render.filepath = path
         bpy.ops.render.render(write_still=True)
         clean_alpha(path)
+
+
+def save_points(btype, style):
+    path = os.path.join(OUT, 'points.json')
+    pts = json.load(open(path)) if os.path.exists(path) else {}
+    if EMIT:
+        pts.setdefault(btype, {})[str(style)] = list(EMIT)
+        os.makedirs(OUT, exist_ok=True)
+        json.dump(pts, open(path, 'w'))
 
 
 def clean_alpha(path):

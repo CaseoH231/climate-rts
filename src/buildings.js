@@ -1,7 +1,7 @@
 // Buildings, eras and research: what they cost, what they unlock, and how they behave.
 import { TILE } from './config.js';
 import { UNIT_TYPES } from './unit.js';
-import { buildingKey, buildingTexInfo, BUILDING_POINTS, ART_RES, ensureBuildingTex } from './art.js';
+import { buildingKey, buildingTexInfo, BUILDING_POINTS, ART_RES, ensureBuildingTex, emitterPoints } from './art.js';
 import { toIso } from './iso.js';
 
 // A patch of bare, trodden earth for a w×h building, with a ragged edge that fades into the grass.
@@ -454,7 +454,7 @@ export class Building {
         this.smokeTimer = this.def.smoke === 'coal' ? 0.35 : 0.5;
         const col = { coal: undefined, steam: 0xeef2f4, spray: 0xd8eef8 }[this.def.smoke];
         if (this.container.visible) {
-          for (const [sx, sy] of BUILDING_POINTS[this.type].smoke) world.smoke(this.container.x + sx, this.container.y + sy, col);
+          for (const [sx, sy] of emitterPoints(this.type, this.image.texture.key)) world.smoke(this.container.x + sx, this.container.y + sy, col);
         }
       }
     }
