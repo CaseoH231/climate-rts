@@ -81,6 +81,8 @@ export function smoothPath(map, x0, y0, pts, team, tile) {
   return out;
 }
 
+let SCRATCH = null;
+
 export function findPath(map, sx, sy, gx, gy, team, ignoreWalls = false) {
   const walk = ignoreWalls
     ? (x, y) => map.isWalkable(x, y, team) || map.isWallTile(x, y)
@@ -94,9 +96,16 @@ export function findPath(map, sx, sy, gx, gy, team, ignoreWalls = false) {
 
   const W = map.w;
   const N = map.w * map.h;
-  const g = new Float32Array(N).fill(Infinity);
-  const came = new Int32Array(N).fill(-1);
-  const closed = new Uint8Array(N);
+  // Working arrays are kept between searches (allocating and filling three map-sized arrays every time was
+  // most of the cost); a stamp per tile says whether its entries belong to this search.
+  if (!SCRATCH || SCRATCH.n !== N) {
+    SCRATCH = { n: N, g: new Float32Array(N), came: new Int32Array(N), closed: new Uint8Array(N), stamp: new Uint32Array(N), run: 0 };
+  }
+  const S = SCRATCH;
+  if (++S.run === 0xffffffff) { S.stamp.fill(0); S.run = 1; }
+  const run = S.run;
+  const sg = S.g, scame = S.came, sclosed = S.closed, stamp = S.stamp;
+  const touch = (i) => { if (stamp[i] !== run) { stamp[i] = run; sg[i] = Infinity; scame[i] = -1; sclosed[i] = 0; } };
   const heap = new MinHeap();
   const start = sy * W + sx;
   const goal = gy * W + gx;
@@ -105,7 +114,8 @@ export function findPath(map, sx, sy, gx, gy, team, ignoreWalls = false) {
     return dx + dy + (SQRT2 - 2) * Math.min(dx, dy);
   };
 
-  g[start] = 0;
+  touch(start);
+  sg[start] = 0;
   heap.push(start, h(sx, sy));
 
   while (heap.size) {
@@ -115,23 +125,25 @@ export function findPath(map, sx, sy, gx, gy, team, ignoreWalls = false) {
       let c = goal;
       while (c !== start) {
         path.push({ x: c % W, y: (c / W) | 0 });
-        c = came[c];
+        c = scame[c];
       }
       return path.reverse();
     }
-    if (closed[cur]) continue;
-    closed[cur] = 1;
+    if (stamp[cur] === run && sclosed[cur]) continue;
+    touch(cur);
+    sclosed[cur] = 1;
     const cx = cur % W, cy = (cur / W) | 0;
     for (const [dx, dy, cost] of DIRS) {
       const nx = cx + dx, ny = cy + dy;
       if (!walk(nx, ny)) continue;
       if (dx && dy && !walk(cx + dx, cy) && !walk(cx, cy + dy)) continue;
       const ni = ny * W + nx;
-      if (closed[ni]) continue;
-      const ng = g[cur] + cost;
-      if (ng < g[ni]) {
-        g[ni] = ng;
-        came[ni] = cur;
+      touch(ni);
+      if (sclosed[ni]) continue;
+      const ng = sg[cur] + cost;
+      if (ng < sg[ni]) {
+        sg[ni] = ng;
+        scame[ni] = cur;
         heap.push(ni, ng + h(nx, ny));
       }
     }

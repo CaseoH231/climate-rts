@@ -203,11 +203,17 @@ export class Effects {
   }
 
   smoke(x, y, color = 0x5f5c58) {
+    // only near the camera, and never more than a few hundred puffs at once (a big late game has dozens
+    // of chimneys; puffs nobody can see were most of what the graphics card was drawing)
+    const v = this.scene.cameras.main.worldView;
+    if (x < v.x - 120 || x > v.right + 120 || y < v.y - 60 || y > v.bottom + 200) return;
+    if ((this.puffs || 0) >= 260) return;
+    this.puffs = (this.puffs || 0) + 1;
     const p = this.scene.add.image(x + (Math.random() - 0.5) * 6, y, 'fx_puff').setTint(color).setAlpha(0.45)
       .setScale(0.5).setDepth(8e5);
     this.scene.tweens.add({
       targets: p, y: y - 60 - Math.random() * 30, x: p.x + 15 + Math.random() * 25, scale: 2.4, alpha: 0,
-      duration: 2600 + Math.random() * 800, onComplete: () => p.destroy(),
+      duration: 2600 + Math.random() * 800, onComplete: () => { this.puffs--; p.destroy(); },
     });
   }
 

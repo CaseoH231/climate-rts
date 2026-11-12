@@ -18,10 +18,14 @@ index = {'sheets': [], 'frames': {}, 'contacts': {}}
 
 def pack(group, files, keyfn, width=2048, split=lambda f: ''):
     # one sheet per team (and per age for buildings), so no single image gets too big for a graphics card
+    # (things with no team colour — deer, crop stages, saplings, the turbine rotor — go on a 'shared' sheet)
+    def owner(f):
+        toks = f[:-4].split('_')
+        return next((t for t in TEAMS if t in toks), 'shared')
     parts = sorted({split(f) for f in files})
     for part in parts:
-        for team in TEAMS:
-            mine = sorted(f for f in files if team in f[:-4].split('_') and split(f) == part)
+        for team in TEAMS + ['shared']:
+            mine = sorted(f for f in files if owner(f) == team and split(f) == part)
             if not mine:
                 continue
             pack_one(group + part, group, mine, keyfn, width, team)
@@ -51,7 +55,7 @@ pack('units', [f for f in os.listdir(os.path.join(REN, 'units')) if f.endswith('
 # house_s0_player.png → b3d_house_s0_player
 import re
 pack('buildings', [f for f in os.listdir(os.path.join(REN, 'buildings')) if f.endswith('.png')], lambda f: 'b3d_' + f[:-4],
-     split=lambda f: '_' + re.search(r'_(s\d)_', f).group(1))
+     split=lambda f: '_' + (re.search(r'_(s\d)_', f).group(1) if re.search(r'_(s\d)_', f) else 'shared'))
 ppath = os.path.join(REN, 'buildings', 'points.json')
 if os.path.exists(ppath):
     index['points'] = json.load(open(ppath))  # where smoke / steam / spray comes out of rendered buildings

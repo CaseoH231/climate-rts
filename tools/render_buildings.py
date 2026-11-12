@@ -906,13 +906,147 @@ def restoration(M):
     flag(1.75, -0.2, 0.04, M, h=0.6)
 
 
+def fence_ring(x0, x1, y0, y1, M, posts=5, h=0.18):
+    for (ax, ay, bx, by) in ((x0, y0, x1, y0), (x1, y0, x1, y1), (x1, y1, x0, y1), (x0, y1, x0, y0)):
+        for k in range(posts):
+            t = k / (posts - 1)
+            box((ax + (bx - ax) * t, ay + (by - ay) * t, h / 2), (0.035, 0.035, h), M['timber'])
+        L = math.hypot(bx - ax, by - ay)
+        for z in (h * 0.45, h * 0.85):
+            box(((ax + bx) / 2, (ay + by) / 2, z), (L if ay == by else 0.02, L if ax == bx else 0.02, 0.02), M['plank'])
+
+
+def farm(M):
+    # a ploughed field in a split-rail fence, with a scarecrow and a water trough (the crop is drawn on top)
+    soil = noisy('soil', srgb(0x6a4e30), var=0.25, scale=20, bump=0.5, rough=1.0)
+    box((1.0, -1.0, 0.015), (1.94, 1.94, 0.03), soil)
+    for k in range(12):  # furrows
+        y = -1.9 + k * 0.163
+        box((1.0, y, 0.035), (1.86, 0.05, 0.025), noisy('ridge', srgb(0x7a5a38), var=0.25, scale=30, bump=0.4, rough=1.0))
+    fence_ring(0.04, 1.96, -1.96, -0.04, M)
+    # scarecrow in the team colour
+    sx, sy = 0.25, -0.3
+    box((sx, sy, 0.3), (0.025, 0.025, 0.6), M['timber'])
+    box((sx, sy, 0.47), (0.025, 0.36, 0.025), M['timber'])
+    box((sx, sy, 0.4), (0.07, 0.16, 0.2), M['team'])
+    ball(None, (sx, sy, 0.58), 0.06, M['straw'])
+    cone((sx, sy, 0.64), 0.09, 0.0, 0.08, M['straw'], v=10)
+    box((1.85, -1.75, 0.06), (0.12, 0.3, 0.08), M['plank'])  # trough
+    box((1.85, -1.75, 0.09), (0.09, 0.26, 0.02), M['water'])
+
+
+def plantation(M):
+    # the tree plantation: raised beds of dark soil with stakes (the saplings are drawn on top, growing)
+    box((1.0, -1.0, 0.012), (1.94, 1.94, 0.024), noisy('mulch', srgb(0x4e3a26), var=0.3, scale=25, bump=0.5, rough=1.0))
+    for i in range(4):
+        for j in range(4):
+            x = (9 + i * 15) / 32
+            y = -(9 + j * 15) / 32
+            cyl((x, y, 0.03), 0.14, 0.04, noisy('bed', srgb(0x3a2a1a), var=0.2, scale=30, bump=0.4, rough=1.0), v=12)
+    fence_ring(0.04, 1.96, -1.96, -0.04, M, posts=4, h=0.12)
+    box((1.85, -0.2, 0.15), (0.03, 0.18, 0.12), M['team'])
+    box((1.85, -0.2, 0.08), (0.03, 0.03, 0.16), M['timber'])
+
+
+TURBINE_HUB = (1.0, -1.0, 2.75)
+
+
+def wind_turbine(M):
+    # a white tapered tower on a concrete base with a nacelle (the rotor is a separate sprite that spins)
+    box((1.0, -1.0, 0.06), (0.9, 0.9, 0.12), M['concrete'])
+    for (cx, cy, w_, d_) in ((1.0, -0.55, 0.92, 0.02), (1.0, -1.45, 0.92, 0.02), (0.55, -1.0, 0.02, 0.92), (1.45, -1.0, 0.02, 0.92)):
+        box((cx, cy, 0.09), (w_, d_, 0.04), M['team'])  # a team band round the base
+    white = noisy('white', srgb(0xeeeeea), var=0.03, scale=20, bump=0.02, rough=0.4)
+    hx, hy, hz = TURBINE_HUB
+    cone((hx, hy, 0.12 + (hz - 0.2) / 2), 0.12, 0.06, hz - 0.2, white, v=20)
+    # nacelle pointing at the viewer (towards +x / −y once mirrored)
+    n = box((hx - 0.12, hy, hz), (0.34, 0.14, 0.14), white)
+    n.rotation_euler = (0, 0, math.radians(-45))
+    box((hx, hy, 0.4), (0.02, 0.08, 0.14), M['dark'])  # door
+    emit_at(hx + 0.06, hy - 0.06, hz)  # (not smoke: where the rotor's hub is)
+
+
+def bridge(M):
+    # one section of bridge deck on posts: planks (until the Modern Age), then concrete with a painted line
+    modern = STYLE >= 2
+    deck = M['concrete'] if modern else wood('deck', srgb(0x8a6440), scale=26)
+    box((0.5, -0.5, 0.17), (1.0, 1.0, 0.06), deck)
+    for (x, y) in ((0.06, -0.06), (0.94, -0.06), (0.94, -0.94), (0.06, -0.94)):
+        cyl((x, y, 0.06), 0.045, 0.3, M['metal'] if modern else M['timber'], v=8)
+    for y in (-0.03, -0.97):  # edge beams
+        box((0.5, y, 0.12), (1.0, 0.05, 0.06), M['panel'] if modern else M['timber'])
+    if modern:
+        for k in range(3):
+            box((0.17 + k * 0.33, -0.5, 0.205), (0.16, 0.025, 0.004), principled('paint', srgb(0xe8d070), 0.6)[0])
+    else:
+        for k in range(9):
+            box((0.06 + k * 0.111, -0.5, 0.205), (0.012, 0.98, 0.006), M['dark'])  # gaps between planks
+
+
+# ---- shared overlays (no team colour, no age look) ----
+def crops(stage):
+    # wheat rows for a farm, from a full field (stage 6) down to the last row (1)
+    def build(M):
+        stalk = noisy('stalk', srgb(0xb39a4e), var=0.2, scale=60, bump=0.4)
+        green = noisy('green', srgb(0x86973f), var=0.2, scale=60, bump=0.4)
+        rows = 11
+        shown = math.ceil(rows * stage / 6)
+        for k in range(shown):
+            y = -(5 + k * 5) / 32 * 1.0 - 0.02
+            y = -0.15 - k * 0.163
+            for c in range(16):
+                x = 0.12 + c * 0.112
+                h = 0.12 + ((c * 37 + k * 11) % 7) * 0.008
+                cone((x, y, h / 2 + 0.03), 0.05, 0.02, h, stalk if (k + c) % 3 else green, v=6)
+                ball(None, (x, y, h + 0.04), 0.022, stalk)
+    return build
+
+
+def saplings(stage):
+    # 16 young trees growing in the plantation's beds (stage 1 … 5)
+    def build(M):
+        g = stage / 5
+        for i in range(4):
+            for j in range(4):
+                x = (9 + i * 15) / 32
+                y = -(9 + j * 15) / 32
+                h = 0.1 + 0.55 * g
+                cyl((x, y, h / 2), 0.012 + 0.02 * g, h, M['log'], v=6)
+                r = 0.05 + 0.17 * g
+                ball(None, (x, y, h + r * 0.4), r, M['leaf'])
+                ball(None, (x + r * 0.4, y + r * 0.3, h + r * 0.1), r * 0.7, M['leaf'])
+    return build
+
+
+SHARED = {**{f'crops_{k}': (crops(k), 2, 2) for k in range(1, 7)},
+          **{f'saplings_{k}': (saplings(k), 2, 2) for k in range(1, 6)}}
+
+
+def rotor(M):
+    # three blades in the plane facing the camera, centred on the origin (the game spins it)
+    white = noisy('white', srgb(0xf2f2ee), var=0.03, scale=20, bump=0.02, rough=0.35)
+    cam_dir = Vector((0.612, -0.612, 0.5)).normalized()  # (towards the camera)
+    right = Vector((0.7071, 0.7071, 0))
+    up = cam_dir.cross(right).normalized()
+    for k in range(3):
+        a = math.radians(90 + k * 120)
+        d = right * math.cos(a) + up * math.sin(a)
+        side = right * -math.sin(a) + up * math.cos(a)
+        v = [d * 0.05 + side * 0.05, d * 0.05 - side * 0.05, d * 0.95 - side * 0.018, d * 0.95 + side * 0.032]
+        mesh([tuple(p) for p in v], [(0, 1, 2, 3)], white)
+    ball(None, (0, 0, 0), 0.07, white)
+
+
 BUILDINGS = {'house': (house, 2, 2), 'lumber_camp': (lumber_camp, 1, 1), 'mining_camp': (mining_camp, 1, 1), 'mill': (mill, 2, 2),
              'town_centre': (town_centre, 3, 3), 'barracks': (barracks, 3, 3), 'tower': (tower, 2, 2), 'market': (market, 3, 3),
              'wall': (wall, 1, 1), 'gate': (gate, 1, 1), 'fishing_dock': (fishing_dock, 2, 2),
              'power_plant': (power_plant, 3, 3), 'workshop': (workshop, 3, 3),
              'apartments': (apartments, 2, 2), 'office': (office, 2, 2), 'factory': (factory, 3, 3), 'radar': (radar, 2, 2),
              'solar': (solar, 2, 2), 'hydro_dam': (hydro_dam, 2, 2), 'carbon_capture': (carbon_capture, 3, 3),
-             'geothermal': (geothermal, 3, 3), 'restoration': (restoration, 4, 4)}
+             'geothermal': (geothermal, 3, 3), 'restoration': (restoration, 4, 4),
+             'farm': (farm, 2, 2), 'trees': (plantation, 2, 2), 'wind_turbine': (wind_turbine, 2, 2), 'bridge': (bridge, 1, 1)}
+# these look the same in every age (only the bridge changes, in the Modern Age)
+ONE_LOOK = {'farm', 'trees', 'wind_turbine'}
 # the age each building first appears in (no point rendering a look from before it existed)
 ERA = {'power_plant': 1, 'workshop': 1, 'apartments': 2, 'office': 2, 'factory': 2, 'radar': 2,
        'solar': 3, 'hydro_dam': 3, 'carbon_capture': 3, 'geothermal': 4, 'restoration': 4}
@@ -965,6 +1099,8 @@ def render(btype, style=0, teams=TEAMS):
     fn, w, h = BUILDINGS[btype]
     if style < ERA.get(btype, 0):
         return
+    if (btype in ONE_LOOK and style > 0) or (btype == 'bridge' and style not in (0, 2)):
+        return  # (older looks are used for later ages automatically)
     os.makedirs(OUT, exist_ok=True)
     for team, hexv in teams.items():
         sc = setup_scene(w, h)
@@ -1004,7 +1140,41 @@ def clean_alpha(path):
     bpy.data.images.remove(img)
 
 
+def render_shared():
+    """The overlays every team and age share: crop stages, growing saplings, the turbine rotor."""
+    global STYLE
+    STYLE = 0
+    os.makedirs(OUT, exist_ok=True)
+    for name, (fn, w, h) in SHARED.items():
+        sc = setup_scene(w, h)
+        fn(make_materials(TEAMS['player']))
+        ROOT_OBJ.scale.y = -1
+        ROOT_OBJ.location.y = -h
+        path = os.path.join(OUT, f'{name}.png')
+        sc.render.filepath = path
+        bpy.ops.render.render(write_still=True)
+        clean_alpha(path)
+    # the rotor: a small square picture centred on the hub
+    sc = setup_scene(1, 1)
+    for o in list(bpy.data.objects):
+        if o.type == 'MESH' and o.is_shadow_catcher:
+            bpy.data.objects.remove(o)
+    rotor(make_materials(TEAMS['player']))
+    cam = sc.camera
+    view = cam.rotation_euler.to_matrix() @ Vector((0, 0, -1))
+    cam.location = Vector((0, 0, 0)) - view * 20
+    size = 96  # game px across (blades are ~40 px long)
+    cam.data.ortho_scale = size / (32 * math.sqrt(2))
+    sc.render.resolution_x = sc.render.resolution_y = size * ART_RES
+    path = os.path.join(OUT, 'rotor.png')
+    sc.render.filepath = path
+    bpy.ops.render.render(write_still=True)
+
+
 if __name__ == '__main__':
+    if '--shared' in sys.argv:
+        render_shared()
+        sys.exit(0)
     args = [a for a in sys.argv[1:] if not a.startswith('-')]
     styles = [int(a.split('=')[1]) for a in sys.argv[1:] if a.startswith('--style=')] or [0]
     types = args or list(BUILDINGS)

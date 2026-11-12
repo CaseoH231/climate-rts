@@ -279,6 +279,8 @@ src/scenes/UIScene.js   resource bar, command panel, diamond minimap, climate pa
 - [x] 3D-rendered Green Age: cedar cladding, ivy and planted roofs for every building; new geothermal plant (cooling towers, pipe loops, wellhead) and climate restoration project (lodge, greenhouse, pond, seedlings, young trees); the electric tank
 - [x] Fixes across all 3D art: models are mirrored so their fronts (windows, doors, balconies, banners) face the camera — before, most of that detail was on the hidden back; smoke, steam and spray come out of the rendered chimneys and vents; vehicles sit on their ground point; building sheets are split by age
 - [x] Phase 20¹⁵⁄₁₆ – Performance: off-screen trees leave the scene in blocks, the scene is only re-sorted when something moves to a new row, fog redraws only when sight changes, and ground changes upload only the changed patch of the texture
+- [x] Late-game performance: fixed units freezing in place (a corner-cut looked 'blocked' and they re-planned every tick — 95% fewer route searches), route search reuses its working memory, fog redraws and uploads only the patch that changed, smoke only near the camera, off-screen units and buildings skipped when drawing
+- [x] The last hand-drawn pieces in 3D: farms (with rendered wheat that's harvested row by row), the tree plantation (saplings that grow), the wind turbine (a rendered rotor that spins), bridges (planks, then concrete), deer; the scout's horse fixed
 - [ ] Phase 21 – Gore update: an optional blood & gore setting (off by default) — blood spatter on hits, bodies that stay on the battlefield longer, more dramatic deaths, scorch marks from explosions
 - [ ] Phase 22 – Playtesting feedback
 

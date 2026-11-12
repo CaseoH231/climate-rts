@@ -86,6 +86,12 @@ def limb(parent, length, r0, r1, m, v=10):
     return add(bpy.context.object, parent, m)
 
 
+def up_limb(parent, length, r0, r1, m, v=10):
+    """A tapered limb rising (+z) from its joint."""
+    bpy.ops.mesh.primitive_cone_add(vertices=v, radius1=r0, radius2=r1, depth=length, location=(0, 0, length / 2))
+    return add(bpy.context.object, parent, m)
+
+
 def ball(parent, loc, r, m, sx=1, sy=1, sz=1):
     bpy.ops.mesh.primitive_uv_sphere_add(segments=16, ring_count=8, radius=r, location=loc)
     o = bpy.context.object; o.scale = (sx, sy, sz)
@@ -397,8 +403,8 @@ def worker_spec(job, tier=0):
 def horse(M, parent):
     h = empty(parent)
     ball(h, (0, 0, 1.0), 0.32, M['horse'], sx=2.0, sy=0.85, sz=1.0)
-    neck = empty(h, (0.5, 0, 1.15)); neck.rotation_euler = (0, math.radians(-35), 0)
-    limb(neck, 0.5, 0.16, 0.12, M['horse']).rotation_euler = (0, math.pi, 0)
+    neck = empty(h, (0.5, 0, 1.15)); neck.rotation_euler = (0, math.radians(35), 0)
+    up_limb(neck, 0.55, 0.16, 0.11, M['horse'])
     ball(neck, (0.06, 0, 0.55), 0.13, M['horse'], sx=2.0, sy=0.8, sz=0.9).rotation_euler = (0, math.radians(60), 0)
     cube(neck, (-0.06, 0, 0.3), (0.06, 0.05, 0.55), M['mane'])
     tail = empty(h, (-0.62, 0, 1.08)); tail.rotation_euler = (0, math.radians(25), 0); limb(tail, 0.5, 0.05, 0.02, M['mane'])
@@ -586,6 +592,52 @@ def render_e_tank(team, keys):
     shoot(sc, k); keys.append(k)
 
 
+DEER = (32, 24, 16, 21.1)  # canvas and hoof point (origin 0.5/0.88)
+
+
+def render_deer(keys):
+    # a red deer: standing (0) and mid-stride (1); no team colour
+    global K
+    K0 = K
+    K = 13.5  # (a deer is drawn a little smaller than people for its canvas)
+    try:
+        sc, cam = setup(DEER)
+        M = materials('player')
+        coat = mat('coat', 0x8a5a34, 0.75, noise=0.15)
+        belly = mat('belly', 0xd8c2a0, 0.8)
+        root = empty(None)
+        root.rotation_euler.z = math.radians(FACING)
+        ball(root, (0, 0, 0.85), 0.26, coat, sx=2.0, sy=0.85, sz=1.0)
+        ball(root, (0.05, 0, 0.74), 0.2, belly, sx=1.7, sy=0.75, sz=0.6)
+        ball(root, (-0.5, 0, 0.92), 0.08, belly)  # white rump
+        neck = empty(root, (0.42, 0, 0.98)); neck.rotation_euler = (0, math.radians(35), 0)
+        up_limb(neck, 0.42, 0.1, 0.075, coat)
+        head = empty(neck, (0, 0, 0.42)); head.rotation_euler = (0, math.radians(-55), 0)
+        ball(head, (0.06, 0, 0), 0.1, coat, sx=1.8, sy=0.75, sz=0.85)
+        ball(head, (0.22, 0, -0.02), 0.035, M['boots'])
+        for y in (0.06, -0.06):  # ears and antlers
+            ball(head, (-0.02, y * 1.6, 0.08), 0.04, coat, sx=0.6, sy=1.0, sz=1.6)
+            a = empty(head, (0.0, y, 0.09)); a.rotation_euler = (math.radians(30 if y > 0 else -30), math.radians(-15), 0)
+            up_limb(a, 0.28, 0.018, 0.01, mat('antler', 0xd8c8a8, 0.7))
+            b = empty(a, (0, 0, 0.17)); b.rotation_euler = (0, math.radians(-50), 0)
+            up_limb(b, 0.13, 0.012, 0.008, mat('antler', 0xd8c8a8, 0.7))
+        legs = {}
+        for name, x, y in (('FL', 0.36, 0.1), ('FR', 0.36, -0.1), ('BL', -0.36, 0.1), ('BR', -0.36, -0.1)):
+            top = empty(root, (x, y, 0.72)); limb(top, 0.36, 0.05, 0.03, coat)
+            low = empty(top, (0, 0, -0.36)); limb(low, 0.36, 0.028, 0.02, coat)
+            ball(low, (0, 0, -0.36), 0.025, M['boots'])
+            legs[name] = (top, low)
+        for f, ang in enumerate([((0, 0), (0, 0), (0, 0), (0, 0)), ((28, 15), (-22, 10), (-25, -15), (22, -10))]):
+            for (name, (a, kb)) in zip(('FL', 'FR', 'BL', 'BR'), ang):
+                top, low = legs[name]
+                top.rotation_euler = (0, -math.radians(a), 0)
+                low.rotation_euler = (0, math.radians(kb), 0)
+            k = f'deer{f}'
+            shoot(sc, k); keys.append(k)
+    finally:
+        K = K0
+
+
 def render_scout(team, keys, tier=0):
     sc, cam = setup(RIDER)
     M = materials(team)
@@ -621,6 +673,11 @@ if __name__ == '__main__':
     if contacts and '0' not in contacts:
         contacts = {}  # (older flat format)
     teams = [t for t in TEAMS if ('--team=' + t) in sys.argv] or list(TEAMS)
+    if 'deer' in types:  # (no team colours)
+        new = []
+        render_deer(new)
+        keys.update(new)
+        types = [t for t in types if t != 'deer']
     for team in teams:
         for t in types:
             new = []

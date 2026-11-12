@@ -591,7 +591,35 @@ export default class GameScene extends Phaser.Scene {
   }
 
   smoke(x, y, color) {
+    if (!this.renderShots) return;
+    // not from places hidden in the fog (you shouldn't see an enemy's chimneys you haven't scouted)
+    if (this.fog && this.fog.enabled) {
+      const w = fromIso(x, y + 40);
+      if (!this.fog.isExplored(Math.floor(w.x / TILE), Math.floor(w.y / TILE))) return;
+    }
     this.fx.smoke(x, y, color);
+  }
+
+  // Units and buildings far off screen are left out of drawing (their game logic still runs).
+  cullObjects(view) {
+    const c = this.cameras.main;
+    const x0 = view.x - 96, x1 = view.right + 96, y0 = view.y - 64, y1 = view.bottom + 220;
+    for (const u of this.units) {
+      const o = u.container;
+      const off = o.x < x0 || o.x > x1 || o.y < y0 || o.y > y1;
+      o.cameraFilter = off ? c.id : 0;
+    }
+    const moved = !this.lastCullView || Math.abs(view.x - this.lastCullView.x) > 32 || Math.abs(view.y - this.lastCullView.y) > 32
+      || Math.abs(view.width - this.lastCullView.w) > 32 || this.buildings.length !== this.lastCullView.n;
+    if (!moved) return;
+    this.lastCullView = { x: view.x, y: view.y, w: view.width, n: this.buildings.length };
+    for (const b of this.buildings) {
+      const o = b.container;
+      const r = (b.w + b.h) * TILE;
+      const off = o.x + r < x0 - r || o.x - r > x1 || o.y + r * 0.8 < y0 || o.y - r > y1;
+      o.cameraFilter = off ? c.id : 0;
+      if (b.ground) b.ground.cameraFilter = o.cameraFilter;
+    }
   }
 
   unitsInRect(tx, ty, w, h) {
@@ -1930,6 +1958,7 @@ export default class GameScene extends Phaser.Scene {
     }
     // Trees far off screen leave the display list entirely.
     if (this.trees) this.trees.cull(cam.worldView);
+    if ((this.cullFrame = (this.cullFrame || 0) + 1) % 3 === 0) this.cullObjects(cam.worldView);
     // Ambience follows the climate; fire crackle only when fires are on screen.
     this.fireCheck -= delta;
     if (this.fireCheck <= 0) {

@@ -608,7 +608,10 @@ export class Unit {
     // (check the next waypoint, and the ground just ahead — waypoints can be a few tiles apart)
     const ahead = Math.hypot(target.x - this.x, target.y - this.y) || 1;
     const at = this.map.worldToTile(this.x + ((target.x - this.x) / ahead) * 12, this.y + ((target.y - this.y) / ahead) * 12);
-    const aheadBlocked = !this.map.isWalkable(at.x, at.y, this.team) && this.map.isWalkable(this.tile.x, this.tile.y, this.team);
+    // (only on long, straightened stretches: a step to the next tile was already checked by the route search,
+    //  and cutting a corner diagonally can look 'blocked' a few pixels ahead — which used to freeze units in
+    //  place, re-planning the same route every tick)
+    const aheadBlocked = ahead > TILE * 1.5 && !this.map.isWalkable(at.x, at.y, this.team) && this.map.isWalkable(this.tile.x, this.tile.y, this.team);
     if ((!this.map.isWalkable(nt.x, nt.y, this.team) || aheadBlocked) && this.dest) {
       // Something was built in the way — find a new route.
       // (if we just did this and it didn't help, follow the plain tile-by-tile route instead)

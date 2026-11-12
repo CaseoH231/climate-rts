@@ -291,6 +291,43 @@ export class Building {
     this.redraw();
   }
 
+  // For 3D-rendered farms, plantations and wind turbines: lay the rendered crop stage, growing saplings or
+  // spinning rotor over the building. Returns false (and hides them) when the building is hand-drawn.
+  overlay3d() {
+    const rendered = this.image.texture.key.startsWith('b3d_') && ['farm', 'trees', 'wind_turbine'].includes(this.type);
+    const tm = this.scene.textures;
+    let key = null;
+    if (rendered && this.complete) {
+      if (this.type === 'farm') {
+        const frac = this.def.food ? this.food / this.def.food : 1;
+        const st = Math.ceil(6 * Math.max(0, Math.min(1, frac)));
+        key = st > 0 ? `b3d_crops_${st}` : null;
+      } else if (this.type === 'trees') {
+        key = `b3d_saplings_${Math.max(1, Math.ceil(5 * this.grow))}`;
+      } else {
+        key = 'b3d_rotor';
+      }
+    }
+    if (key && !tm.exists(key)) key = null;
+    if (!key) {
+      if (this.top3d) this.top3d.setVisible(false);
+      return rendered && !!this.top3d;
+    }
+    if (!this.top3d) {
+      this.top3d = this.scene.add.image(0, 0, key).setScale(1 / ART_RES);
+      this.container.addAt(this.top3d, this.container.getIndex(this.image) + 1);
+    }
+    const t = this.top3d.setVisible(true);
+    if (t.texture.key !== key) t.setTexture(key);
+    if (this.type === 'wind_turbine') {
+      const hub = emitterPoints('wind_turbine', this.image.texture.key)[0] || [0, -80];
+      t.setOrigin(0.5).setPosition(hub[0], hub[1]).setRotation(this.angle);
+    } else {
+      t.setOrigin(0).setPosition(-this.tex.ox, -this.tex.oy);
+    }
+    return true;
+  }
+
   get complete() { return this.progress >= 1; }
   get cx() { return (this.tx + this.w / 2) * TILE; }
   get cy() { return (this.ty + this.h / 2) * TILE; }
@@ -341,7 +378,9 @@ export class Building {
     // Moving / changing parts drawn on top.
     const o = this.overlay;
     o.clear();
-    if (this.complete) {
+    if (this.overlay3d()) {
+      // (3D-rendered: the crop, saplings or rotor are rendered sprites, handled in overlay3d)
+    } else if (this.complete) {
       if (this.type === 'farm') {
         const frac = this.def.food ? this.food / this.def.food : 1;
         const rows = 11;
@@ -437,7 +476,8 @@ export class Building {
       }
       if (this.type === 'wind_turbine') {
         this.angle += dt * 0.003;
-        this.redraw();
+        if (this.top3d && this.top3d.visible) this.top3d.setRotation(this.angle); // (just turn the rotor sprite)
+        else this.redraw();
       }
     }
 
