@@ -284,6 +284,8 @@ src/scenes/UIScene.js   resource bar, command panel, diamond minimap, climate pa
 - [ ] Phase 21 – Gore update: an optional blood & gore setting (off by default) — blood spatter on hits, bodies that stay on the battlefield longer, more dramatic deaths, scorch marks from explosions
 - [ ] Phase 22 – Playtesting feedback
 
+The detailed plan for upcoming phases, plus notes for Claude sessions working on the game, are in [`docs/ROADMAP.md`](docs/ROADMAP.md) and [`docs/HANDOFF.md`](docs/HANDOFF.md). Run the tests with `bash tests/run_tests.sh`.
+
 ## How the simulation works (for multiplayer)
 
 - **Ticks:** the game world moves in fixed steps of 50 ms (20 per second). Faster game speeds just run more ticks per second. Units are drawn part-way between their last two positions so movement still looks smooth.
