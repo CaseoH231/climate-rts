@@ -482,7 +482,7 @@ export default class GameScene extends Phaser.Scene {
 
   // The patch of land a side's Town Centre stands on (0 if it has none).
   townRegion(team) {
-    const tc = this.buildings.find((b) => b.team === team && b.type === 'town_centre' && !b.dead);
+    const tc = this.buildings.find((b) => b.team === team && b.type === 'town_centre' && b.complete && !b.dead);
     if (!tc) return 0;
     const seen = {};
     let best = 0;
@@ -1132,6 +1132,7 @@ export default class GameScene extends Phaser.Scene {
   enterBuilding(u, b, prev) {
     u.stop();
     u.prevOrder = prev || null;
+    u.inside = b; // off the field: nothing can hit it until it comes out
     u.container.setVisible(false);
     this.units = this.units.filter((x) => x !== u);
     if (this.selected && this.selected.delete(u)) { u.setSelected(false); this.emitSelection(); }
@@ -1142,6 +1143,8 @@ export default class GameScene extends Phaser.Scene {
   ejectAll(b) {
     const spots = this.map.standSpots(b.tx, b.ty, b.w, b.h, { x: b.tx + Math.floor(b.w / 2), y: b.ty + b.h });
     b.garrison.forEach((u, i) => {
+      u.inside = null;
+      if (u.dead) return;
       const s = spots[i % Math.max(1, spots.length)];
       if (s) {
         const c = this.map.tileCenter(s.x, s.y);
@@ -1332,7 +1335,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   dealDamage(target, dmg, attacker) {
-    if (target.dead) return;
+    if (target.dead || target.inside) return; // (a shot or blow that lands after it ran inside misses)
     if (target.team === this.me) this.alertAttack(target);
     if (target.isBuilding) {
       this.damageBuilding(target, dmg, attacker.team === this.me ? 'your army' : 'the enemy', attacker.team);
@@ -1354,6 +1357,7 @@ export default class GameScene extends Phaser.Scene {
 
   killUnit(u, killer = null) {
     if (u.dead) return;
+    if (u.inside) { u.inside.garrison = u.inside.garrison.filter((x) => x !== u); u.inside = null; }
     this.stats.unitDied(u, killer);
     u.stop();
     u.dead = true;
@@ -1462,7 +1466,8 @@ export default class GameScene extends Phaser.Scene {
   placeProblem(type, team) {
     const def = BUILDING_TYPES[type];
     if (!def) return "Can't build that";
-    if (def.era > this.eraOf(team)) return `${def.name} requires the ${ERAS[def.era].name}`;
+    const era = def.buildEra ?? def.era; // (the Town Centre can only be built from the Industrial Age)
+    if (era > this.eraOf(team)) return `${def.name} requires the ${ERAS[era].name}`;
     if (def.wonder && this.buildings.some((b) => b.team === team && b.def.wonder)) return 'You can only build one Climate Restoration Project';
     return null;
   }
@@ -1904,7 +1909,8 @@ export default class GameScene extends Phaser.Scene {
     for (const id of this.teamIds) {
       const T = this.teams[id];
       if (T.out) continue;
-      if (T.resigned || !this.buildings.some((b) => b.team === id && b.type === 'town_centre')) this.eliminate(id);
+      // (an unfinished Town Centre doesn't keep you in)
+      if (T.resigned || !this.buildings.some((b) => b.team === id && b.type === 'town_centre' && b.complete)) this.eliminate(id);
     }
     const wonder = this.rules.victory === 'conquest' ? null : this.buildings.find((b) => b.def.wonder && b.complete && b.wonderTime >= 180);
     const alive = new Set(this.liveTeams().map((t) => this.alliance[t]));

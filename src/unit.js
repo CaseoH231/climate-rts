@@ -726,7 +726,7 @@ export class Unit {
   updateAttack(dt, world) {
     const o = this.order;
     let t = o.target;
-    if (!t || t.dead) {
+    if (!t || t.dead || t.inside) {
       // Finished breaking through a wall — carry on to what we were really after.
       if (o.after && !o.after.dead) { o.target = o.after; o.after = null; o.repath = 0; return; }
       // Target gone — soldiers look for the next enemy nearby.

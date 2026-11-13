@@ -556,7 +556,7 @@ export default class UIScene extends Phaser.Scene {
         const d = BUILDING_TYPES[type];
         cmds.push({
           thumb: w.buildingTexKey(type, this.world.me), name: d.name, cost: d.cost, desc: d.desc,
-          locked: d.era > era ? `Requires the ${ERAS[d.era].name}` : null, lockEra: d.era, action: () => w.startPlacing(type),
+          locked: (d.buildEra ?? d.era) > era ? `Requires the ${ERAS[d.buildEra ?? d.era].name}` : null, lockEra: d.buildEra ?? d.era, action: () => w.startPlacing(type),
         });
       }
       while (cmds.length < 11) cmds.push(null);

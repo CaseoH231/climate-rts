@@ -32,7 +32,7 @@ check "online 1v1 (lockstep, drop, rejoin)"  "python3 test_online.py"   "'desync
 check "freeplay milestones + replay"         "python3 test_freeplay.py" "'over': 'practice', 'desync': None"
 check "bridges"                              "python3 test_bridge.py"   "'reachedB': True"
 if [ "$1" != "quick" ]; then
-  check "16-minute AI vs AI game"            "python3 test_ai_long.py"  "'min': 16"
+  check "16-minute AI vs AI game"            "python3 test_ai_long.py"  "LONG_OK"
 fi
 
 echo

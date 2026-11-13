@@ -75,10 +75,10 @@ export const ERAS = [
 // era = first era (0–3) in which it can be built.
 export const BUILDING_TYPES = {
   town_centre: {
-    name: 'Town Centre', w: 3, h: 3, hp: 1200, cost: {}, buildTime: 60, era: 0,
+    name: 'Town Centre', w: 3, h: 3, hp: 1200, cost: { wood: 300, stone: 250 }, buildTime: 90, era: 0, buildEra: 1,
     attack: { dmg: 6, range: 230, cooldown: 2 }, garrison: 15,
     pop: 10, dropOff: true, trains: ['worker'], research: ['steel_axes', 'mining_carts', 'plough', 'wheelbarrow', 'fish_farming'], advancesEra: true,
-    desc: 'Trains workers, advances your era and researches basic upgrades. Drop off any resource here.',
+    desc: 'Trains workers, advances your era and researches basic upgrades. Drop off any resource here. Workers can build more from the Industrial Age — but if your last one falls, you are out.',
   },
   house: {
     name: 'House', w: 2, h: 2, hp: 200, cost: { wood: 30 }, buildTime: 10, era: 0,
@@ -194,11 +194,11 @@ export const BUILDING_TYPES = {
 
 // What a worker can build, in button order: an economy page and a military page.
 export const WORKER_PAGES = [
-  ['house', 'apartments', 'farm', 'mill', 'lumber_camp', 'mining_camp', 'fishing_dock', 'market', 'trees', 'office', 'factory'],
-  ['wind_turbine', 'power_plant', 'hydro_dam', 'solar', 'geothermal', 'carbon_capture'],
+  ['house', 'apartments', 'farm', 'mill', 'lumber_camp', 'mining_camp', 'fishing_dock', 'market', 'office', 'factory', 'town_centre'],
+  ['wind_turbine', 'power_plant', 'hydro_dam', 'solar', 'geothermal', 'carbon_capture', 'trees'],
   ['barracks', 'tower', 'wall', 'gate', 'bridge', 'radar', 'workshop', 'restoration'],
 ];
-export const WORKER_PAGE_NAMES = ['Town & economy', 'Energy', 'Military & science'];
+export const WORKER_PAGE_NAMES = ['Town & economy', 'Energy & climate', 'Military & science'];
 export const WORKER_BUILDS = WORKER_PAGES.flat();
 
 // ---------- Research ----------

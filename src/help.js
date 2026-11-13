@@ -7,7 +7,7 @@ export const HOW_TO_PLAY = [
   '',
   'Select: left-click, or drag a box. Double-click (or Ctrl+click) a unit to select all of that type on screen.',
   'Orders: right-click to move, gather, build or attack.',
-  'Workers: right-click trees, stone, berries or coal to gather. Use the command grid (keys Q–Y, Z–N) to build. N flips pages: energy, then military & science.',
+  'Workers: right-click trees, stone, berries or coal to gather. Use the command grid (keys Q–Y, Z–N) to build. N flips pages: energy & climate, then military & science. From the Industrial Age workers can build another Town Centre — but if your last one falls, you are out.',
   'Drop-off camps: workers carry wood to a Lumber Camp, stone and coal to a Mining Camp, food to a Mill (or anything to the Town Centre). Build camps right next to what they gather.',
   'Delete: select your own units or a building and press Delete (or the ✕ Delete button). Your Town Centre asks twice.',
   'Bridges (Military & science page): drag a line across water, rock, coal or trees. Workers build from the bank outwards. Anyone can cross. If rising seas cut your workers off, you\'ll be told — bridge them back. Computer players do this too.',

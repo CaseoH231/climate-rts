@@ -8,11 +8,12 @@ This is the to-do list for Age of Emissions. **If you are a Claude session asked
 - Phases 10–15: polish, control groups, walls, unit counters, Market, four map types, disasters, new units and buildings, wildlife.
 - Phase 16: the Modern Age (5 eras: Coal → Industrial → Modern → Transition → Green).
 - Phases 17–19¾: deterministic lockstep simulation, replays, online play on a Cloudflare Durable Object (up to 4 sides, teams, spectating), AoE2-style game set-up and game settings, bridges.
+- Phase 22 (v29–v30): playtest fixes — no freezes in big games, bridges for stranded workers, UI size / small windows; greener computer players, Town Centres can be rebuilt, computers recover from raids.
 - Phase 22 part 1 (v29): playtest fixes — no freezes in big games, bridges for stranded workers, UI size / small windows.
 - Phase 21 (v28): optional Blood & gore setting — blood, lasting bodies, varied deaths, scorch marks. Visual only.
 - Phase 20 and its halves/quarters: better animations, tributes, Freeplay practice mode, animation overhaul (workers line up with what they work), visual overhaul, harvest stages, **every building and unit of all 5 eras rendered in 3D with Blender**, two performance passes.
 
-Current version: `GAME_VERSION` in `src/config.js` (v29 at the time of writing).
+Current version: `GAME_VERSION` in `src/config.js` (v30 at the time of writing).
 
 ## Next up
 
@@ -33,7 +34,7 @@ An optional **"Blood & gore"** setting, **off by default**.
 - Mention the new setting in `src/help.js` if there is a settings/help section that lists options.
 - Check performance in a late game (see HANDOFF.md "Performance") — decals and bodies must be culled off-screen and capped.
 
-### [ ] Phase 22 – Playtesting feedback (part 1 done in v29: items 1, 2, 6 and some of 7 — items 3, 4, 5 wait for the user's answer)
+### [x] Phase 22 – Playtesting feedback (v29: items 1, 2, 6 and some of 7; v30: items 3, 4, 5 as the user chose)
 
 From a Claude playtest of **v28 on the live site (13 Nov 2026)**. Games played:
 - a 1 v 1 against a Normal computer, started and played through the menus;
@@ -69,7 +70,8 @@ Screen sizes: 1366×768, 1024×600 and a ~750×630 window. There were no JavaScr
   - warn the player when a flood splits their land ("Workers cut off by the sea — build a Bridge");
   - possibly never flood the last land link between a Town Centre and the main land.
 
-**3. The climate collapses before anyone can win a Green Victory in 3–4 side games**
+**3. ✅ (v30) The climate collapses before anyone can win a Green Victory in 3–4 side games**
+- **User chose: computers go green** (not fewer emissions, not a countdown). Done in `ai.js`: `greenLevel` (0 coal ok / 1 from the Modern Age or +1 °C / 2 from the Transition Age); no new coal plants once green; wind turbines (1 early, up to 6), solar farms, Carbon Capture when hot, groves of trees every minute or so once above +1 °C, coal plants retired with enough clean power, coal mining cut to 7% / 3%, Smart Grid and Reforestation researched. Same 4-way Normal game (seed 11): +1.6 °C at 20 min instead of +3.35 °C.
 - 4 computer sides, Normal climate:
   - 10 min: 431 ppm, +1.7 °C
   - 15 min: +3.1 °C
@@ -83,14 +85,17 @@ Screen sizes: 1366×768, 1024×600 and a ~750×630 window. There were no JavaScr
   - scale emissions down with the number of sides, or default Climate to Gentle for 3–4 sides;
   - show a "collapse in about N min at this rate" line in the climate panel so players see it coming.
 
-**4. Losing your one Town Centre ends the game at once**
+**4. ✅ (v30) Losing your one Town Centre ends the game at once**
+- **User chose: rebuild only** (no grace period). Workers can build a Town Centre from the Industrial Age (`buildEra: 1`, 300 wood + 250 stone, 90 s; key B on the first page — Plant Trees moved to the Energy & climate page). Losing your last *finished* Town Centre still knocks you out at once; a foundation doesn't count.
 - Workers can't build a Town Centre (it isn't in `WORKER_PAGES`, `src/buildings.js`), and `checkGameOver` knocks a side out the moment it has none, whatever army or buildings it still has. In the 1 v 1 my side's TC fell at 13:18 and the game ended right there.
 - Ideas:
   - let workers build another Town Centre (Industrial Age or later, expensive);
   - and/or a grace period ("Rebuild a Town Centre within 2:00 or you're out");
   - at least a loud warning and a camera jump when the TC drops below half health.
 
-**5. Computer players can be wiped out early and then sit there forever; the Normal computer gets big fast**
+**5. ✅ (v30) Computer players can be wiped out early and then sit there forever; the Normal computer gets big fast**
+- **User chose: smarter recovery** (difficulty unchanged). Computers keep 50 food back for a worker when they have under 5, train workers even while saving for an age when they have under 4, build a Market (Industrial Age, 12+ workers) and buy food there when out, ring the town bell when raiders outnumber their guards (all clear 20 s after), and resign after 2 minutes with no workers, no army, no food and nothing to trade.
+- Fixed on the way: a worker sheltering in a building could still be killed by whoever was attacking it, and then came back out dead at the all-clear (crash). Units inside buildings can't be hit now.
 - 4-way Hard: by 10 min three of the four sides had 0 workers and under 50 food. They could never train another worker, but their TCs stood, so they weren't out either.
 - Ideas:
   - the computer keeps 50 food back for a worker;

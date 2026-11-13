@@ -12,7 +12,7 @@ export const AI_SETTINGS = {
   firstWaveSize: 4,    // soldiers/archers in the first attack
   waveGrowth: 2,       // extra units each wave
   eraTimes: [0, 480, 840, 1140],   // earliest game time (s) the enemy tries to reach each era (it never goes Green)
-  research: ['steel_axes', 'mining_carts', 'plough', 'chainsaws', 'iron_weapons', 'electric_tools', 'body_armour'],
+  research: ['steel_axes', 'mining_carts', 'plough', 'chainsaws', 'iron_weapons', 'electric_tools', 'body_armour', 'smart_grid', 'reforestation'],
   // Share of workers on each resource. This enemy loves coal — it pollutes a lot!
   gatherMix: { food: 0.4, wood: 0.35, fuel: 0.15, stone: 0.1 },
 };
@@ -72,7 +72,7 @@ export class EnemyAI {
   think() {
     const w = this.world;
     const team = this.team;
-    const tc = w.buildings.find((b) => b.team === team && b.type === 'town_centre');
+    const tc = w.buildings.find((b) => b.team === team && b.type === 'town_centre' && b.complete);
     if (!tc) return; // defeated
     this.tc = tc;
 
@@ -108,7 +108,9 @@ export class EnemyAI {
 
     // 1. Keep making workers.
     const workersQueued = tc.queue.filter((q) => q === 'worker').length;
-    if (!tc.research && workers.length + workersQueued < this.cfg.maxWorkers && tc.queue.length < 2 && !this.saving) w.trainAt(tc, 'worker');
+    const desperate = workers.length + workersQueued < 4; // (rebuild the workforce before anything else)
+    if (!tc.research && workers.length + workersQueued < this.cfg.maxWorkers && tc.queue.length < 2 && (!this.saving || desperate)) w.trainAt(tc, 'worker');
+    this.recover(workers, mine, desperate);
 
     // 2. Build: houses when nearly full, then barracks, farms, more barracks.
     const farmUnderway = mine.some((b) => b.type === 'farm' && !b.complete);
@@ -122,10 +124,30 @@ export class EnemyAI {
     if (count('barracks') === 0 && workers.length >= 7) wishes.push('barracks');
     if (!berriesLeft && !farmUnderway && count('farm') < Math.ceil(workers.length * AI_SETTINGS.gatherMix.food)) wishes.push('farm');
     if (era >= 1 && count('workshop') === 0) wishes.push('workshop');
-    if (era >= 1 && count('power_plant') < 2 && !this.saving) wishes.push('power_plant');
+    // Energy. Coal early on; from the Modern Age (or once it's getting hot) wind, then solar, and no new coal.
+    const temp = w.climate ? w.climate.temp : 0;
+    const green = this.greenLevel(era);
+    if (era >= 1 && count('power_plant') < (green ? 0 : 2) && !this.saving) wishes.push('power_plant');
+    if ((era >= 1 || w.gameTime > 300) && count('wind_turbine') < [1, 2, 4, 5, 6][era] && !this.saving) wishes.push('wind_turbine');
+    if (era >= 3 && count('solar') < 3 && !this.saving) wishes.push('solar');
+    if (era >= 3 && temp > 1.5 && count('carbon_capture') < (temp > 3 ? 2 : 1)) wishes.push('carbon_capture');
+    if (era >= 1 && count('market') === 0 && workers.length >= 12 && !this.saving) wishes.push('market');
     if (count('barracks') === 1 && w.gameTime > 600 && workers.length >= 14) wishes.push('barracks');
     if (count('tower') < 2 && w.gameTime > 420 && this.res.stone > 150 && !this.saving) wishes.push('tower');
     for (const type of wishes) if (this.build(type, workers)) break;
+
+    // Plant trees once the planet warms (a grove now and then, away from the town), and retire coal
+    // power plants once there's enough clean power.
+    this.greenTimer = (this.greenTimer || 0) + 1;
+    if (this.greenTimer >= 60) {
+      this.greenTimer = 0;
+      if (era >= 1 && temp > 1 && count('trees') < 2 + era) this.build('trees', workers, null, 7);
+      const clean = count('wind_turbine') + count('solar') * 2 + count('hydro_dam') * 3;
+      if (green >= 2 && clean >= 6) {
+        const plant = mine.find((b) => b.type === 'power_plant' && b.complete && !b.dead);
+        if (plant) w.removeBuilding(plant);
+      }
+    }
 
     // 3. Lumber camps, mining camps and mills next to far-away resources.
     this.storageTimer -= 1;
@@ -162,7 +184,7 @@ export class EnemyAI {
       if (era >= 2 && rand() < 0.3) type = 'armoured_car';
       if (era >= 4 && rand() < 0.35) type = 'e_tank';
       if (rand() < this.cfg.counterChance) type = this.counterPick(era) || type;
-      const reserve = (workers.length < 12 ? 60 : 0) + (this.saving ? this.saving.food || 0 : 0);
+      const reserve = (workers.length < 12 ? 60 : 0) + (workers.length < 5 ? 50 : 0) + (this.saving ? this.saving.food || 0 : 0);
       if (this.res.food - reserve >= (UNIT_TYPES[type].cost.food || 0)) w.trainAt(b, type);
     }
 
@@ -173,8 +195,9 @@ export class EnemyAI {
       }
     }
 
-    // 7. Defend the base.
+    // 7. Defend the base (and send the workers inside when raiders get close).
     const intruder = w.findEnemyNear(tc.cx, tc.cy, 12 * TILE, team);
+    this.updateBell(intruder, army);
     if (intruder) {
       for (const u of army) {
         if (!this.assault.has(u) && (!u.order || u.order.kind !== 'attack')) u.orderAttack(intruder);
@@ -206,12 +229,61 @@ export class EnemyAI {
     }
   }
 
+  // Ring the town bell when a raid outnumbers our defenders near the Town Centre; all clear 20 s after.
+  updateBell(intruder, army) {
+    const w = this.world;
+    const tc = this.tc;
+    const near = (u) => Math.hypot(u.x - tc.cx, u.y - tc.cy) < 12 * TILE;
+    if (intruder && intruder.isMilitary) {
+      this.calm = 0;
+      const raiders = w.units.filter((u) => u.isMilitary && !u.dead && w.isEnemy(u.team, this.team) && near(u)).length;
+      const guards = army.filter(near).length;
+      if (!this.bellOn && raiders >= 2 && raiders > guards) {
+        this.bellOn = true;
+        w.ringBell(this.team);
+      }
+    } else if (this.bellOn && ++this.calm >= 20) {
+      this.bellOn = false;
+      w.allClear(this.team);
+    }
+  }
+
+  // Back on its feet after being raided: buy food at the Market if there's nothing else, and give up
+  // (resign) if there's truly no way back — no workers, no army, no food and nothing to trade.
+  recover(workers, mine, desperate) {
+    const w = this.world;
+    const r = this.res;
+    if (!desperate || r.food >= 50) { this.stuck = 0; return; }
+    const market = mine.some((b) => b.type === 'market' && b.complete);
+    if (market) {
+      const pay = ['wood', 'stone', 'fuel'].sort((a, b) => r[b] - r[a] || (a < b ? -1 : 1))[0];
+      if (w.canAfford({ [pay]: w.tradeCost(pay, 'food') }, this.team)) { w.trade(pay, 'food', this.team); this.stuck = 0; return; }
+    }
+    const army = w.units.some((u) => u.team === this.team && u.isMilitary && !u.dead);
+    const training = mine.some((b) => b.queue.length);
+    if (!workers.length && !army && !training) {
+      if (++this.stuck >= 120) w.teams[this.team].resigned = true; // (knocked out on the next check)
+    } else this.stuck = 0;
+  }
+
   get res() {
     return this.world.teams[this.team].resources;
   }
 
+  // 0 = coal is fine, 1 = cutting back (Modern Age, or the planet is warming), 2 = going green (Transition Age on).
+  greenLevel(era) {
+    const temp = this.world.climate ? this.world.climate.temp : 0;
+    return era >= 3 ? 2 : era >= 2 || temp > 1 ? 1 : 0;
+  }
+
   currentMix() {
     const mix = { ...AI_SETTINGS.gatherMix };
+    // mine less coal as the side goes green (the rest goes to food and wood)
+    const fuelShare = [mix.fuel, 0.07, 0.03][this.greenLevel(this.world.eraOf(this.team))];
+    const spare = mix.fuel - fuelShare;
+    mix.fuel = fuelShare;
+    mix.food += spare / 2;
+    mix.wood += spare / 2;
     // Don't keep piling up a resource there's already plenty of — or one we're saving for.
     const want = this.saving || {};
     for (const res of Object.keys(mix)) {
@@ -283,12 +355,13 @@ export class EnemyAI {
     }
   }
 
-  build(type, workers, near) {
+  build(type, workers, near, minR) {
     const w = this.world;
     const def = BUILDING_TYPES[type];
     if (def.era > w.eraOf(this.team) || !w.canAfford(def.cost, this.team)) return false;
+    if (!workers.length) return false;
     const centre = near || { x: this.tc.tx + 1, y: this.tc.ty + 1 };
-    const spot = this.findSpot(def, centre, near ? 1 : type === 'farm' ? 3 : 4);
+    const spot = this.findSpot(def, centre, minR || (near ? 1 : type === 'farm' ? 3 : 4));
     if (!spot) return false;
     const b = w.placeBuilding(type, spot.x, spot.y, this.team);
     const free = workers.filter((u) => !(u.order && u.order.kind === 'build'));
