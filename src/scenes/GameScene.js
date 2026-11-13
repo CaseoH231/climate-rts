@@ -1,4 +1,5 @@
 // The main game world: map, units, buildings, economy, combat, climate, the AI, camera and controls.
+import { CIVS, resolveCiv } from '../civs.js';
 import {
   TILE, MAP_W, MAP_H, MAP_SEED, START_RESOURCES, TEAM_NAMES, POP_MAX, TEAM_COLORS, TERRAIN, CLIMATE,
 } from '../config.js';
@@ -166,6 +167,8 @@ export default class GameScene extends Phaser.Scene {
     this.teams = {};
     const startRes = { ...START_RESOURCES, ...START_AMOUNTS[this.rules.resources] };
     for (const id of this.teamIds) this.teams[id] = { resources: { ...startRes }, upgrades: new Set(), era: this.rules.era, out: false, resigned: false };
+    // Each side's civilisation ("Random" is settled from the seed, the same way on every computer).
+    this.setup.teams.forEach((t, i) => { if (this.teams[t.id]) this.teams[t.id].civ = resolveCiv(t.civ, seed, i); });
     this.resources = this.teams[this.me].resources; // shortcut for the person at this computer
     this.upgrades = this.teams[this.me].upgrades;
     this.buildings = [];
@@ -732,7 +735,8 @@ export default class GameScene extends Phaser.Scene {
 
   productionMultiplier(res, team, type) {
     const ups = this.teams[team].upgrades;
-    let m = 1;
+    const civ = CIVS[this.teams[team].civ];
+    let m = (civ && civ.produce && civ.produce[type]) || 1;
     if (res === 'clean' && ups.has('smart_grid')) m *= 1.5;
     if (type === 'fishing_dock' && ups.has('fish_farming')) m *= 1.6;
     if (['factory', 'office', 'fishing_dock'].includes(type) && ups.has('automation')) m *= 1.5;
@@ -747,9 +751,22 @@ export default class GameScene extends Phaser.Scene {
     return this.teams[team].era;
   }
 
+  // How much faster a side researches and advances (civilisation bonus).
+  researchSpeed(team) {
+    const civ = CIVS[this.teams[team].civ];
+    return (civ && civ.research) || 1;
+  }
+
+  // The units a building can train for its side (unique units only for their civilisation).
+  trainsFor(b) {
+    const civ = this.teams[b.team] && this.teams[b.team].civ;
+    return (b.def.trains || []).filter((t) => !UNIT_TYPES[t].civ || UNIT_TYPES[t].civ === civ);
+  }
+
   gatherMultiplier(res, isFarm, team = 'player') {
     const ups = this.teams[team].upgrades;
-    let m = 1;
+    const civ = CIVS[this.teams[team].civ];
+    let m = (civ && civ.gather && civ.gather[res]) || 1;
     if (res === 'wood' && ups.has('steel_axes')) m *= 1.3;
     if (res === 'wood' && ups.has('chainsaws')) m *= 1.3;
     if (ups.has('electric_tools')) m *= 1.2;
@@ -983,7 +1000,7 @@ export default class GameScene extends Phaser.Scene {
 
   // Fire a projectile from grid point (x, y) at height z towards a target (drawn isometrically).
   shoot(x, y, target, dmg, attacker, z = 0) {
-    const kind = attacker.type === 'rifleman' ? 'gun' : attacker.type === 'armoured_car' ? 'cannon' : 'arrow';
+    const kind = attacker.type === 'rifleman' || attacker.type === 'marine' ? 'gun' : attacker.type === 'armoured_car' || attacker.type === 'grenadier' ? 'cannon' : 'arrow';
     this.sfx(kind, x, y);
     const from = toIso(x, y);
     from.y -= z;
@@ -1021,7 +1038,7 @@ export default class GameScene extends Phaser.Scene {
         else {
           this.fx.impact(t.isoX, t.isoY - 6, false);
           const a = p.attacker && p.attacker.type;
-          if (a === 'cannon' || a === 'armoured_car' || a === 'e_tank') this.fx.explosion(t.isoX, t.isoY); // (gore setting only)
+          if (a === 'cannon' || a === 'armoured_car' || a === 'e_tank' || a === 'grenadier') this.fx.explosion(t.isoX, t.isoY); // (gore setting only)
         }
       }
       this.dealDamage(p.target, p.dmg, p.attacker);
@@ -1568,7 +1585,7 @@ export default class GameScene extends Phaser.Scene {
   // ---------- Training units ----------
   train(type) {
     const b = this.selectedBuilding;
-    if (!b || !b.complete || !(b.def.trains || []).includes(type)) return;
+    if (!b || !b.complete || !this.trainsFor(b).includes(type)) return;
     const problem = this.trainProblem(b, type);
     if (problem) { this.fail(problem); return; }
     this.issue({ k: 'train', b: b.id, type });
@@ -1577,7 +1594,7 @@ export default class GameScene extends Phaser.Scene {
   // Why this building can't start training this unit right now (or null if it can).
   trainProblem(b, type) {
     const u = UNIT_TYPES[type];
-    if (!u || !b || b.dead || !b.complete || !(b.def.trains || []).includes(type)) return "Can't train that here";
+    if (!u || !b || b.dead || !b.complete || !this.trainsFor(b).includes(type)) return "Can't train that here";
     if (u.era > this.eraOf(b.team)) return `${u.name} requires the ${ERAS[u.era].name}`;
     if (b.research) return 'Busy researching';
     if (b.queue.length >= 5) return 'Queue is full (5 max)';
@@ -1587,7 +1604,7 @@ export default class GameScene extends Phaser.Scene {
 
   trainAt(b, type) {
     const cost = UNIT_TYPES[type].cost;
-    if (UNIT_TYPES[type].era > this.eraOf(b.team)) return false;
+    if (UNIT_TYPES[type].era > this.eraOf(b.team) || !this.trainsFor(b).includes(type)) return false;
     if (!b.complete || b.research || b.queue.length >= 5 || !this.canAfford(cost, b.team)) return false;
     this.spend(cost, b.team);
     b.queue.push(type);

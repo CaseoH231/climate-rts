@@ -47,6 +47,7 @@ export function seatsSetup(seats, mode = 'custom') {
       ai: s.kind === 'ai' ? s.ai || 'normal' : null,
       name: s.kind === 'ai' ? `${TEAM_NAMES[id]} (computer)` : s.kind === 'you' ? 'You' : s.name || TEAM_NAMES[id],
       you: s.kind === 'you' || undefined,
+      civ: s.civ || 'random', // (settled at the start of the game: see civs.js resolveCiv)
     });
   });
   // on your own, it's a practice game

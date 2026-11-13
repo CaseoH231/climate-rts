@@ -29,8 +29,15 @@ const w = conn(); say(r, w, { t: 'hello', role: 'watch', token: 'w', name: 'Wes'
 ok(last(w, 'welcome').spectator && last(h, 'lobby').watchers[0] === 'Wes', 'spectator joins and is listed');
 say(r, h, { t: 'slot', i: 1, team: 1 }); say(r, h, { t: 'slot', i: 3, team: 1 });
 say(r, h, { t: 'start' }); ok(!r.started && /same team/.test(last(h, 'notice').msg), 'everyone on one team -> cannot start');
+say(r, g, { t: 'civ', i: 1, civ: 'saltmarsh' }); ok(r.slots[1].civ === 'saltmarsh', 'a player picks their own civilisation');
+say(r, g, { t: 'civ', i: 0, civ: 'sunreach' }); ok(r.slots[0].civ === 'random', "a player can't pick someone else's civilisation");
+say(r, h, { t: 'civ', i: 3, civ: 'ironvale' }); ok(r.slots[3].civ === 'ironvale', 'the host picks a computer seat\'s civilisation');
+say(r, h, { t: 'civ', i: 1, civ: 'greenhollow' }); ok(r.slots[1].civ === 'saltmarsh', "the host can't change another person's civilisation");
+say(r, h, { t: 'civ', i: 0, civ: 'atlantis' }); ok(r.slots[0].civ === 'random', 'unknown civilisations are refused');
 say(r, h, { t: 'slot', i: 1, team: 2 }); say(r, h, { t: 'slot', i: 3, team: 2 });
 say(r, h, { t: 'start' }); ok(r.started && last(w, 'start').settings.slots.length === 4, 'start: seats fixed and sent to spectators too');
+ok(last(w, 'start').settings.slots[1].civ === 'saltmarsh' && last(w, 'start').settings.slots[3].civ === 'ironvale', 'start: civilisations go to everyone');
+say(r, g, { t: 'civ', i: 1, civ: 'sunreach' }); ok(r.slots[1].civ === 'saltmarsh', 'no changing civilisation once started');
 say(r, w, { t: 'cmd', c: { k: 'move', ids: [1] } }); say(r, g, { t: 'cmd', c: { k: 'move', p: 'player' } });
 advance(100); const turn = last(h, 'turn');
 ok(turn.c.length === 1 && turn.c[0].p === 'enemy', 'spectator orders ignored; player orders stamped with their own side');

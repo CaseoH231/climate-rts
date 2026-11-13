@@ -63,6 +63,9 @@ def materials(team):
         'red': mat('red', 0xb02828, 0.6), 'hivis': mat('hivis', 0xe8c428, 0.8, noise=0.08),
         'kevlar': mat('kevlar', 0x33373c, 0.8, noise=0.12), 'orange': mat('orange', 0xe46a1c, 0.6),
         'yellow': mat('yellow', 0xe0b21a, 0.55),
+        # civilisation units
+        'moss': mat('moss', 0x3f5a2e, 0.85, noise=0.2), 'oilskin': mat('oilskin', 0xd6ae38, 0.45, noise=0.06),
+        'bomb': mat('bomb', 0x1e1e20, 0.35, metal=0.6), 'brass': mat('brass', 0xc8a050, 0.35, metal=1.0),
     }
 
 
@@ -196,7 +199,8 @@ class Person:
             foot = empty(knee, (0, 0, -0.44)); cube(foot, (0.05, 0, -0.03), (0.22, 0.11, 0.08), M['boots'])
             self.hips[side], self.knees[side] = hip, knee
         self.spine = empty(self.pelvis, (0, 0, 0))
-        body = M['mail'] if kind == 'soldier' else M['leather'] if kind == 'archer' else M['tunic']
+        body = {'soldier': M['mail'], 'archer': M['leather'], 'grenadier': M['leather'], 'ranger': M['moss'],
+                'marine': M['oilskin']}.get(kind, M['tunic'])
         taper_box(self.spine, -0.1, 0.52, 0.36, 0.44, 0.24, 0.26, body)
         # a team-coloured tabard / jerkin front, belt
         taper_box(self.spine, -0.14, 0.48, 0.26, 0.3, 0.04, 0.04, M['team']).location.x = 0.12
@@ -220,7 +224,8 @@ class Person:
         self.hat(kind, M)
         # arms
         self.sh, self.el, self.hands = {}, {}, {}
-        sleeve = M['mail'] if kind == 'soldier' else M['leather'] if kind == 'archer' else M['tunic']
+        sleeve = {'soldier': M['mail'], 'archer': M['leather'], 'grenadier': M['leather'], 'ranger': M['moss'],
+                  'marine': M['oilskin']}.get(kind, M['tunic'])
         for side, y in (('L', 0.25), ('R', -0.25)):
             s = empty(self.spine, (0, y, 0.48)); limb(s, 0.3, 0.07, 0.056, sleeve)
             e = empty(s, (0, 0, -0.3)); limb(e, 0.27, 0.056, 0.044, sleeve)
@@ -258,6 +263,19 @@ class Person:
             ball(h, (0, 0, 0.055), 0.115, M['boots'], sz=0.6)
             cube(h, (0.1, 0, 0.035), (0.09, 0.14, 0.018), M['boots'])
             rod(h, 0.0, 0.035, 0.117, M['team'], v=16)
+        elif kind == 'grenadier':  # a tall brimless cap in the team colour with a brass badge
+            rod(h, -0.02, 0.24, 0.112, M['team'], v=20)
+            ball(h, (0, 0, 0.24), 0.112, M['team'], sz=0.35)
+            cube(h, (0.108, 0, 0.1), (0.012, 0.06, 0.07), M['brass'])
+        elif kind == 'ranger':  # a deep moss-green hood
+            ball(h, (-0.025, 0, 0.025), 0.132, M['moss'], sz=1.12)
+            ball(h, (0.035, 0, -0.01), 0.1, M['skin'])
+        elif kind == 'marine':  # an oilskin rain hat with a wide brim
+            ball(h, (0, 0, 0.04), 0.122, M['oilskin'], sz=0.8)
+            rod(h, -0.005, 0.01, 0.175, M['oilskin'], v=24)
+        elif kind == 'sapper':  # an orange hard hat
+            ball(h, (0, 0, 0.04), 0.125, M['orange'], sz=0.75)
+            cube(h, (0, 0, 0.0), (0.3, 0.21, 0.02), M['orange'])
         elif kind == 'medic':  # a pale field cap with a red cross
             ball(h, (0, 0, 0.045), 0.117, M['cream'], sz=0.65)
             cube(h, (0.105, 0.0, 0.06), (0.012, 0.016, 0.05), M['red'])
@@ -294,6 +312,27 @@ class Person:
             rod(sh, -0.2, 0.2, 0.012, M['iron']).rotation_euler = (math.pi / 2, 0, 0)
         elif kind == 'rifleman':
             self.toolgrip, self.tip = tool('rifle', R, M)
+        elif kind == 'marine':
+            self.toolgrip, self.tip = tool('rifle', R, M)
+            cube(self.spine, (0, 0, 0.46), (0.3, 0.47, 0.09), M['orange'])  # a life-vest collar
+            cube(self.spine, (0.13, 0, 0.3), (0.03, 0.3, 0.18), M['orange'])
+        elif kind == 'grenadier':
+            # a round black bomb with a short fuse in the throwing hand, more on a bandolier
+            self.toolgrip = empty(R)
+            ball(self.toolgrip, (0, 0, -0.08), 0.075, M['bomb'])
+            rod(self.toolgrip, -0.01, 0.05, 0.008, M['string'])
+            self.tip = empty(self.toolgrip, (0, 0, -0.08))
+            strap = cube(self.spine, (0.0, 0.0, 0.25), (0.28, 0.06, 0.03), M['leather'])
+            strap.rotation_euler = (math.radians(45), 0, 0)
+            for k in range(3):
+                ball(self.spine, (0.14, -0.12 + k * 0.1, 0.02), 0.045, M['bomb'])
+        elif kind == 'sapper':
+            # a pickaxe and a satchel of red charges
+            self.toolgrip, self.tip = tool('pick', R, M)
+            cube(self.spine, (0.02, 0.2, 0.0), (0.1, 0.14, 0.14), M['leather'])
+            for k in range(3):
+                rod(self.spine, 0.06, 0.16, 0.018, M['red'], x=0.06).location.y = 0.16 + k * 0.035
+            cube(self.spine, (0, 0, 0.52), (0.26, 0.46, 0.05), M['team'])
         elif kind == 'medic':
             # a satchel with a red cross on a shoulder strap
             sa = cube(self.spine, (0.02, -0.2, 0.02), (0.1, 0.16, 0.14), M['cream'])
@@ -301,7 +340,9 @@ class Person:
             cube(self.spine, (0.08, -0.2, 0.02), (0.012, 0.09, 0.025), M['red'])
             strap = cube(self.spine, (0, 0.02, 0.3), (0.26, 0.05, 0.03), M['leather'])
             strap.rotation_euler = (math.radians(50), 0, 0)
-        elif kind == 'archer':
+        elif kind in ('archer', 'ranger'):
+            if kind == 'ranger':  # a long cloak down the back
+                cloak = taper_box(self.spine, -0.42, 0.5, 0.36, 0.44, 0.04, 0.04, M['moss']); cloak.location.x = -0.15
             bow = empty(L)
             for k in range(10):  # a curved bow, upright in the left hand
                 a0 = -0.9 + k * 0.18
@@ -386,7 +427,13 @@ SPECS = {
                 'poses': [{'R': (165, 40), 'L': (35, 75), 't': 35, 'lean': -6}, {'R': (80, 10), 'L': (40, 70), 't': 20, 'lean': 10}]},
     'archer': {'rest': {'R': (0, 10), 'L': (15, 20), 'holdL': True},
                'poses': [{'R': (95, 125), 'L': (90, 0)}, {'R': (95, 110), 'L': (90, 0)}]},
+    # bomb held low; wound back over the head; thrown (hand empty)
+    'grenadier': {'rest': {'R': (12, 40), 'L': (5, 15), 't': 0, 'holdR': True},
+                  'poses': [{'R': (170, 40), 'L': (40, 25), 't': 0, 'lean': -10}, {'R': (100, 0), 'L': (20, 10), 'empty': True, 'lean': 14}]},
+    'sapper': {'rest': REST_TOOL['rest'], 'poses': WORKER_POSES['pick']},
 }
+SPECS['ranger'] = SPECS['archer']
+SPECS['marine'] = SPECS['rifleman']
 
 
 def worker_spec(job, tier=0):

@@ -18,6 +18,7 @@
 // (worker/index.js) and in the local test server.
 
 import { cleanRules } from '../src/setup.js';
+import { CIV_CHOICES } from '../src/civs.js';
 
 export const TURN_MS = 100;
 export const TICKS_PER_TURN = 2;
@@ -43,10 +44,10 @@ export class RoomCore {
     for (const t of (this.dropTimers || new Map()).values()) this.timers.clearTimeout(t);
     // seat: { kind: 'human'|'ai'|'open'|'closed', team (0–4), ai?, token?, name?, conn?, connected? }
     this.slots = [
-      { kind: 'human', team: 1, token: null },
-      { kind: 'open', team: 2 },
-      { kind: 'closed', team: 0 },
-      { kind: 'closed', team: 0 },
+      { kind: 'human', team: 1, token: null, civ: 'random' },
+      { kind: 'open', team: 2, civ: 'random' },
+      { kind: 'closed', team: 0, civ: 'random' },
+      { kind: 'closed', team: 0, civ: 'random' },
     ];
     this.watchers = [];             // spectators: { token, name, conn }
     this.settings = { mapType: 'continental', ...cleanRules({}) };
@@ -73,7 +74,7 @@ export class RoomCore {
   // What everyone may know about the seats.
   publicSlots() {
     return this.slots.map((s, i) => ({
-      slot: i, side: TEAMS[i], kind: s.kind, team: s.team,
+      slot: i, side: TEAMS[i], kind: s.kind, team: s.team, civ: s.civ || 'random',
       ai: s.kind === 'ai' ? s.ai : undefined,
       name: s.kind === 'human' ? s.name : undefined,
       connected: s.kind === 'human' ? !!s.connected : undefined,
@@ -180,6 +181,15 @@ export class RoomCore {
         this.broadcast(this.lobbyMsg());
         break;
       }
+      case 'civ': {
+        // A player picks their own civilisation; the host also picks for computer seats.
+        if (this.started || !Number.isInteger(m.i) || m.i < 0 || m.i > 3 || !CIV_CHOICES.includes(m.civ)) return;
+        const s = this.slots[m.i];
+        if (watcher || !(m.i === slot || (host && s.kind === 'ai'))) return;
+        s.civ = m.civ;
+        this.broadcast(this.lobbyMsg());
+        break;
+      }
       case 'preset': {
         // A quick set-up: which seats are in the game and their teams. Seats people are sitting in stay theirs.
         if (!host || this.started || !Array.isArray(m.seats) || m.seats.length !== 4) return;
@@ -200,7 +210,7 @@ export class RoomCore {
         if (problem) { this.send(conn, { t: 'notice', msg: problem }); return; }
         this.started = true;
         this.settings.seed = Math.floor(Math.random() * 1e9);
-        this.settings.slots = this.publicSlots().map((s) => ({ kind: s.kind, team: s.team, ai: s.ai, name: s.name }));
+        this.settings.slots = this.publicSlots().map((s) => ({ kind: s.kind, team: s.team, ai: s.ai, name: s.name, civ: s.civ }));
         this.broadcast({ t: 'start', settings: this.settings, slots: this.publicSlots(), turnMs: TURN_MS, ticksPerTurn: TICKS_PER_TURN });
         this.clock = this.timers.setInterval(() => this.closeTurn(), TURN_MS);
         break;

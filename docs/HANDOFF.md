@@ -29,6 +29,7 @@ Age of Emissions — an Age of Empires 2–style isometric RTS about climate cha
 | `src/pathfinding.js` | A* with stamp-based scratch arrays |
 | `src/climate.js`, `src/ai.js`, `src/wildlife.js`, `src/practice.js`, `src/stats.js` | climate/disasters, computer player, deer/fish, Freeplay mode, end-of-game stats |
 | `src/rng.js`, `src/replay.js`, `src/net.js`, `src/save.js` | seeded RNG, replays, online client, saves |
+| `src/civs.js` | civilisations: bonuses, unique units, Random (settled from the seed) |
 | `src/setup.js`, `src/help.js`, `src/audio.js`, `src/cursors.js`, `src/ui.js` | game set-up model, help text, sound + settings storage, cursors, UI helpers |
 | `worker/index.js`, `worker/room-core.js` | Cloudflare Worker + Durable Object that relays online games |
 | `tools/*.py` | Blender render scripts and atlas packer (see below) |
@@ -69,11 +70,14 @@ python tools/render_buildings.py --style 0        # one era (0 Coal … 4 Green)
 python tools/render_buildings.py --shared         # crop stages, saplings, wind rotor overlays
 python tools/render_units.py --team 0             # units for one team colour (omit for all)
 python tools/pack_atlases.py                      # -> assets/atlas/*.webp + atlas.json
+python tools/pack_atlases.py --append civunits    # only NEW unit renders onto new sheets; existing sheets untouched
 ```
 
 Check each script's argparse for the full options (single building/unit, quick previews).
 
 Gotchas:
+- **A fresh clone has no `tools/renders/`.** A plain `pack_atlases.py` would rebuild the sheets from only what you just rendered and wipe the rest. To add a few sprites, render them and use `--append NAME`.
+- New person units: add the look in `render_units.py` (`hat`, `extras`, `SPECS`), plus a drawn fallback in `UNIT_ART` (art.js).
 - **The camera sees the +x and −y faces of a Blender model.** Every model is mirrored (`ROOT_OBJ.scale.y = -1`, `location.y = -h`) so the front (door, windows) faces the viewer. Put details on the faces the camera sees.
 - Limbs pointing *up* (necks, antlers): use `up_limb`, not `limb()` with a flipped rotation — that doesn't flip about the joint.
 - Canvas presets in `render_units.py`: PERSON, RIDER, VEHICLE (ground point 0.72, not 0.86), DEER. Wrong canvas = units float or sink.

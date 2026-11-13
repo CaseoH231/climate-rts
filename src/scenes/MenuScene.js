@@ -5,6 +5,8 @@ import { BUILDING_TYPES, ERAS } from '../buildings.js';
 import { generateArt, buildingKey, unitKey, buildingTexInfo, BUILDING_POINTS, ART_RES, UNIT_SPRITE_SCALE, setJobContacts, setRenderedPoints, installRenderedTextures } from '../art.js';
 import { toIso, ISO_W, ISO_H, setWorldSize } from '../iso.js';
 import { panel, button, volumeRows, scrollText, htmlInput, FONT_SERIF, FONT_SANS, UI_COL } from '../ui.js';
+import { CIVS, CIV_CHOICES, civName } from '../civs.js';
+import { UNIT_TYPES } from '../unit.js';
 import { MODES, PRESETS, presetSeats, seatsSetup, seatsProblem, describeSetup, RULES, cleanRules, describeRules } from '../setup.js';
 import { Net, newCode, cleanCode, playerName, setPlayerName, lastGame, forgetLastGame, onlineAvailable } from '../net.js';
 import { audio } from '../audio.js';
@@ -15,6 +17,13 @@ import { HOW_TO_PLAY } from '../help.js';
 import { Effects } from '../effects.js';
 import { makeCanvas } from '../art.js';
 import { cursors } from '../cursors.js';
+
+// "Ironvale: Stone and coal mining +20% · Buildings have +20% health · Unique unit: Grenadier"
+export function civBlurb(civ) {
+  const c = CIVS[civ];
+  if (!c) return 'Random civilisation: one is picked for you when the game starts.';
+  return `${c.name} — ${c.motto}\n${c.bonuses.join('  ·  ')}\nUnique unit: ${UNIT_TYPES[c.unique].name} (${UNIT_TYPES[c.unique].desc.replace(/^[^.]*only\. /, '')})`;
+}
 
 export { GAME_VERSION };
 
@@ -112,6 +121,7 @@ export default class MenuScene extends Phaser.Scene {
     this.input.setDefaultCursor(cursors().arrow);
     makeCanvas(this, 'crest', 80, 80, drawCrest, 2);
     this.options = this.options || { difficulty: 'normal', map: 'continental', mode: '1v1', seats: presetSeats('1v1'), rules: cleanRules({}), tab: 'players' };
+    this.options.civs = this.options.civs || ['random', 'random', 'random', 'random']; // each seat's civilisation
 
     // --- Background: paint a corner of a map and put a little town on it ---
     if (!this.textures.exists('menu_terrain')) {
@@ -302,6 +312,7 @@ export default class MenuScene extends Phaser.Scene {
         const changed = () => { o.mode = 'custom'; this.show('new'); };
         T(x0 + 150, y, 'Player', { color: UI_COL.dim, fontSize: '12px' }, 0);
         T(x0 + NW - 100, y, 'Team', { color: UI_COL.dim, fontSize: '12px' });
+        T(x0 + 403, y, 'Civilisation', { color: UI_COL.dim, fontSize: '12px' });
         o.seats.forEach((st, i) => {
           const yy = y + 18 + i * 42;
           const closed = st.kind === 'closed';
@@ -320,13 +331,19 @@ export default class MenuScene extends Phaser.Scene {
           } else {
             const cur = st.kind === 'ai' ? `ai:${st.ai || 'normal'}` : 'closed';
             const text = st.kind === 'ai' ? `Computer — ${LEVEL[st.ai] || 'Normal'}` : 'Closed';
-            this.addUI(button(this, x0 + 140, yy, 290, 36, text, () => {
+            this.addUI(button(this, x0 + 140, yy, 180, 36, text, () => {
               const [kind, ai] = kinds[(kinds.indexOf(cur) + 1) % kinds.length].split(':');
               o.seats[i] = { ...st, kind, ai };
               changed();
             }, { depth: D + 1, size: '14px' }));
           }
           if (!closed) {
+            // the civilisation (click to cycle: Random, then each civ)
+            const civ = o.civs[i] || 'random';
+            this.addUI(button(this, x0 + 328, yy, 150, 36, civName(civ), () => {
+              o.civs[i] = CIV_CHOICES[(CIV_CHOICES.indexOf(civ) + 1) % CIV_CHOICES.length];
+              this.show('new');
+            }, { depth: D + 1, size: '14px' }));
             this.addUI(button(this, x0 + NW - 150, yy, 100, 36, st.team ? `Team ${st.team}` : '–', () => {
               o.seats[i] = { ...st, team: ((st.team || 0) + 1) % 5 };
               changed();
@@ -348,6 +365,9 @@ export default class MenuScene extends Phaser.Scene {
         y += 44;
         T(w / 2, y, problem || describeSetup(seatsSetup(o.seats)), { fontFamily: FONT_SERIF, fontSize: '15px', color: problem ? '#e8b080' : UI_COL.gold });
         T(w / 2, y + 22, 'Click a colour to play as it. Same team number = allies. "–" = on their own.', { color: UI_COL.dim, fontSize: '12px', fontStyle: 'italic' });
+        // what your civilisation does
+        const mine = o.civs[Math.max(0, o.seats.findIndex((x) => x.kind === 'you'))] || 'random';
+        T(w / 2, y + 46, civBlurb(mine), { color: UI_COL.text, fontSize: '13px', wordWrap: { width: NW - 60 }, align: 'center', lineSpacing: 2 });
       } else {
         // --- map ---
         label(y - 4, 'Map');
@@ -487,13 +507,22 @@ export default class MenuScene extends Phaser.Scene {
           else who = 'Closed';
           if (host && i > 0 && seat.kind !== 'human') {
             const cur = seat.kind === 'ai' ? `ai:${seat.ai || 'normal'}` : seat.kind;
-            this.addUI(button(this, x0 + 120, y, 290, 36, who, () => {
+            this.addUI(button(this, x0 + 120, y, 200, 36, who, () => {
               const next = cycle[(cycle.indexOf(cur) + 1) % cycle.length];
               const [kind, ai] = next.split(':');
               net.send({ t: 'slot', i, kind, ai });
             }, { depth: D + 1, size: '14px' }));
           } else {
             T(x0 + 128, y + 10, who, { fontSize: '15px', color: seat.kind === 'human' || seat.kind === 'ai' ? UI_COL.text : UI_COL.dim }, 0);
+          }
+          if (!closed && seat.kind !== 'open') {
+            // civilisation: your own seat, or (host) a computer seat, can be changed
+            const civ = seat.civ || 'random';
+            if (i === net.slot || (host && seat.kind === 'ai')) {
+              this.addUI(button(this, x0 + 328, y, 150, 36, civName(civ), () => {
+                net.send({ t: 'civ', i, civ: CIV_CHOICES[(CIV_CHOICES.indexOf(civ) + 1) % CIV_CHOICES.length] });
+              }, { depth: D + 1, size: '14px' }));
+            } else T(x0 + 403, y + 10, civName(civ), { fontSize: '14px', color: UI_COL.dim });
           }
           if (!closed) {
             const teamLabel = seat.team ? `Team ${seat.team}` : '–';
@@ -507,6 +536,8 @@ export default class MenuScene extends Phaser.Scene {
         T(w / 2, top + 366, this.netNotice || preview + (net.watchers && net.watchers.length ? `     ·     Watching: ${net.watchers.join(', ')}` : ''),
           { fontFamily: FONT_SERIF, fontSize: this.netNotice ? '13px' : '15px', color: this.netNotice ? '#e8b080' : UI_COL.gold, wordWrap: { width: OW - 40 }, align: 'center' });
         T(w / 2, top + 396, `${MAP_TYPES[st.mapType] ? MAP_TYPES[st.mapType].name : ''} map  ·  ${describeRules(cleanRules(st))}`, { color: UI_COL.dim, fontSize: '13px', wordWrap: { width: OW - 40 }, align: 'center' });
+        const me = net.slots && net.slots[net.slot];
+        if (me) T(w / 2, top + 424, civBlurb(me.civ || 'random'), { color: UI_COL.text, fontSize: '13px', wordWrap: { width: OW - 40 }, align: 'center', lineSpacing: 2 });
       } else {
         // --- map & settings ---
         const keys = Object.keys(MAP_TYPES);
@@ -602,7 +633,7 @@ export default class MenuScene extends Phaser.Scene {
     const seed = Math.floor(Math.random() * 1e9);
     const o = this.options;
     if (seatsProblem(o.seats)) return;
-    const setup = seatsSetup(o.seats, o.mode);
+    const setup = seatsSetup(o.seats.map((s, i) => ({ ...s, civ: o.civs[i] || 'random' })), o.mode);
     const levels = setup.teams.filter((t) => t.ai).map((t) => t.ai);
     const difficulty = levels.includes('hard') ? 'hard' : levels.includes('normal') ? 'normal' : 'easy';
     this.scene.start('GameScene', { seed, mapType: o.map, difficulty, setup, rules: cleanRules(o.rules) });

@@ -2,7 +2,10 @@
 #     python tools/pack_atlases.py
 # Writes assets/atlas/<group>_<team>.webp and assets/atlas/atlas.json, which lists, for every texture
 # key the game uses, which sheet it's on and where; plus the measured tool contact points.
-import json, os
+#     python tools/pack_atlases.py --append NAME
+# (packs only the unit renders whose keys aren't in atlas.json yet onto new sheets NAME_<team>, leaving every
+# existing sheet as it is — for adding a few units without re-rendering everything)
+import json, os, sys
 from PIL import Image
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
@@ -10,7 +13,8 @@ REN = os.path.join(ROOT, 'tools', 'renders')
 OUT = os.path.join(ROOT, 'assets', 'atlas')
 TEAMS = ['player', 'enemy', 'green', 'yellow']
 os.makedirs(OUT, exist_ok=True)
-for old in os.listdir(OUT):  # start fresh: sheets get renamed as the art grows
+APPEND = sys.argv[sys.argv.index('--append') + 1] if '--append' in sys.argv else None
+for old in ([] if APPEND else os.listdir(OUT)):  # start fresh: sheets get renamed as the art grows
     if old.endswith('.png') or old.endswith('.webp'):
         os.remove(os.path.join(OUT, old))
 index = {'sheets': [], 'frames': {}, 'contacts': {}}
@@ -51,6 +55,17 @@ def pack_one(name0, group, mine, keyfn, width, team):
         index['sheets'].append(name)
 
 
+if APPEND:
+    index = json.load(open(os.path.join(OUT, 'atlas.json')))
+    new = [f for f in os.listdir(os.path.join(REN, 'units')) if f.endswith('.png') and f[:-4] not in index['frames']]
+    index['sheets'] = [n for n in index['sheets'] if not n.startswith(APPEND + '_')]
+    for team in TEAMS + ['shared']:
+        mine = sorted(f for f in new if team in f[:-4].split('_'))
+        if mine:
+            pack_one(APPEND, 'units', mine, lambda f: f[:-4], 1024, team)
+    json.dump(index, open(os.path.join(OUT, 'atlas.json'), 'w'))
+    print(len(new), 'new sprites appended on', APPEND, 'sheets')
+    sys.exit(0)
 pack('units', [f for f in os.listdir(os.path.join(REN, 'units')) if f.endswith('.png')], lambda f: f[:-4])
 # house_s0_player.png → b3d_house_s0_player
 import re

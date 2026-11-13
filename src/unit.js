@@ -3,6 +3,7 @@ import { findPath, smoothPath } from './pathfinding.js';
 import { unitKey, ART_RES, UNIT_SPRITE_SCALE, unitTier, ensureUnitTex, ensureJobTex, jobContact, ensureCarryTex } from './art.js';
 import { toIso, fromIso } from './iso.js';
 import { TERRAIN, TILE } from './config.js';
+import { CIVS } from './civs.js';
 
 // attack = damage per hit, range in pixels, cooldown in seconds between hits,
 // sight = how far idle units notice enemies, vsBuilding = damage multiplier against buildings.
@@ -42,10 +43,27 @@ export const UNIT_TYPES = {
              attack: 24, range: 150, cooldown: 1.6, sight: 260, vsBuilding: 1.4,
              bonus: { archer: 1.5, soldier: 1.4, scout: 1.4, armoured_car: 1.3 },
              desc: 'Silent solar-charged tank. The strongest unit in the game — riflemen are its only real counter. Needs clean energy.' },
+  // Unique units: only the civilisation named in `civ` can train them (at the Barracks).
+  grenadier: { name: 'Grenadier', era: 1, civ: 'ironvale', speed: 78, hp: 60, cost: { food: 60, wood: 30, energy: 20 }, trainTime: 14,
+             attack: 12, range: 110, cooldown: 2.0, sight: 220, vsBuilding: 1.5,
+             bonus: { soldier: 1.5, rifleman: 1.3, archer: 1.2, sapper: 1.3 },
+             desc: 'Ironvale only. Lobs bombs a short way: strong against soldiers, riflemen and buildings.' },
+  ranger:  { name: 'Ranger', era: 0, civ: 'greenhollow', speed: 90, hp: 45, cost: { food: 45, wood: 50 }, trainTime: 12,
+             attack: 7, range: 175, cooldown: 1.3, sight: 260, vsBuilding: 0.25,
+             bonus: { soldier: 2, worker: 1.25, scout: 1.4, armoured_car: 0.4, e_tank: 0.3 },
+             desc: 'Greenhollow only. A quick archer who shoots further and sees further than any other.' },
+  marine:  { name: 'Marine', era: 1, civ: 'saltmarsh', speed: 80, hp: 85, cost: { food: 70, wood: 25, energy: 25 }, trainTime: 15,
+             attack: 11, range: 155, cooldown: 1.8, sight: 240, vsBuilding: 0.35,
+             bonus: { armoured_car: 2.2, e_tank: 1.8, scout: 1.4 },
+             desc: 'Saltmarsh only. A tough rifleman in oilskins: lots of health, great against armour.' },
+  sapper:  { name: 'Sapper', era: 1, civ: 'sunreach', speed: 88, hp: 55, cost: { food: 50, wood: 30, energy: 15 }, trainTime: 12,
+             attack: 8, range: 26, cooldown: 1.2, sight: 200, vsBuilding: 3.0,
+             bonus: { cannon: 2.5, armoured_car: 1.6, e_tank: 1.4 },
+             desc: 'Sunreach only. An engineer with a pickaxe and charges: wrecks buildings and vehicles up close.' },
 };
 
 // Foot soldiers that Body Armour protects.
-export const INFANTRY = ['soldier', 'archer', 'rifleman', 'scout', 'medic'];
+export const INFANTRY = ['soldier', 'archer', 'rifleman', 'scout', 'medic', 'grenadier', 'ranger', 'marine', 'sapper'];
 
 // Colour of the "+10" that floats up when a worker drops off a load.
 const RES_TEXT_COLOR = { food: '#f0d77a', wood: '#d9b07a', stone: '#d8d4cc', fuel: '#b8b0a8' };
@@ -79,7 +97,8 @@ export class Unit {
     this.def = def;
     this.team = team;
     this.name = def.name;
-    this.speed = def.speed;
+    const civ = scene.teams && scene.teams[team] && CIVS[scene.teams[team].civ];
+    this.speed = def.speed * (type === 'worker' && civ && civ.workerSpeed ? civ.workerSpeed : 1);
     const ups = scene.teams ? scene.teams[team].upgrades : new Set();
     this.maxHp = Math.round(def.hp * (ups.has('body_armour') && INFANTRY.includes(type) ? 1.3 : 1));
     this.hp = this.maxHp;

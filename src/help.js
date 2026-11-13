@@ -11,6 +11,7 @@ export const HOW_TO_PLAY = [
   'Drop-off camps: workers carry wood to a Lumber Camp, stone and coal to a Mining Camp, food to a Mill (or anything to the Town Centre). Build camps right next to what they gather.',
   'Delete: select your own units or a building and press Delete (or the ✕ Delete button). Your Town Centre asks twice.',
   'Bridges (Military & science page): drag a line across water, rock, coal or trees. Workers build from the bank outwards. Anyone can cross. If rising seas cut your workers off, you\'ll be told — bridge them back. Computer players do this too.',
+  'Civilisations: pick one for each seat in New Game (or Random). Ironvale: stone and coal mining +20%, tougher buildings, Grenadiers. Greenhollow: wood +15%, trees grow twice as fast, Rangers. Saltmarsh: Fishing Docks and Hydro Dams +40%, faster workers, Marines. Sunreach: research 25% faster, wind and solar +30%, Sappers. Hover over a side in the sides panel to see what it plays.',
   'Settings: New Game → Map & settings sets map size, resources, starting age, population, reveal map, peace time, victory and climate.',
   'Town Centre: trains workers, researches upgrades and advances your age. Barracks train your army.',
   'Rally point: select a Town Centre or Barracks and right-click the ground. Right-click a resource and new workers go straight to work.',

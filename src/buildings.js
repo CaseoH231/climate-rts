@@ -1,4 +1,5 @@
 // Buildings, eras and research: what they cost, what they unlock, and how they behave.
+import { CIVS } from './civs.js';
 import { TILE } from './config.js';
 import { UNIT_TYPES } from './unit.js';
 import { buildingKey, buildingTexInfo, BUILDING_POINTS, ART_RES, ensureBuildingTex, emitterPoints } from './art.js';
@@ -107,7 +108,8 @@ export const BUILDING_TYPES = {
   },
   barracks: {
     name: 'Barracks', w: 3, h: 3, hp: 500, cost: { wood: 125, stone: 50 }, buildTime: 22, era: 0,
-    trains: ['soldier', 'archer', 'scout', 'rifleman', 'medic', 'cannon', 'armoured_car', 'e_tank'], desc: 'Trains your army.',
+    trains: ['soldier', 'archer', 'scout', 'rifleman', 'medic', 'cannon', 'armoured_car', 'e_tank', 'grenadier', 'ranger', 'marine', 'sapper'],
+    desc: 'Trains your army (and your civilisation\'s unique unit).',
   },
   tower: {
     name: 'Watch Tower', w: 2, h: 2, hp: 500, cost: { wood: 60, stone: 100 }, buildTime: 20, era: 0,
@@ -240,8 +242,9 @@ export class Building {
     this.W = def.w * TILE;
     this.H = def.h * TILE;
     this.progress = complete ? 1 : 0;
-    this.maxHp = def.hp;
-    this.hp = complete ? def.hp : Math.ceil(def.hp * 0.1);
+    const civ = scene.teams && scene.teams[team] && CIVS[scene.teams[team].civ];
+    this.maxHp = Math.round(def.hp * (civ && civ.buildingHp ? civ.buildingHp : 1));
+    this.hp = complete ? this.maxHp : Math.ceil(this.maxHp * 0.1);
     this.queue = [];          // units waiting to be trained
     this.trainTimer = 0;
     this.waitingForPop = false;
@@ -464,7 +467,7 @@ export class Building {
 
     // Research in progress (upgrades / new era).
     if (this.research) {
-      this.research.t += s;
+      this.research.t += s * world.researchSpeed(this.team);
       if (this.research.t >= this.research.time) world.finishResearch(this);
       this.redraw();
     }
@@ -518,7 +521,8 @@ export class Building {
 
     if (this.type === 'trees') {
       const before = Math.floor(this.grow * 20);
-      this.grow = Math.min(1, this.grow + s / this.def.growTime);
+      const civ = CIVS[world.teams[this.team].civ];
+      this.grow = Math.min(1, this.grow + (s * (civ && civ.treeGrow ? civ.treeGrow : 1)) / this.def.growTime);
       if (Math.floor(this.grow * 20) !== before) this.redraw();
       if (this.grow >= 1) world.growForest(this);
     }

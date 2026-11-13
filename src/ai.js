@@ -3,6 +3,7 @@ import { TILE } from './config.js';
 import { BUILDING_TYPES, ERAS } from './buildings.js';
 import { UNIT_TYPES } from './unit.js';
 import { findPath } from './pathfinding.js';
+import { CIVS } from './civs.js';
 
 // Tweak these to make the enemy easier or harder.
 export const AI_SETTINGS = {
@@ -33,6 +34,10 @@ const COUNTERS = {
   scout: ['soldier'],
   cannon: ['scout', 'soldier'],
   e_tank: ['rifleman'],
+  grenadier: ['scout', 'archer'],
+  ranger: ['scout', 'armoured_car'],
+  marine: ['soldier'],
+  sapper: ['archer', 'rifleman'],
 };
 
 export class EnemyAI {
@@ -59,7 +64,7 @@ export class EnemyAI {
     }
     const common = Object.keys(seen).sort((a, b) => seen[b] - seen[a])[0];
     if (!common || seen[common] < 3) return null;
-    return (COUNTERS[common] || []).find((t) => UNIT_TYPES[t].era <= era) || null;
+    return (COUNTERS[common] || []).find((t) => UNIT_TYPES[t].era <= era && !UNIT_TYPES[t].civ) || null;
   }
 
   update(dt) {
@@ -183,6 +188,9 @@ export class EnemyAI {
       else if (era >= 1 && r < 0.17) type = 'medic';
       if (era >= 2 && rand() < 0.3) type = 'armoured_car';
       if (era >= 4 && rand() < 0.35) type = 'e_tank';
+      // our civilisation's unique unit, about a third of the time
+      const civ = CIVS[w.teams[team].civ];
+      if (civ && UNIT_TYPES[civ.unique].era <= era && rand() < 0.33) type = civ.unique;
       if (rand() < this.cfg.counterChance) type = this.counterPick(era) || type;
       const reserve = (workers.length < 12 ? 60 : 0) + (workers.length < 5 ? 50 : 0) + (this.saving ? this.saving.food || 0 : 0);
       if (this.res.food - reserve >= (UNIT_TYPES[type].cost.food || 0)) w.trainAt(b, type);

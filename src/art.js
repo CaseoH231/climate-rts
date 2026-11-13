@@ -2030,6 +2030,11 @@ export const UNIT_ART = {
     },
   }),
 };
+// The civilisations' unique units are 3D-rendered; if the rendered art is missing they borrow a drawn look.
+UNIT_ART.grenadier = UNIT_ART.soldier;
+UNIT_ART.ranger = UNIT_ART.archer;
+UNIT_ART.marine = UNIT_ART.rifleman;
+UNIT_ART.sapper = UNIT_ART.worker;
 
 // Scout: a rider on a horse, 44×40 canvas, hooves at y≈37. LEG_STEP animates a gallop.
 function scoutRider(ctx, team) {

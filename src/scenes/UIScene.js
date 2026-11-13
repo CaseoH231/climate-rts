@@ -1,5 +1,6 @@
 // In-game interface, in the style of classic isometric RTS games: wooden resource bar, stone command panel
 // with a command grid, info portrait and diamond minimap, climate panel, messages, in-game menu, end screen.
+import { CIVS } from '../civs.js';
 import { TILE, MAP_W, MAP_H, TEAM_COLORS, TEAM_NAMES, CLIMATE } from '../config.js';
 import { BUILDING_TYPES, WORKER_PAGES, WORKER_PAGE_NAMES, UPGRADES, ERAS } from '../buildings.js';
 import { UNIT_TYPES } from '../unit.js';
@@ -517,7 +518,7 @@ export default class UIScene extends Phaser.Scene {
     if (b) {
       if (!b.complete || b.team !== this.world.me) return cmds;
       if (b.type === 'market') return this.marketCommands();
-      for (const type of b.def.trains || []) {
+      for (const type of w.trainsFor(b)) {
         const u = UNIT_TYPES[type];
         cmds.push({
           thumb: w.unitTexKey(type, this.world.me), name: `Train ${u.name}`, cost: u.cost,
@@ -915,6 +916,12 @@ export default class UIScene extends Phaser.Scene {
       give.add([gbg, gt, ghit]);
       c.add([hit, dot, name, tag, give]);
       hit.setInteractive({ useHandCursor: true }).on('pointerdown', () => { if (w.canSwitchView) w.setView(t); });
+      // hover: what this side's civilisation does
+      hit.on('pointerover', () => {
+        const civ = CIVS[w.teams[t].civ];
+        if (civ) this.showTip({ name: civ.name, cost: null, desc: `${civ.motto}\n${civ.bonuses.join('\n')}\nUnique unit: ${UNIT_TYPES[civ.unique].name}` }, this.sides.x, this.sides.y + y + rowH, true);
+      });
+      hit.on('pointerout', () => this.hideTip());
       return { t, name, tag, dot, hit, give };
     });
     this.refreshSides();
@@ -930,7 +937,8 @@ export default class UIScene extends Phaser.Scene {
       const you = r.t === w.self && !(w.net && w.net.spectator) && !w.replay;
       const viewing = w.canSwitchView && r.t === w.me;
       const nm = w.teamName(r.t).replace(' (computer)', ' (AI)');
-      r.name.setText(`${nm}${you && nm !== 'You' ? ' (you)' : ''}`);
+      const civ = CIVS[T.civ];
+      r.name.setText(`${nm}${you && nm !== 'You' ? ' (you)' : ''}${civ ? ` · ${civ.name}` : ''}`);
       r.name.setColor(viewing ? COL.gold : COL.text);
       const rel = r.t === w.self ? '' : w.isAlly(r.t, w.self) ? 'ally' : 'enemy';
       const army = w.units.filter((u) => u.team === r.t && u.isMilitary).length;
