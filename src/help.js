@@ -29,6 +29,8 @@ export const HOW_TO_PLAY = [
   'Online: Play Online on the main menu. The host shares the 5-letter code; up to 3 friends join with it (or Watch to spectate). The host sets each seat to a person, a computer player or closed, and picks teams. Enter to chat.',
   'Replays: every new game is recorded. Watch it from the end screen, or from Replays on the main menu.',
   '',
+  'Options (Settings on the main menu or in the game menu): volumes, screen effects, and Blood & gore (off by default) — blood on hits, fallen units stay on the field for a minute, scorch marks from explosions. It only changes the look, never the game.',
+  '',
   'Camera: arrow keys / screen edge, mouse wheel to zoom, click the minimap.',
   'Space: look at the last attack   ·   Click a portrait to pick one unit (Shift-click drops it), click a queued unit to cancel it.',
   'H: home   ·   Full stop: idle worker   ·   + / −: game speed   ·   Esc / F10: menu   ·   Shift: add to selection / place several',

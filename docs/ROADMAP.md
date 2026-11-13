@@ -8,13 +8,14 @@ This is the to-do list for Age of Emissions. **If you are a Claude session asked
 - Phases 10–15: polish, control groups, walls, unit counters, Market, four map types, disasters, new units and buildings, wildlife.
 - Phase 16: the Modern Age (5 eras: Coal → Industrial → Modern → Transition → Green).
 - Phases 17–19¾: deterministic lockstep simulation, replays, online play on a Cloudflare Durable Object (up to 4 sides, teams, spectating), AoE2-style game set-up and game settings, bridges.
+- Phase 21 (v28): optional Blood & gore setting — blood, lasting bodies, varied deaths, scorch marks. Visual only.
 - Phase 20 and its halves/quarters: better animations, tributes, Freeplay practice mode, animation overhaul (workers line up with what they work), visual overhaul, harvest stages, **every building and unit of all 5 eras rendered in 3D with Blender**, two performance passes.
 
-Current version: `GAME_VERSION` in `src/config.js` (v27 at the time of writing).
+Current version: `GAME_VERSION` in `src/config.js` (v28 at the time of writing).
 
 ## Next up
 
-### [ ] Phase 21 – Gore update
+### [x] Phase 21 – Gore update (done in v28)
 
 An optional **"Blood & gore"** setting, **off by default**.
 

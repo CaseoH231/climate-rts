@@ -81,6 +81,15 @@ function setFx(on) {
   try { localStorage.setItem(FX_KEY, on ? 'on' : 'off'); } catch (e) { /* ignore */ }
 }
 
+// Blood & gore (bodies stay, blood spatter, scorch marks). Purely visual. Off by default.
+const GORE_KEY = 'age-of-emissions-gore';
+export function goreEnabled() {
+  try { return localStorage.getItem(GORE_KEY) === 'on'; } catch (e) { return false; }
+}
+function setGore(on) {
+  try { localStorage.setItem(GORE_KEY, on ? 'on' : 'off'); } catch (e) { /* ignore */ }
+}
+
 export function volumeRows(scene, x, y, width, depth) {
   const items = [];
   const rows = [['master', 'Master volume'], ['music', 'Music'], ['sfx', 'Sound effects'], ['ambience', 'Ambience']];
@@ -105,6 +114,14 @@ export function volumeRows(scene, x, y, width, depth) {
   const refreshFx = () => { fxTxt.setText('Screen effects'); fxBtn.setLabel ? fxBtn.setLabel(fxEnabled() ? 'On' : 'Off') : null; };
   refreshFx();
   items.push(fxTxt, fxBtn);
+  const gy = yy + 48;
+  const goreTxt = scene.add.text(x, gy + 10, 'Blood & gore', { fontFamily: FONT_SERIF, fontSize: '17px', color: UI_COL.text, stroke: '#000', strokeThickness: 3 }).setDepth(depth);
+  const goreBtn = button(scene, x + width - 100, gy, 96, 40, '', () => {
+    setGore(!goreEnabled());
+    goreBtn.setLabel(goreEnabled() ? 'On' : 'Off');
+  }, { depth });
+  goreBtn.setLabel(goreEnabled() ? 'On' : 'Off');
+  items.push(goreTxt, goreBtn);
   return items;
 }
 

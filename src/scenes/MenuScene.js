@@ -256,10 +256,10 @@ export default class MenuScene extends Phaser.Scene {
         });
       }
     } else if (view === 'settings') {
-      this.addUI(panel(this, (w - PW) / 2, top, PW, 380, D));
+      this.addUI(panel(this, (w - PW) / 2, top, PW, 428, D));
       this.addUI(this.add.text(w / 2, top + 22, 'Settings', { fontFamily: FONT_SERIF, fontSize: '22px', color: UI_COL.gold, stroke: '#000', strokeThickness: 4 }).setOrigin(0.5, 0).setDepth(D + 1));
       for (const o of volumeRows(this, (w - PW) / 2 + 30, top + 66, PW - 60, D + 1)) this.addUI(o);
-      btn(top + 318, 'Back', () => this.show('main'), { w: 200 });
+      btn(top + 366, 'Back', () => this.show('main'), { w: 200 });
     } else if (view === 'new') {
       // An AoE2-style game set-up, on two tabs: who's playing, then the map and the rules.
       const o = this.options;

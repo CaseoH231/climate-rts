@@ -974,7 +974,11 @@ export default class GameScene extends Phaser.Scene {
       if (this.renderShots && p.target.container && p.target.container.visible) {
         const t = p.target;
         if (t.isBuilding) { const i = toIso(t.cx, t.cy); this.fx.impact(i.x + (Math.random() - 0.5) * 30, i.y - 10, true); }
-        else this.fx.impact(t.isoX, t.isoY - 6, false);
+        else {
+          this.fx.impact(t.isoX, t.isoY - 6, false);
+          const a = p.attacker && p.attacker.type;
+          if (a === 'cannon' || a === 'armoured_car' || a === 'e_tank') this.fx.explosion(t.isoX, t.isoY); // (gore setting only)
+        }
       }
       this.dealDamage(p.target, p.dmg, p.attacker);
     }
@@ -1292,7 +1296,7 @@ export default class GameScene extends Phaser.Scene {
     }
     target.hp -= dmg;
     target.updateHpBar();
-    if (this.renderShots && target.container.visible) this.fx.hitFlash(target);
+    if (this.renderShots && target.container.visible) { this.fx.hitFlash(target); this.fx.blood(target, attacker); }
     if (target.hp <= 0) {
       this.killUnit(target, attacker.team);
       return;
@@ -1986,6 +1990,7 @@ export default class GameScene extends Phaser.Scene {
     this.rainTime = Math.max(0, this.rainTime - delta / 1000);
     const view = this.cameras.main.worldView;
     this.fx.updateDamage(delta, this.buildings, view);
+    this.fx.updateGore(delta, view);
     this.prewarmStyles(delta);
     this.wildlife.render(time, this.fog);
     this.fx.updateBirds(delta, view, this.climate.temp);

@@ -668,7 +668,7 @@ export class Unit {
           this.holdT = 320;
           const to = toIso(d.x, d.y);
           const c = jobContact('spear', this.tier);
-          world.fx.spear(this.isoX + (this.sprite.flipX ? -c.x : c.x), this.isoY + c.y, to.x, to.y - 4);
+          world.fx.spear(this.isoX + (this.sprite.flipX ? -c.x : c.x), this.isoY + c.y, to.x, to.y - 4, true);
         }
         const t = world.wildlife.kill(d, world);
         d.meat = t;

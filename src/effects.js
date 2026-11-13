@@ -5,6 +5,7 @@
 import { toIso } from './iso.js';
 import { TILE } from './config.js';
 import { makeCanvas } from './art.js';
+import { goreEnabled } from './ui.js';
 
 const ART = 2; // textures are drawn at 2x and shown at half size
 
@@ -56,6 +57,68 @@ function makeEffectTextures(scene) {
     c.fillStyle = g;
     c.fillRect(0, 0, 2, 14);
   }, 1);
+  // ---- gore (only used when the Blood & gore setting is on) ----
+  // splats of blood on the ground, a few shapes (squashed for the isometric view)
+  for (let v = 0; v < 3; v++) {
+    makeCanvas(scene, `fx_splat${v}`, 18, 10, (c) => {
+      let seed = 17 + v * 101;
+      const r = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+      c.fillStyle = 'rgba(105,8,10,0.82)';
+      c.beginPath();
+      c.ellipse(9, 5, 4 + r() * 2, 2.2 + r(), 0, 0, Math.PI * 2);
+      c.fill();
+      for (let i = 0; i < 7; i++) {
+        const a = r() * Math.PI * 2;
+        const d = 3 + r() * 5;
+        c.fillStyle = r() < 0.5 ? 'rgba(140,14,16,0.8)' : 'rgba(95,6,8,0.85)';
+        c.beginPath();
+        c.ellipse(9 + Math.cos(a) * d, 5 + Math.sin(a) * d * 0.5, 0.6 + r() * 1.3, 0.4 + r() * 0.7, 0, 0, Math.PI * 2);
+        c.fill();
+      }
+    }, ART);
+  }
+  // a pool of blood that spreads under a body
+  makeCanvas(scene, 'fx_pool', 28, 14, (c) => {
+    const g = c.createRadialGradient(14, 7, 0, 14, 7, 13);
+    g.addColorStop(0, 'rgba(78,3,6,0.88)');
+    g.addColorStop(0.6, 'rgba(92,6,8,0.72)');
+    g.addColorStop(0.85, 'rgba(80,4,6,0.35)');
+    g.addColorStop(1, 'rgba(80,4,6,0)');
+    c.fillStyle = g;
+    c.save();
+    c.scale(1, 0.5);
+    c.beginPath();
+    c.arc(14, 14, 13, 0, Math.PI * 2);
+    c.fill();
+    c.restore();
+    c.fillStyle = 'rgba(255,200,200,0.12)'; // wet shine
+    c.beginPath();
+    c.ellipse(11, 5, 4, 1.2, -0.2, 0, Math.PI * 2);
+    c.fill();
+  }, ART);
+  // dark scorch mark left by an explosion
+  makeCanvas(scene, 'fx_scorch', 44, 22, (c) => {
+    const g = c.createRadialGradient(22, 11, 0, 22, 11, 21);
+    g.addColorStop(0, 'rgba(18,14,12,0.85)');
+    g.addColorStop(0.5, 'rgba(30,24,20,0.6)');
+    g.addColorStop(1, 'rgba(40,32,26,0)');
+    c.save();
+    c.scale(1, 0.5);
+    c.fillStyle = g;
+    c.beginPath();
+    c.arc(22, 22, 21, 0, Math.PI * 2);
+    c.fill();
+    c.restore();
+    c.strokeStyle = 'rgba(20,16,14,0.55)';
+    c.lineWidth = 1;
+    for (let i = 0; i < 12; i++) { // blast streaks
+      const a = (i / 12) * Math.PI * 2 + (i % 3) * 0.2;
+      c.beginPath();
+      c.moveTo(22 + Math.cos(a) * 6, 11 + Math.sin(a) * 3);
+      c.lineTo(22 + Math.cos(a) * (14 + (i % 4) * 2), 11 + Math.sin(a) * (7 + (i % 4)));
+      c.stroke();
+    }
+  }, ART);
   // birds, wings up and down
   for (const [k, up] of [['fx_bird0', true], ['fx_bird1', false]]) {
     makeCanvas(scene, k, 14, 8, (c) => {
@@ -126,6 +189,13 @@ export class Effects {
     this.flocks = [];
     this.grade = null;
     this.gradeKey = '';
+    // gore: decals on the ground and bodies that stay a while (all capped and culled off-screen)
+    this.gore = goreEnabled();
+    this.goreTimer = 0;
+    this.splats = [];   // { img, age, life, a }
+    this.scorches = [];
+    this.bodies = [];   // { parts: [images], age, life }
+    this.lastHit = new WeakMap(); // unit -> type of what last hit it (for arrows left in the body)
     const cam = scene.cameras.main;
     if (scene.game.renderer.type === Phaser.WEBGL && cam.postFX) {
       this.grade = cam.postFX.addColorMatrix();
@@ -356,7 +426,7 @@ export class Effects {
   }
 
   // A thrown hunting spear.
-  spear(x0, y0, x1, y1) {
+  spear(x0, y0, x1, y1, animal = false) {
     const s = this.scene;
     const ang = Math.atan2(y1 - y0, x1 - x0);
     const sp = s.add.rectangle(x0, y0, 14, 1.4, 0x8a6a44).setRotation(ang).setDepth(Math.max(y0, y1) + 30);
@@ -374,6 +444,7 @@ export class Effects {
         tip.setPosition(x + Math.cos(ang) * 7, y + Math.sin(ang) * 7);
       },
       onComplete: () => {
+        if (animal) this.animalBlood(x1, y1 + 4, ang);
         s.tweens.add({ targets: [sp, tip], alpha: 0, delay: 900, duration: 500, onComplete: () => { sp.destroy(); tip.destroy(); } });
       },
     });
@@ -411,9 +482,15 @@ export class Effects {
       for (let i = 0; i < 6; i++) this.smoke(u.isoX + (Math.random() - 0.5) * 20, u.isoY - 10, 0x2f2b28);
       const f = s.add.image(u.isoX, u.isoY - 6, 'fx_flash').setBlendMode(Phaser.BlendModes.ADD).setScale(1.8).setDepth(9e5);
       s.tweens.add({ targets: f, alpha: 0, scale: 3, duration: 350, onComplete: () => f.destroy() });
+      if (this.gore) { // the burnt-out wreck stays a while on a scorch mark
+        this.explosion(u.isoX, u.isoY);
+        this.keepBody([img]);
+        return;
+      }
       s.tweens.add({ targets: img, alpha: 0, delay: 6000, duration: 3000, onComplete: () => img.destroy() });
       return;
     }
+    if (this.gore) { this.goreDeath(u, img); return; }
     // knocked back a step, a small hop, then down onto the ground with a puff of dust
     const dir = spr.flipX ? 1 : -1; // fall away from the way they were facing
     const y0 = img.y;
@@ -432,6 +509,199 @@ export class Effects {
       }
     });
     s.tweens.add({ targets: img, alpha: 0, delay: 4000, duration: 2500, onComplete: () => img.destroy() });
+  }
+
+  // ---- Blood & gore (only when the setting is on; everything here is just for show) ----
+  static get CAPS() { return { splats: 220, scorches: 60, bodies: 120 }; }
+
+  // A ground decal (blood splat or scorch mark) that fades after `life` ms. Oldest go first past the cap.
+  decal(list, cap, x, y, key, { scale = 1, alpha = 1, life = 60000, angle = 0, depth = 1.7, grow = 0 } = {}) {
+    const img = this.scene.add.image(x, y, key).setScale(grow ? scale * 0.25 : scale).setAlpha(alpha).setAngle(angle).setDepth(depth);
+    if (grow) this.scene.tweens.add({ targets: img, scale, duration: grow, ease: 'Sine.easeOut' });
+    list.push({ img, age: 0, life, a: alpha });
+    while (list.length > cap) list.shift().img.destroy();
+    return img;
+  }
+
+  splat(x, y, scale = 1, life = 50000) {
+    this.decal(this.splats, Effects.CAPS.splats, x, y, `fx_splat${Math.floor(Math.random() * 3)}`,
+      { scale: (0.45 + Math.random() * 0.35) * scale, alpha: 0.9, life, angle: (Math.random() - 0.5) * 30, grow: 120 });
+  }
+
+  // Droplets flying off a hit, away from whoever struck, landing as little splats.
+  spatter(x, y, ang, n = 5, groundY = y + 10) {
+    const s = this.scene;
+    for (let i = 0; i < n; i++) {
+      const a = ang + (Math.random() - 0.5) * 1.3;
+      const dist = 6 + Math.random() * 14;
+      const ex = x + Math.cos(a) * dist;
+      const ey = groundY + Math.sin(a) * dist * 0.5 + (Math.random() - 0.5) * 3;
+      const d = s.add.circle(x, y, 0.7 + Math.random() * 0.8, Math.random() < 0.5 ? 0x9a0c10 : 0x6e0508).setDepth(groundY + 25);
+      const dur = 220 + Math.random() * 160;
+      s.tweens.add({ targets: d, x: ex, duration: dur, ease: 'Linear' });
+      s.tweens.add({
+        targets: d, y: Math.min(y, ey) - 4 - Math.random() * 6, duration: dur * 0.4, ease: 'Quad.easeOut',
+        onComplete: () => s.tweens.add({
+          targets: d, y: ey, duration: dur * 0.6, ease: 'Quad.easeIn',
+          onComplete: () => { if (Math.random() < 0.45) this.splat(ex, ey, 0.6); d.destroy(); },
+        }),
+      });
+    }
+  }
+
+  // A person (or animal) was hit: blood flies away from the attacker.
+  blood(u, attacker) {
+    if (!this.gore || !u || !u.def || u.def.vehicle) return;
+    if (attacker && attacker.type) this.lastHit.set(u, attacker.type);
+    let ang = Math.random() * Math.PI * 2;
+    if (attacker) {
+      const ax = attacker.isBuilding ? toIso(attacker.cx, attacker.cy).x : attacker.isoX;
+      const ay = attacker.isBuilding ? toIso(attacker.cx, attacker.cy).y : attacker.isoY;
+      if (ax != null && (ax !== u.isoX || ay !== u.isoY)) ang = Math.atan2(u.isoY - ay, u.isoX - ax);
+    }
+    this.spatter(u.isoX, u.isoY - 10, ang, 4 + Math.floor(Math.random() * 3), u.isoY);
+    if (Math.random() < 0.4) this.splat(u.isoX + (Math.random() - 0.5) * 6, u.isoY + 1, 0.7);
+  }
+
+  // Cannon or tank shell landing near units: a fiery burst and a scorch mark that fades over ~90 s.
+  explosion(x, y) {
+    if (!this.gore) return;
+    const s = this.scene;
+    const f = s.add.image(x, y - 4, 'fx_flash').setBlendMode(Phaser.BlendModes.ADD).setScale(1.1).setDepth(9e5);
+    s.tweens.add({ targets: f, alpha: 0, scale: 2.2, duration: 260, onComplete: () => f.destroy() });
+    for (let i = 0; i < 3; i++) {
+      const p = s.add.image(x + (Math.random() - 0.5) * 12, y - 2, 'fx_puff').setTint(0x3a3430).setAlpha(0.55).setScale(0.4).setDepth(y + 30);
+      s.tweens.add({ targets: p, y: p.y - 16 - Math.random() * 10, scale: 1.8, alpha: 0, duration: 900 + Math.random() * 400, onComplete: () => p.destroy() });
+    }
+    this.decal(this.scorches, Effects.CAPS.scorches, x + (Math.random() - 0.5) * 6, y + 2, 'fx_scorch',
+      { scale: 0.45 + Math.random() * 0.2, alpha: 0.85, life: 90000, depth: 1.6, grow: 160 });
+  }
+
+  // Keep a body on the field (with whatever goes with it) for about a minute.
+  keepBody(parts, life = 60000) {
+    this.bodies.push({ parts, age: 0, life, a: parts.map((p) => p.alpha) });
+    while (this.bodies.length > Effects.CAPS.bodies) {
+      const old = this.bodies.shift();
+      this.scene.tweens.add({ targets: old.parts, alpha: 0, duration: 600, onComplete: () => old.parts.forEach((p) => p.destroy()) });
+    }
+  }
+
+  // The gory version of a fall: one of a few different deaths, then the body stays with a pool of blood.
+  goreDeath(u, img) {
+    const s = this.scene;
+    const spr = u.sprite;
+    const dir = spr.flipX ? 1 : -1;
+    const x0 = img.x;
+    const y0 = img.y;
+    const parts = [img];
+    const mounted = !!u.def.mounted;
+    const style = mounted ? 'horse' : ['back', 'spin', 'slump', 'thrown'][Math.floor(Math.random() * 4)];
+    let land = 410;
+    let bx = x0 + dir * 6; // where the body ends up
+    if (style === 'back') {
+      s.tweens.chain({ targets: img, tweens: [
+        { x: x0 + dir * 3, y: y0 - 3, angle: 12 * dir, duration: 110, ease: 'Quad.easeOut' },
+        { x: bx, y: y0 + 2, angle: 88 * dir, duration: 300, ease: 'Quad.easeIn' },
+        { angle: 82 * dir, y: y0 + 1, duration: 120, ease: 'Sine.easeOut' },
+      ] });
+    } else if (style === 'thrown') { // knocked clean off their feet
+      bx = x0 + dir * 14;
+      land = 480;
+      s.tweens.chain({ targets: img, tweens: [
+        { x: x0 + dir * 8, y: y0 - 9, angle: 40 * dir, duration: 200, ease: 'Quad.easeOut' },
+        { x: bx, y: y0 + 2, angle: 96 * dir, duration: 280, ease: 'Quad.easeIn' },
+        { x: bx + dir * 2, angle: 88 * dir, duration: 160, ease: 'Sine.easeOut' },
+      ] });
+    } else if (style === 'spin') { // spun round by the blow, then down the other way
+      bx = x0 - dir * 5;
+      land = 560;
+      s.tweens.chain({ targets: img, tweens: [
+        { scaleX: -img.scaleX, duration: 180, ease: 'Sine.easeInOut' },
+        { x: bx, y: y0 + 2, angle: -90 * dir, duration: 380, ease: 'Quad.easeIn' },
+        { angle: -84 * dir, y: y0 + 1, duration: 120, ease: 'Sine.easeOut' },
+      ] });
+    } else if (style === 'slump') { // sinks to the knees, then forward onto the face
+      bx = x0 - dir * 5;
+      land = 760;
+      const sy = img.scaleY;
+      s.tweens.chain({ targets: img, tweens: [
+        { scaleY: sy * 0.72, y: y0 + 1, duration: 260, ease: 'Quad.easeIn' },
+        { duration: 180 },
+        { x: bx, angle: -86 * dir, scaleY: sy, duration: 320, ease: 'Quad.easeIn' },
+      ] });
+    } else { // horse and rider go down together, heavily, with a roll
+      bx = x0 + dir * 10;
+      land = 700;
+      s.tweens.chain({ targets: img, tweens: [
+        { y: y0 - 6, angle: -14 * dir, duration: 220, ease: 'Quad.easeOut' }, // rears up
+        { x: bx, y: y0 + 3, angle: 78 * dir, duration: 480, ease: 'Bounce.easeOut' },
+      ] });
+    }
+    // a burst of blood as they fall
+    this.spatter(x0, y0 - 10, dir > 0 ? 0 : Math.PI, 6, y0);
+    s.time.delayedCall(land, () => {
+      if (!img.active) return;
+      for (let i = 0; i < (mounted ? 6 : 3); i++) {
+        const d = s.add.image(bx + (Math.random() - 0.5) * 14, y0, 'fx_puff').setTint(0x9c8f78).setAlpha(0.5).setScale(0.35).setDepth(y0 + 1);
+        s.tweens.add({ targets: d, y: d.y - 5, x: d.x + (Math.random() - 0.5) * 10, scale: mounted ? 1.6 : 1.1, alpha: 0, duration: 600, onComplete: () => d.destroy() });
+      }
+      // blood pooling under the body
+      const pool = s.add.image(bx + (Math.random() - 0.5) * 4, y0 + 1, 'fx_pool').setScale(0.1).setAlpha(0.95).setDepth(1.7);
+      s.tweens.add({ targets: pool, scale: (mounted ? 1.0 : 0.6) + Math.random() * 0.2, duration: 5000, ease: 'Sine.easeOut' });
+      parts.push(pool);
+      // arrows left sticking out of the body
+      if (this.lastHit.get(u) === 'archer') {
+        for (let i = 0, n = 1 + Math.floor(Math.random() * 3); i < n; i++) {
+          const ax = bx + (Math.random() - 0.5) * 14;
+          const ay = y0 - 3 - Math.random() * 3;
+          const a = -70 + (Math.random() - 0.5) * 50;
+          const shaft = s.add.rectangle(ax, ay, 8, 1, 0xd8cfb4).setOrigin(0, 0.5).setAngle(a).setDepth(img.depth + 0.5);
+          const fl = s.add.rectangle(ax + Math.cos(a * Math.PI / 180) * 7, ay + Math.sin(a * Math.PI / 180) * 7, 2.5, 1.6, 0xe9e4d6)
+            .setAngle(a).setDepth(img.depth + 0.6);
+          parts.push(shaft, fl);
+        }
+      }
+    });
+    this.keepBody(parts);
+  }
+
+  // A hunted animal struck by a spear (or a hunter's blow).
+  animalBlood(x, y, ang) {
+    if (!this.gore) return;
+    this.spatter(x, y - 6, ang, 5, y);
+    this.decal(this.splats, Effects.CAPS.splats, x, y + 1, 'fx_pool', { scale: 0.5, alpha: 0.9, life: 45000, grow: 3000 });
+  }
+
+  // Age, fade and cull the gore decals and bodies (a few times a second).
+  updateGore(delta, view) {
+    this.goreTimer += delta;
+    if (this.goreTimer < 200) return;
+    const dt = this.goreTimer;
+    this.goreTimer = 0;
+    this.gore = goreEnabled();
+    if (!this.splats.length && !this.scorches.length && !this.bodies.length) return;
+    const pad = 80;
+    const inView = (o) => o.x > view.x - pad && o.x < view.right + pad && o.y > view.y - pad && o.y < view.bottom + pad;
+    const step = (list, fade) => {
+      let keep = 0;
+      for (const d of list) {
+        d.age += dt;
+        const parts = d.parts || [d.img];
+        if (d.age >= d.life) { parts.forEach((p) => p.destroy()); continue; }
+        const left = d.life - d.age;
+        const k = left < fade ? left / fade : 1;
+        const vis = inView(parts[0]);
+        parts.forEach((p, i) => {
+          p.setVisible(vis);
+          if (k < 1) p.setAlpha((d.a != null && Array.isArray(d.a) ? (d.a[i] ?? 0.95) : d.a) * k);
+        });
+        list[keep++] = d;
+      }
+      list.length = keep;
+    };
+    step(this.splats, 8000);
+    step(this.scorches, 20000);
+    step(this.bodies, 3000);
   }
 
   // Floating text, e.g. "+10" over a worker dropping off wood.
@@ -487,6 +757,9 @@ export class Effects {
   }
 
   destroy() {
+    for (const d of [...this.splats, ...this.scorches]) d.img.destroy();
+    for (const b of this.bodies) b.parts.forEach((p) => p.destroy());
+    this.splats = []; this.scorches = []; this.bodies = [];
     for (const st of this.burning.values()) for (const f of st.flames) f.destroy();
     this.burning.clear();
     for (const f of this.flocks) for (const b of f.birds) { b.shadow.destroy(); b.destroy(); }

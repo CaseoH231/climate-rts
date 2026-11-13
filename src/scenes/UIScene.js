@@ -836,7 +836,7 @@ export default class UIScene extends Phaser.Scene {
       rows.push(['Back', () => this.openMenu('main')]);
     }
     const helpH = view === 'help' ? 330 : 0;
-    const settingsH = view === 'settings' ? 250 : 0;
+    const settingsH = view === 'settings' ? 298 : 0;
     const PH = 80 + rows.length * 50 + helpH + settingsH + (view === 'help' ? 60 : 0);
     const px = (sw - PW) / 2;
     const py = (sh - PH) / 2;
