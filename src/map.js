@@ -95,6 +95,8 @@ export class GameMap {
     this.elev = new Float32Array(w * h);     // land height — low land floods first when the sea rises
     this.seaLevel = MAP_TYPES[this.type].sea;
     this.onTileChanged = null;               // called when a tile changes (used up, burnt, flooded…)
+    this.region = new Int32Array(w * h);     // which connected patch of land each tile is in (0 = closed)
+    this.regionsDirty = true;                // recomputed lazily after any change to the map
     this.generate();
   }
 
@@ -286,6 +288,65 @@ export class GameMap {
 
   set(x, y, t) {
     this.tiles[y * this.w + x] = t;
+    this.regionsDirty = true;
+  }
+
+  // ---------- Connected areas ----------
+  // Every open tile gets the id of the patch of land it's in, so the pathfinder can say "can't get there"
+  // at once instead of searching the whole map (a failed search used to take ~30 ms on a big map).
+  // Walls and gates count as open here (they can be smashed or opened), so two tiles in different
+  // areas can never reach each other. Built only from the map, in a fixed order: deterministic.
+  regionOpen(i) {
+    if (!TERRAIN_INFO[this.tiles[i]].walkable && !this.bridge[i]) return false;
+    if (!this.blocked[i]) return true;
+    const b = this.buildings[i];
+    return !!(b && b.def.wall);
+  }
+
+  computeRegions() {
+    const W = this.w;
+    const N = W * this.h;
+    const reg = this.region;
+    reg.fill(0);
+    const open = new Uint8Array(N);
+    for (let i = 0; i < N; i++) open[i] = this.regionOpen(i) ? 1 : 0;
+    const queue = new Int32Array(N);
+    let id = 0;
+    for (let s = 0; s < N; s++) {
+      if (!open[s] || reg[s]) continue;
+      id++;
+      let head = 0;
+      let tail = 0;
+      queue[tail++] = s;
+      reg[s] = id;
+      while (head < tail) {
+        const c = queue[head++];
+        const cx = c % W;
+        const cy = (c / W) | 0;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            if (!dx && !dy) continue;
+            const nx = cx + dx;
+            const ny = cy + dy;
+            if (nx < 0 || ny < 0 || nx >= W || ny >= this.h) continue;
+            const n = ny * W + nx;
+            if (!open[n] || reg[n]) continue;
+            // same corner rule as the pathfinder: no squeezing between two touching corners
+            if (dx && dy && !open[cy * W + nx] && !open[ny * W + cx]) continue;
+            reg[n] = id;
+            queue[tail++] = n;
+          }
+        }
+      }
+    }
+    this.regionsDirty = false;
+  }
+
+  // Area id of a tile (0 = not open ground).
+  regionOf(x, y) {
+    if (!this.inBounds(x, y)) return 0;
+    if (this.regionsDirty) this.computeRegions();
+    return this.region[y * this.w + x];
   }
 
   // `team` lets a side walk through its own gates; without it, every gate counts as closed.
@@ -345,6 +406,7 @@ export class GameMap {
     if (!this.inBounds(x, y)) return;
     const i = y * this.w + x;
     this.tiles[i] = t;
+    this.regionsDirty = true;
     const res = TERRAIN_RESOURCE[t];
     this.amount[i] = res ? TERRAIN_AMOUNT[t] || RESOURCE_AMOUNT[res] : 0;
     if (notify && this.onTileChanged) this.onTileChanged(x, y);
@@ -360,6 +422,7 @@ export class GameMap {
         if (this.tiles[i] !== TERRAIN.WATER && this.elev[i] < this.seaLevel) {
           this.tiles[i] = TERRAIN.WATER;
           this.amount[i] = 0;
+          this.regionsDirty = true;
           flooded.push({ x, y });
         }
       }
@@ -420,10 +483,12 @@ export class GameMap {
 
   // A bridge opens up (when finished) or closes (when destroyed).
   setBridge(b, on) {
+    this.regionsDirty = true;
     for (let j = b.ty; j < b.ty + b.h; j++) for (let i = b.tx; i < b.tx + b.w; i++) if (this.inBounds(i, j)) this.bridge[j * this.w + i] = on ? 1 : 0;
   }
 
   placeBuilding(b) {
+    this.regionsDirty = true;
     if (b.def.bridge && b.complete) this.setBridge(b, true);
     for (let j = b.ty; j < b.ty + b.h; j++) {
       for (let i = b.tx; i < b.tx + b.w; i++) {
@@ -436,6 +501,7 @@ export class GameMap {
   }
 
   removeBuilding(b) {
+    this.regionsDirty = true;
     if (b.def.bridge) this.setBridge(b, false);
     for (let j = b.ty; j < b.ty + b.h; j++) {
       for (let i = b.tx; i < b.tx + b.w; i++) {

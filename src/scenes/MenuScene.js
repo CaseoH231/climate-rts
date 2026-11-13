@@ -256,10 +256,10 @@ export default class MenuScene extends Phaser.Scene {
         });
       }
     } else if (view === 'settings') {
-      this.addUI(panel(this, (w - PW) / 2, top, PW, 428, D));
+      this.addUI(panel(this, (w - PW) / 2, top, PW, 476, D));
       this.addUI(this.add.text(w / 2, top + 22, 'Settings', { fontFamily: FONT_SERIF, fontSize: '22px', color: UI_COL.gold, stroke: '#000', strokeThickness: 4 }).setOrigin(0.5, 0).setDepth(D + 1));
       for (const o of volumeRows(this, (w - PW) / 2 + 30, top + 66, PW - 60, D + 1)) this.addUI(o);
-      btn(top + 366, 'Back', () => this.show('main'), { w: 200 });
+      btn(top + 414, 'Back', () => this.show('main'), { w: 200 });
     } else if (view === 'new') {
       // An AoE2-style game set-up, on two tabs: who's playing, then the map and the rules.
       const o = this.options;
@@ -334,15 +334,17 @@ export default class MenuScene extends Phaser.Scene {
           }
         });
         y += 18 + 4 * 42 + 2;
-        // set every computer player's level at once
-        T(x0 + 150, y + 9, 'All computers:', { color: UI_COL.dim, fontSize: '13px' }, 0);
-        [['easy', 'Easy'], ['normal', 'Normal'], ['hard', 'Hard']].forEach(([lvl, name], i) => {
-          this.addUI(button(this, x0 + 260 + i * 92, y + 2, 86, 30, name, () => {
-            o.difficulty = lvl;
-            o.seats = o.seats.map((x) => (x.kind === 'ai' ? { ...x, ai: lvl } : x));
-            this.show('new');
-          }, { depth: D + 1, size: '13px' })).setSelected(o.seats.some((x) => x.kind === 'ai') && o.seats.every((x) => x.kind !== 'ai' || x.ai === lvl));
-        });
+        // set every computer player's level at once (not shown when there are no computers)
+        if (o.seats.some((x) => x.kind === 'ai')) {
+          T(x0 + 150, y + 9, 'All computers:', { color: UI_COL.dim, fontSize: '13px' }, 0);
+          [['easy', 'Easy'], ['normal', 'Normal'], ['hard', 'Hard']].forEach(([lvl, name], i) => {
+            this.addUI(button(this, x0 + 260 + i * 92, y + 2, 86, 30, name, () => {
+              o.difficulty = lvl;
+              o.seats = o.seats.map((x) => (x.kind === 'ai' ? { ...x, ai: lvl } : x));
+              this.show('new');
+            }, { depth: D + 1, size: '13px' })).setSelected(o.seats.some((x) => x.kind === 'ai') && o.seats.every((x) => x.kind !== 'ai' || x.ai === lvl));
+          });
+        }
         y += 44;
         T(w / 2, y, problem || describeSetup(seatsSetup(o.seats)), { fontFamily: FONT_SERIF, fontSize: '15px', color: problem ? '#e8b080' : UI_COL.gold });
         T(w / 2, y + 22, 'Click a colour to play as it. Same team number = allies. "–" = on their own.', { color: UI_COL.dim, fontSize: '12px', fontStyle: 'italic' });

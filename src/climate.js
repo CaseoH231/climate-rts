@@ -282,6 +282,7 @@ export class Climate {
     for (const t of flooded) w.redrawTile(t.x, t.y); // each redraw also repaints neighbours
     for (const u of w.units) u.rescue();
     w.toast(`🌊 Sea levels rose! ${flooded.length} tiles of coastline are now underwater`, '#9fc5e8');
+    if (w.warnCutOff) w.warnCutOff();
     if (w.sfx) w.sfx('wave');
     w.events.emit('seaRise', flooded.length);
   }

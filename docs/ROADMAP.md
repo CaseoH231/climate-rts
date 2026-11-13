@@ -8,10 +8,11 @@ This is the to-do list for Age of Emissions. **If you are a Claude session asked
 - Phases 10–15: polish, control groups, walls, unit counters, Market, four map types, disasters, new units and buildings, wildlife.
 - Phase 16: the Modern Age (5 eras: Coal → Industrial → Modern → Transition → Green).
 - Phases 17–19¾: deterministic lockstep simulation, replays, online play on a Cloudflare Durable Object (up to 4 sides, teams, spectating), AoE2-style game set-up and game settings, bridges.
+- Phase 22 part 1 (v29): playtest fixes — no freezes in big games, bridges for stranded workers, UI size / small windows.
 - Phase 21 (v28): optional Blood & gore setting — blood, lasting bodies, varied deaths, scorch marks. Visual only.
 - Phase 20 and its halves/quarters: better animations, tributes, Freeplay practice mode, animation overhaul (workers line up with what they work), visual overhaul, harvest stages, **every building and unit of all 5 eras rendered in 3D with Blender**, two performance passes.
 
-Current version: `GAME_VERSION` in `src/config.js` (v28 at the time of writing).
+Current version: `GAME_VERSION` in `src/config.js` (v29 at the time of writing).
 
 ## Next up
 
@@ -32,7 +33,7 @@ An optional **"Blood & gore"** setting, **off by default**.
 - Mention the new setting in `src/help.js` if there is a settings/help section that lists options.
 - Check performance in a late game (see HANDOFF.md "Performance") — decals and bodies must be culled off-screen and capped.
 
-### [ ] Phase 22 – Playtesting feedback
+### [ ] Phase 22 – Playtesting feedback (part 1 done in v29: items 1, 2, 6 and some of 7 — items 3, 4, 5 wait for the user's answer)
 
 From a Claude playtest of **v28 on the live site (13 Nov 2026)**. Games played:
 - a 1 v 1 against a Normal computer, started and played through the menus;
@@ -43,7 +44,8 @@ From a Claude playtest of **v28 on the live site (13 Nov 2026)**. Games played:
 
 Screen sizes: 1366×768, 1024×600 and a ~750×630 window. There were no JavaScript errors in any game. If the user has notes of their own, add them here before starting. The list is in priority order.
 
-**1. The game freezes in big games because units keep retrying paths they can't walk (biggest problem)**
+**1. ✅ (v29) The game freezes in big games because units keep retrying paths they can't walk (biggest problem)**
+- **Done:** `map.regionOf` labels connected areas (walls/gates count as open, recomputed lazily when the map changes); `findPath` returns null at once across areas. Results are identical to before (checked on all 6 map types), so replays still match. The "remember unreachable targets" part wasn't needed.
 - **What happened:** in the 4-side game at ~21 min (~290 units, speed ×1) the game averaged ~44 FPS but froze for 0.1–0.25 s about once a second. The 99th-percentile frame took 196 ms; the worst took 227 ms.
 - **Cause, soldiers:** a soldier sees an enemy it can't walk to (here, six Yellow attackers at tiles 5,37 and 7,40 looking at Blue across water). The loop goes:
   - `updateAttack` (`src/unit.js`, the `walkToAny` / `wallInTheWay` block) runs up to 4 `findPath` calls plus 1 more in `wallInTheWay`, and all of them fail;
@@ -58,7 +60,8 @@ Screen sizes: 1366×768, 1024×600 and a ~750×630 window. There were no JavaScr
   - Region ids are sim state, so build them only from the map, in a fixed order. Don't use `Math.random`.
 - **Check it:** run the AI-vs-AI test and a 4-side late game (HANDOFF.md "Performance").
 
-**2. Sea-level rise can cut a base off, and nobody recovers**
+**2. ✅ (v29) Sea-level rise can cut a base off, and nobody recovers**
+- **Done:** after each flood the player is told how many workers are cut off (`warnCutOff`); computer players check every 15 s and lay a bridge (≤ 24 sections, over water/rock/forest) to their stranded workers (`bridgeToStranded` / `planBridge` in `ai.js`). Also fixed: workers started a bridge from the far bank when it had land at both ends. Flooding itself is unchanged.
 - In the Normal 4-way game, sea stage 3 (by ~16 min) flooded 811 tiles. That cut Blue's corner off from the rest of the map, apart from a route through solid forest. Blue's workers and the camps/houses it had built in the south were stranded.
 - The computer never builds a bridge or chops a way through, so it kept failing and made problem 1 worse.
 - Ideas:
@@ -95,7 +98,8 @@ Screen sizes: 1366×768, 1024×600 and a ~750×630 window. There were no JavaScr
   - it rings the town bell when raided.
 - 1 v 1 Normal: the computer had 15 archers + 3 soldiers at 6:45, and its attack force at ~13 min was 18 units. That's probably a lot for a new player, so look at the difficulty curve (`DIFFICULTY` in `src/ai.js`).
 
-**6. Small windows**
+**6. ✅ (v29) Small windows**
+- **Done:** a UI size setting (`uiScale` in `ui.js`, applied in `main.js` by drawing at window ÷ k and stretching the canvas). "Auto" shrinks to fit windows under 1280×720 (1024×600 now draws at 1280×750), so the menu, bottom panel and help text fit. The age name is placed between the population and the speed and shrinks if needed (`placeEra`).
 - **Top bar at 1024 px wide:** the population text runs into the age name ("0 / 10Coal Age"). `popText` is fixed at x≈560 and the age name is centred at `w/2 + 120` (`src/scenes/UIScene.js`). Longer names like "Transition Age (paused)" will collide on wider screens too. Fix: move or shrink the age label on narrow screens.
 - **Bottom panel at 1024×600:** the "Your people" help text in the panel only just fits; its last line sits on the bottom edge of the screen.
 - **Main menu in a ~750×630 window:** the button panel runs off the bottom (Settings is cut off). Scale the menu to fit the window height.
@@ -104,9 +108,9 @@ Screen sizes: 1366×768, 1024×600 and a ~750×630 window. There were no JavaScr
 **7. Smaller things**
 - **How to Play:** it's one long scrolling wall of 37 tips. Split it into short pages (Basics, Economy, Army, Climate, Online), or add a first-game tutorial whose tips pop up as you play.
 - **Sides panel:** it shows every enemy's exact army size (⚔ count) even under fog of war, which is free scouting. Maybe show it only when the map is revealed or you've spotted their army.
-- **Mouse-wheel zoom:** it zooms on the screen centre, not on the mouse pointer (the `wheel` handler in `GameScene.js` only calls `setZoom`).
+- ✅ (v29) **Mouse-wheel zoom:** it zooms on the screen centre, not on the mouse pointer (the `wheel` handler in `GameScene.js` only calls `setZoom`).
 - **Colour at +4 °C:** the climate colour grading turns the whole map grey-brown. Check that units and team colours still stand out from the ground.
-- **Freeplay set-up screen:** it still shows "All computers: Easy / Normal / Hard" although there are no computers.
+- ✅ (v29) **Freeplay set-up screen:** it still shows "All computers: Easy / Normal / Hard" although there are no computers.
 
 **What worked well (keep it):**
 - no console errors in ~1 hour across 5 games;

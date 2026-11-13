@@ -257,9 +257,24 @@ export default class UIScene extends Phaser.Scene {
   }
 
   // ---------- Layout ----------
+  // The age name sits between the population count and the game speed, shrinking to fit if it must.
+  placeEra() {
+    const w = this.scale.width;
+    const left = this.popText.x + Math.max(60, this.popText.width) + 16;
+    const right = w - 200;
+    const room = Math.max(40, right - left);
+    this.eraText.setScale(1);
+    if (this.eraText.width > room) this.eraText.setScale(Math.max(0.6, room / this.eraText.width));
+    const half = this.eraText.displayWidth / 2;
+    this.eraText.setPosition(Math.max(left + half, Math.min(w / 2 + 120, right - half)), 6);
+  }
+
   layout() {
     const w = this.scale.width;
     const h = this.scale.height;
+    if (this.menu && this.lastLayoutW && (this.lastLayoutW !== w || this.lastLayoutH !== h)) this.openMenu(this.menu.view); // re-centre an open menu
+    this.lastLayoutW = w;
+    this.lastLayoutH = h;
     this.haze.setSize(w, h);
     this.gloom.setSize(w, h);
     this.vignette.setDisplaySize(w, h);
@@ -270,7 +285,7 @@ export default class UIScene extends Phaser.Scene {
     this.topTrim.fillStyle(UI_COL.bronze, 1).fillRect(0, TOP_H - 2, w, 1);
     this.topBoxes.clear();
     for (let i = 0; i < 6; i++) inset(this.topBoxes, 8 + i * 104, 4, 96, TOP_H - 10);
-    this.eraText.setPosition(w / 2 + 120, 6);
+    this.placeEra();
     this.clockText.setPosition(w - 98, 8);
     this.speedText.setPosition(w - 150, 8);
     this.menuBtn.setPosition(w - 86, 3);
@@ -836,7 +851,7 @@ export default class UIScene extends Phaser.Scene {
       rows.push(['Back', () => this.openMenu('main')]);
     }
     const helpH = view === 'help' ? 330 : 0;
-    const settingsH = view === 'settings' ? 298 : 0;
+    const settingsH = view === 'settings' ? 346 : 0;
     const PH = 80 + rows.length * 50 + helpH + settingsH + (view === 'help' ? 60 : 0);
     const px = (sw - PW) / 2;
     const py = (sh - PH) / 2;
@@ -1257,7 +1272,7 @@ export default class UIScene extends Phaser.Scene {
     if (this.popText.text !== pop) this.popText.setText(pop);
     const peace = w.atPeace && w.atPeace() ? `   ·   🕊 Peace ${fmtTime(w.peaceUntil - w.gameTime)}` : '';
     const era = ERAS[w.eraOf(this.world.me)].name + peace + (w.paused && !w.net ? '   (paused)' : '');
-    if (this.eraText.text !== era) this.eraText.setText(era);
+    if (this.eraText.text !== era) { this.eraText.setText(era); this.placeEra(); }
     const clock = fmtTime(w.gameTime);
     if (this.clockText.text !== clock) this.clockText.setText(clock);
     const sp = w.net ? (w.net.ping != null ? `${w.net.ping} ms` : '…') : `×${w.speed}`;

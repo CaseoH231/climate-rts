@@ -89,9 +89,14 @@ The game must stay smooth in late games with 4 sides. Things already in place โ€
 - `cullObjects` sets `cameraFilter` every 3 frames for off-screen units/buildings.
 - Fog redraws only the changed patch (`uploadPatch`); the ground uploads only changed patches (`repaintGround` / `uploadGround`).
 - Smoke is culled to camera + fog and capped at 260 puffs.
+- `findPath` checks `map.regionOf` first, so a search between two unconnected areas costs nothing (a failed A* used to cost ~30 ms). Keep every map change going through `map.js` methods (or set `map.regionsDirty = true`).
 - `aheadBlocked` only re-plans when the blocker is more than 1.5 tiles ahead (otherwise units froze re-planning every tick).
 
 Anything new that draws many objects (decals, corpses, particles) needs a cap and off-screen culling.
+
+## Screen size
+
+The game draws at (window size รท k) and the canvas is stretched to the window (`uiScale` in `src/ui.js`, patched into Phaser in `src/main.js`). Lay things out from `this.scale.width/height` as before; pointer coordinates are already in game pixels. HTML inputs (`htmlInput`) scale themselves.
 
 ## Releasing a change
 

@@ -135,6 +135,13 @@ export class EnemyAI {
       this.buildStorageIfNeeded(workers, mine);
     }
 
+    // 3b. Workers cut off from the town (the sea rose)? Build a bridge to them.
+    this.bridgeTimer = (this.bridgeTimer || 0) + 1;
+    if (this.bridgeTimer >= 15) {
+      this.bridgeTimer = 0;
+      this.bridgeToStranded(workers, mine);
+    }
+
     // 4. Put idle workers to work, and every so often move a worker to whatever is most needed.
     for (const u of workers) if (u.isIdle) this.assignWorker(u, workers);
     this.rebalanceTimer -= 1;
@@ -308,6 +315,63 @@ export class EnemyAI {
       this.world.rng.shuffle(cands);
       for (const c of cands) {
         if (w.map.canPlace(c.x - gap, c.y - gap, def.w + gap * 2, def.h + gap * 2) && !w.unitsInRect(c.x, c.y, def.w, def.h)) return c;
+      }
+    }
+    return null;
+  }
+
+  // If some of our workers are on land the town can't reach, lay a bridge (over water, rock or forest)
+  // along the shortest crossing between the two. Deterministic: a breadth-first search in a fixed order.
+  bridgeToStranded(workers, mine) {
+    const w = this.world;
+    const m = w.map;
+    if (mine.some((b) => b.def.bridge && !b.complete)) return; // one at a time
+    const stranded = w.strandedWorkers(this.team);
+    if (!stranded.length) return;
+    const home = w.townRegion(this.team);
+    const targets = new Set(stranded.map((u) => m.regionOf(u.tile.x, u.tile.y)));
+    const tiles = this.planBridge(home, targets);
+    if (!tiles || !w.canAfford({ wood: 15 * tiles.length }, this.team)) return;
+    const homeSide = workers.filter((u) => m.regionOf(u.tile.x, u.tile.y) === home && !(u.order && u.order.kind === 'build'));
+    const crew = (homeSide.length ? homeSide : stranded).slice(0, 3);
+    if (!crew.length) return;
+    w.execWall({ type: 'bridge', tiles }, crew, this.team);
+  }
+
+  // Shortest line of bridge sections from the home area to any target area (null if none, or > 24 long).
+  planBridge(home, targets) {
+    const m = this.world.map;
+    const W = m.w;
+    const N = W * m.h;
+    const dist = new Int32Array(N).fill(-1);
+    const prev = new Int32Array(N).fill(-1);
+    // breadth-first from every tile of the home area; each step out over water/rock/forest is one section
+    const deque = new Int32Array(N * 2);
+    let head = N;
+    let tail = N;
+    if (!home || m.regionsDirty) return null;
+    for (let i = 0; i < N; i++) if (m.region[i] === home) { dist[i] = 0; deque[tail++] = i; }
+    while (head < tail) {
+      const c = deque[head++];
+      const cx = c % W;
+      const cy = (c / W) | 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = cx + dx;
+        const ny = cy + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= m.h) continue;
+        const n = ny * W + nx;
+        if (dist[n] >= 0) continue;
+        if (targets.has(m.region[n])) {
+          if (dist[c] === 0) return null; // already joined (shouldn't happen)
+          const out = [];
+          for (let k = c; dist[k] > 0; k = prev[k]) out.push([k % W, (k / W) | 0]);
+          return out.length <= 24 ? out.reverse() : null;
+        }
+        if (!m.canPlaceBridge(nx, ny)) continue;
+        if (dist[c] + 1 > 24) continue;
+        dist[n] = dist[c] + 1;
+        prev[n] = c;
+        deque[tail++] = n;
       }
     }
     return null;

@@ -119,6 +119,7 @@ export default class GameScene extends Phaser.Scene {
     if (save) {
       this.map.tiles.set(save.map.tiles);
       this.map.amount.set(save.map.amount);
+      this.map.regionsDirty = true;
       this.map.elev.set(save.map.elev);
       this.map.seaLevel = save.map.seaLevel;
     }
@@ -295,7 +296,16 @@ export default class GameScene extends Phaser.Scene {
     this.input.on('gameover', () => { this.pointerInGame = true; });
 
     this.input.on('wheel', (pointer, objs, dx, dy) => {
-      cam.setZoom(Phaser.Math.Clamp(cam.zoom * (dy > 0 ? 0.9 : 1.1), 0.5, 2));
+      // zoom towards the mouse pointer: the spot under it stays put
+      const z0 = cam.zoom;
+      const z1 = Phaser.Math.Clamp(z0 * (dy > 0 ? 0.9 : 1.1), 0.5, 2);
+      if (z1 === z0) return;
+      const hw = cam.width / 2;
+      const hh = cam.height / 2;
+      const wx = cam.scrollX + hw + (pointer.x - cam.x - hw) / z0;
+      const wy = cam.scrollY + hh + (pointer.y - cam.y - hh) / z0;
+      cam.setZoom(z1);
+      cam.setScroll(wx - hw - (pointer.x - cam.x - hw) / z1, wy - hh - (pointer.y - cam.y - hh) / z1);
     });
 
     this.input.on('pointerdown', (p) => {
@@ -468,6 +478,40 @@ export default class GameScene extends Phaser.Scene {
 
   isAlly(a, b) {
     return a === b || this.alliance[a] === this.alliance[b];
+  }
+
+  // The patch of land a side's Town Centre stands on (0 if it has none).
+  townRegion(team) {
+    const tc = this.buildings.find((b) => b.team === team && b.type === 'town_centre' && !b.dead);
+    if (!tc) return 0;
+    const seen = {};
+    let best = 0;
+    for (const p of this.map.perimeter(tc.tx, tc.ty, tc.w, tc.h)) {
+      const r = this.map.regionOf(p.x, p.y);
+      if (!r) continue;
+      seen[r] = (seen[r] || 0) + 1;
+      if (!best || seen[r] > seen[best] || (seen[r] === seen[best] && r < best)) best = r;
+    }
+    return best;
+  }
+
+  // A side's workers that can't walk home (the sea or a fire cut their land off).
+  strandedWorkers(team) {
+    const home = this.townRegion(team);
+    if (!home) return [];
+    return this.units.filter((u) => {
+      if (u.team !== team || u.type !== 'worker' || u.dead) return false;
+      const t = u.tile;
+      const r = this.map.regionOf(t.x, t.y);
+      return r && r !== home;
+    });
+  }
+
+  // After a flood: tell the player if any of their workers are now cut off.
+  warnCutOff() {
+    if (this.spectator || this.replay || !this.teams[this.me]) return;
+    const n = this.strandedWorkers(this.me).length;
+    if (n) this.toast(`🌉 ${n} worker${n > 1 ? 's are' : ' is'} cut off by the sea — build a Bridge (Military & science page)`, '#9fc5e8');
   }
 
   // The sides still in the game.
@@ -2245,8 +2289,12 @@ export default class GameScene extends Phaser.Scene {
     // Bridges are built from the bank outwards: start on a section that touches walkable ground.
     if (first && def.bridge) {
       const placedHere = this.buildings.filter((b) => b.def.bridge && !b.complete && tiles.some(([x, y]) => b.tx === x && b.ty === y));
-      const touchesLand = (b) => [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => this.map.isWalkable(b.tx + dx, b.ty + dy, team));
       const ws = units.filter((u) => u.type === 'worker');
+      // start from a bank the workers can actually walk to (a bridge may have land at both ends)
+      const theirLand = new Set(ws.map((u) => this.map.regionOf(u.tile.x, u.tile.y)).filter((r) => r));
+      const touches = (b, mine) => [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => this.map.isWalkable(b.tx + dx, b.ty + dy, team)
+        && (!mine || theirLand.has(this.map.regionOf(b.tx + dx, b.ty + dy))));
+      const touchesLand = placedHere.some((b) => touches(b, true)) ? (b) => touches(b, true) : (b) => touches(b, false);
       const cx = ws.reduce((a, u) => a + u.x, 0) / Math.max(1, ws.length);
       const cy = ws.reduce((a, u) => a + u.y, 0) / Math.max(1, ws.length);
       const starts = placedHere.filter(touchesLand).sort((a, b) => Math.hypot(a.cx - cx, a.cy - cy) - Math.hypot(b.cx - cx, b.cy - cy));

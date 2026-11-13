@@ -93,6 +93,12 @@ export function findPath(map, sx, sy, gx, gy, team, ignoreWalls = false) {
     gx = n.x; gy = n.y;
   }
   if (sx === gx && sy === gy) return [];
+  // Different patches of land (water, cliffs or forest in between)? Then there's no path: say so at once.
+  if (map.regionOf) {
+    const rs = map.regionOf(sx, sy);
+    const rg = map.regionOf(gx, gy);
+    if (rs && rg && rs !== rg) return null;
+  }
 
   const W = map.w;
   const N = map.w * map.h;

@@ -90,6 +90,22 @@ function setGore(on) {
   try { localStorage.setItem(GORE_KEY, on ? 'on' : 'off'); } catch (e) { /* ignore */ }
 }
 
+// UI size. "Auto" shrinks everything a little on windows smaller than 1280×720 (so menus and panels
+// fit); Smaller / Larger scale it further. The game draws at width/k × height/k and is stretched to fit.
+const UI_SIZE_KEY = 'age-of-emissions-uisize';
+export const UI_SIZES = { small: { name: 'Smaller', k: 0.85 }, auto: { name: 'Auto', k: 1 }, large: { name: 'Larger', k: 1.18 } };
+export function uiSizeSetting() {
+  try { const v = localStorage.getItem(UI_SIZE_KEY); return UI_SIZES[v] ? v : 'auto'; } catch (e) { return 'auto'; }
+}
+export function uiScale(w = window.innerWidth, h = window.innerHeight) {
+  const auto = Math.max(0.7, Math.min(1, w / 1280, h / 720));
+  return Math.max(0.6, Math.min(1.5, auto * UI_SIZES[uiSizeSetting()].k));
+}
+function setUiSize(v) {
+  try { localStorage.setItem(UI_SIZE_KEY, v); } catch (e) { /* ignore */ }
+  if (window.game) { window.game.scale.getParentBounds(); window.game.scale.refresh(); }
+}
+
 export function volumeRows(scene, x, y, width, depth) {
   const items = [];
   const rows = [['master', 'Master volume'], ['music', 'Music'], ['sfx', 'Sound effects'], ['ambience', 'Ambience']];
@@ -122,6 +138,15 @@ export function volumeRows(scene, x, y, width, depth) {
   }, { depth });
   goreBtn.setLabel(goreEnabled() ? 'On' : 'Off');
   items.push(goreTxt, goreBtn);
+  const uy = gy + 48;
+  const sizeTxt = scene.add.text(x, uy + 10, 'UI size', { fontFamily: FONT_SERIF, fontSize: '17px', color: UI_COL.text, stroke: '#000', strokeThickness: 3 }).setDepth(depth);
+  const keys = Object.keys(UI_SIZES);
+  const sizeBtn = button(scene, x + width - 100, uy, 96, 40, UI_SIZES[uiSizeSetting()].name, () => {
+    const next = keys[(keys.indexOf(uiSizeSetting()) + 1) % keys.length];
+    setUiSize(next); // (the screen re-lays itself out, which rebuilds this panel)
+    if (sizeBtn.active) sizeBtn.setLabel(UI_SIZES[next].name);
+  }, { depth });
+  items.push(sizeTxt, sizeBtn);
   return items;
 }
 
@@ -194,8 +219,11 @@ export function htmlInput(scene, x, y, w, h, opts = {}) {
   document.body.appendChild(el);
   const place = (px, py) => {
     const r = scene.game.canvas.getBoundingClientRect();
-    el.style.left = `${r.left + px}px`;
-    el.style.top = `${r.top + py}px`;
+    const k = r.width / scene.scale.width || 1; // the canvas may be stretched (UI size)
+    el.style.left = `${r.left + px * k}px`;
+    el.style.top = `${r.top + py * k}px`;
+    el.style.transformOrigin = '0 0';
+    el.style.transform = k === 1 ? '' : `scale(${k})`;
   };
   place(x, y);
   return {
