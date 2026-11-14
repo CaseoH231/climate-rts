@@ -8,13 +8,14 @@ This is the to-do list for Age of Emissions. **If you are a Claude session asked
 - Phases 10–15: polish, control groups, walls, unit counters, Market, four map types, disasters, new units and buildings, wildlife.
 - Phase 16: the Modern Age (5 eras: Coal → Industrial → Modern → Transition → Green).
 - Phases 17–19¾: deterministic lockstep simulation, replays, online play on a Cloudflare Durable Object (up to 4 sides, teams, spectating), AoE2-style game set-up and game settings, bridges.
+- Phase 24 (v32): tutorial (`src/tutorial.js`) — one lesson per age plus a Full tutorial; lesson panel, button highlight, pointer arrow, raids, ready-made towns. `tests/test_tutorial.py` plays it all the way through.
 - Phase 23 (v31): civilisations — Ironvale, Greenhollow, Saltmarsh, Sunreach (`src/civs.js`), each with two bonuses and a unique Barracks unit (Grenadier, Ranger, Marine, Sapper; rendered with `tools/render_units.py` and packed with `pack_atlases.py --append civunits`).
 - Phase 22 (v29–v30): playtest fixes — no freezes in big games, bridges for stranded workers, UI size / small windows; greener computer players, Town Centres can be rebuilt, computers recover from raids.
 - Phase 22 part 1 (v29): playtest fixes — no freezes in big games, bridges for stranded workers, UI size / small windows.
 - Phase 21 (v28): optional Blood & gore setting — blood, lasting bodies, varied deaths, scorch marks. Visual only.
 - Phase 20 and its halves/quarters: better animations, tributes, Freeplay practice mode, animation overhaul (workers line up with what they work), visual overhaul, harvest stages, **every building and unit of all 5 eras rendered in 3D with Blender**, two performance passes.
 
-Current version: `GAME_VERSION` in `src/config.js` (v31 at the time of writing).
+Current version: `GAME_VERSION` in `src/config.js` (v32 at the time of writing).
 
 ## Next up
 

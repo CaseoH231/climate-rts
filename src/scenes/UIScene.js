@@ -1,5 +1,6 @@
 // In-game interface, in the style of classic isometric RTS games: wooden resource bar, stone command panel
 // with a command grid, info portrait and diamond minimap, climate panel, messages, in-game menu, end screen.
+import { LESSONS, LESSON_ORDER, tutorialGameData } from '../tutorial.js';
 import { CIVS } from '../civs.js';
 import { TILE, MAP_W, MAP_H, TEAM_COLORS, TEAM_NAMES, CLIMATE } from '../config.js';
 import { BUILDING_TYPES, WORKER_PAGES, WORKER_PAGE_NAMES, UPGRADES, ERAS } from '../buildings.js';
@@ -193,7 +194,9 @@ export default class UIScene extends Phaser.Scene {
     }
 
     // Sides panel: who's who, who's out — and a Give button to send tribute.
-    this.sides = w.teamIds.length > 1 ? this.makeSidesPanel() : null;
+    this.sides = w.teamIds.length > 1 && !w.tutorial ? this.makeSidesPanel() : null;
+    this.tut = null;
+    this.tutHl = null;
     this.tributeBox = null;
     // Freeplay: an economy panel in the same place.
     this.econ = w.practice ? this.makeEconPanel() : null;
@@ -349,6 +352,7 @@ export default class UIScene extends Phaser.Scene {
   isPointerOverUI(p) {
     if (this.menu) return true;
     const h = this.scale.height;
+    if (this.tut && this.tut.rect && Phaser.Geom.Rectangle.Contains(this.tut.rect, p.x, p.y)) return true;
     return p.y < TOP_H || p.y > h - PANEL_H || Phaser.Geom.Rectangle.Contains(this.climRect, p.x, p.y) ||
       (this.idleBtn.visible && Phaser.Geom.Rectangle.Contains(this.idleRect, p.x, p.y));
   }
@@ -388,7 +392,9 @@ export default class UIScene extends Phaser.Scene {
   }
 
   layoutMessages() {
-    this.messages.forEach((m, i) => m.text.setPosition(14, TOP_H + 10 + i * 23));
+    // (in the tutorial, below the lesson panel)
+    const y0 = this.tut && this.tut.rect ? this.tut.rect.bottom + 10 : TOP_H + 10;
+    this.messages.forEach((m, i) => m.text.setPosition(14, y0 + i * 23));
   }
 
   updateMessages(dt) {
@@ -521,7 +527,7 @@ export default class UIScene extends Phaser.Scene {
       for (const type of w.trainsFor(b)) {
         const u = UNIT_TYPES[type];
         cmds.push({
-          thumb: w.unitTexKey(type, this.world.me), name: `Train ${u.name}`, cost: u.cost,
+          thumb: w.unitTexKey(type, this.world.me), name: `Train ${u.name}`, cost: u.cost, hl: `train:${type}`,
           desc: `${u.desc}\nHealth ${u.hp}  ·  Damage ${u.attack}  ·  ${u.range > 60 ? 'Ranged' : 'Close combat'}`,
           locked: u.era > era ? `Requires the ${ERAS[u.era].name}` : null, lockEra: u.era, action: () => w.train(type),
         });
@@ -529,7 +535,7 @@ export default class UIScene extends Phaser.Scene {
       if (b.def.advancesEra && ERAS[era + 1]) {
         const next = ERAS[era + 1];
         cmds.push({
-          thumb: 'up_era', name: `Advance to the ${next.name}`, cost: next.cost, desc: `${next.desc} Takes ${next.time}s.`,
+          thumb: 'up_era', name: `Advance to the ${next.name}`, cost: next.cost, desc: `${next.desc} Takes ${next.time}s.`, hl: 'era',
           busy: b.research && b.research.kind === 'era', action: () => w.advanceEra(),
         });
       }
@@ -537,7 +543,7 @@ export default class UIScene extends Phaser.Scene {
         if (w.upgrades.has(id)) continue;
         const up = UPGRADES[id];
         cmds.push({
-          thumb: `up_${id}`, name: up.name, cost: up.cost, desc: `${up.desc} Takes ${up.time}s.`,
+          thumb: `up_${id}`, name: up.name, cost: up.cost, desc: `${up.desc} Takes ${up.time}s.`, hl: `research:${id}`,
           locked: up.era > era ? `Requires the ${ERAS[up.era].name}` : null, lockEra: up.era,
           busy: b.research && b.research.id === id, action: () => w.research(id),
         });
@@ -545,8 +551,8 @@ export default class UIScene extends Phaser.Scene {
       if (b.def.garrison) {
         while (cmds.length < 5) cmds.push(null);
         cmds.push(w.bellRung
-          ? { thumb: 'up_allclear', name: 'All clear', cost: null, desc: 'Everyone comes out of shelter and goes back to the job they were doing.', action: () => w.issue({ k: 'allclear' }) }
-          : { thumb: 'up_bell', name: 'Ring the town bell', cost: null,
+          ? { thumb: 'up_allclear', name: 'All clear', cost: null, hl: 'bell', desc: 'Everyone comes out of shelter and goes back to the job they were doing.', action: () => w.issue({ k: 'allclear' }) }
+          : { thumb: 'up_bell', name: 'Ring the town bell', cost: null, hl: 'bell',
             desc: 'Every worker runs into the nearest Town Centre (15) or tower (5). Each 3 inside adds an extra arrow. Ring again for "All clear".',
             action: () => w.issue({ k: 'bell' }) });
       }
@@ -556,14 +562,14 @@ export default class UIScene extends Phaser.Scene {
       for (const type of WORKER_PAGES[this.buildPage]) {
         const d = BUILDING_TYPES[type];
         cmds.push({
-          thumb: w.buildingTexKey(type, this.world.me), name: d.name, cost: d.cost, desc: d.desc,
+          thumb: w.buildingTexKey(type, this.world.me), name: d.name, cost: d.cost, desc: d.desc, hl: `build:${type}`,
           locked: (d.buildEra ?? d.era) > era ? `Requires the ${ERAS[d.buildEra ?? d.era].name}` : null, lockEra: d.buildEra ?? d.era, action: () => w.startPlacing(type),
         });
       }
       while (cmds.length < 11) cmds.push(null);
       const next = (this.buildPage + 1) % WORKER_PAGES.length;
       cmds.push({
-        thumb: w.buildingTexKey(WORKER_PAGES[next][0], this.world.me), page: true,
+        thumb: w.buildingTexKey(WORKER_PAGES[next][0], this.world.me), page: true, hl: 'page',
         name: `${WORKER_PAGE_NAMES[next]} »`,
         desc: `Page ${this.buildPage + 1} of ${WORKER_PAGES.length} (${WORKER_PAGE_NAMES[this.buildPage]}). Show: ${WORKER_PAGES[next].map((t) => BUILDING_TYPES[t].name).join(', ')}.`,
         action: () => { this.buildPage = next; this.buildButtons(); },
@@ -592,7 +598,7 @@ export default class UIScene extends Phaser.Scene {
       if (r === pay) { cmds.push(null); continue; }
       const cost = w.tradeCost(pay, r);
       cmds.push({
-        thumb: `i_${r}`, name: `Buy 100 ${RES_NAME[r]}`, cost: { [pay]: cost },
+        thumb: `i_${r}`, name: `Buy 100 ${RES_NAME[r]}`, cost: { [pay]: cost }, hl: 'trade',
         desc: r === 'fuel' ? 'Bought coal gets burned too: it adds CO₂ just like mining it.' : 'Buying makes this more expensive for a while.',
         action: () => w.issue({ k: 'trade', pay, buy: r }),
       });
@@ -661,7 +667,7 @@ export default class UIScene extends Phaser.Scene {
       hit.on('pointerover', () => { drawBg(true); this.showTip(cmd, x, y); });
       hit.on('pointerout', () => { drawBg(false); this.hideTip(); });
       hit.on('pointerdown', (p) => { if (p.leftButtonDown()) { audio.play('click'); cmd.action(); } });
-      this.buttons[i] = { container: c, cmd, stripe };
+      this.buttons[i] = { container: c, cmd, stripe, x, y };
     });
   }
 
@@ -891,6 +897,96 @@ export default class UIScene extends Phaser.Scene {
     this.scene.start('MenuScene');
   }
 
+  // ---------- Tutorial ----------
+  // The lesson panel (top left): what to do now, with Next / Show me / Skip. Rebuilt when the step changes.
+  updateTutorial(time) {
+    const w = this.world;
+    const t = w.tutorial;
+    if (!t) return;
+    if (!this.tutHl) this.tutHl = this.add.graphics().setDepth(60);
+    // a pulsing gold frame round the button the step wants (or the page button that leads to it)
+    const s = !w.gameOver && t.step;
+    let target = null;
+    if (s && s.hl) {
+      target = this.buttons.find((b) => b && b.cmd.hl === s.hl);
+      if (!target && s.hl.startsWith('build:')) target = this.buttons.find((b) => b && b.cmd.hl === 'page');
+    }
+    this.tutHl.clear();
+    if (target) {
+      const a = 0.55 + 0.45 * Math.abs(Math.sin(time / 220));
+      this.tutHl.lineStyle(3, 0xf2d060, a).strokeRect(target.x - 3, target.y - 3, BTN + 6, BTN + 6);
+    }
+    const key = w.gameOver ? 'over' : `${t.i}`;
+    if (!this.tut || this.tut.key !== key || this.tut.w !== this.scale.width) this.buildTutorialPanel(key);
+    else if (this.tut.status && time - (this.tut.at || 0) > 250) {
+      this.tut.at = time;
+      const st = t.status();
+      if (this.tut.status.text !== st) this.tut.status.setText(st);
+    }
+  }
+
+  buildTutorialPanel(key) {
+    if (this.tut) for (const o of this.tut.items) o.destroy();
+    this.tut = { key, items: [], w: this.scale.width };
+    const w = this.world;
+    const t = w.tutorial;
+    const s = t.step;
+    if (!s || w.gameOver) return;
+    const x = 8;
+    const y = TOP_H + 8;
+    const W = 360;
+    const items = this.tut.items;
+    const title = this.add.text(x + 14, y + 30, s.title, { fontFamily: SERIF, fontSize: '18px', color: COL.gold, stroke: '#000', strokeThickness: 3, wordWrap: { width: W - 28 } }).setDepth(46);
+    const body = this.add.text(x + 14, title.y + title.height + 6, s.text, { fontFamily: SANS, fontSize: '13px', color: COL.text, stroke: '#000', strokeThickness: 2, wordWrap: { width: W - 28 }, lineSpacing: 3 }).setDepth(46);
+    const status = this.add.text(x + 14, body.y + body.height + 8, t.status(), { fontFamily: SANS, fontSize: '13px', fontStyle: 'italic', color: '#b8e08a', stroke: '#000', strokeThickness: 2 }).setDepth(46);
+    const by = status.y + 24;
+    const H = by + 40 - y;
+    const bg = this.add.graphics().setDepth(45);
+    bg.fillStyle(0x140e08, 0.88).fillRoundedRect(x, y, W, H, 5);
+    bg.lineStyle(1.5, UI_COL.bronze, 0.95).strokeRoundedRect(x, y, W, H, 5);
+    const head = this.add.text(x + 14, y + 8, `Tutorial · ${s.lessonName}   —   step ${t.i + 1} of ${t.steps.length}`, { fontFamily: SANS, fontSize: '12px', color: COL.dim, stroke: '#000', strokeThickness: 2 }).setDepth(46);
+    items.push(bg, head, title, body, status);
+    let bx = x + 14;
+    const add = (label, fn, bw = 96) => {
+      items.push(button(this, bx, by, bw, 30, label, () => { audio.play('click'); fn(); }, { depth: 46, size: '14px' }));
+      bx += bw + 8;
+    };
+    if (s.manual) add('Next  ›', () => t.press());
+    if (t.focus()) add('Show me', () => w.showTutorialFocus());
+    if (!s.manual) add('Skip step', () => t.press(true));
+    this.tut.status = status;
+    this.tut.rect = new Phaser.Geom.Rectangle(x, y, W, H);
+    this.layoutMessages();
+  }
+
+  showTutorialDone() {
+    const world = this.world;
+    const t = world.tutorial;
+    const w = this.scale.width;
+    const h = this.scale.height;
+    const D = 101;
+    const PW = 520;
+    const PH = 250;
+    const x0 = Math.round(w / 2 - PW / 2);
+    const y0 = Math.round(h / 2 - PH / 2);
+    this.add.rectangle(0, 0, w, h, 0x000000, 0.55).setOrigin(0).setInteractive().setDepth(100);
+    panel(this, x0, y0, PW, PH, 100);
+    const full = t.lesson === 'full';
+    this.add.text(w / 2, y0 + 22, full ? 'Tutorial complete!' : 'Lesson complete!', { fontFamily: SERIF, fontSize: '36px', color: COL.gold, stroke: '#000', strokeThickness: 5 }).setOrigin(0.5, 0).setDepth(D);
+    const nextId = full ? null : LESSON_ORDER[LESSON_ORDER.indexOf(t.lesson) + 1];
+    const msg = full || !nextId ? 'You\'ve seen every age. Try a real game: New Game → 1 v 1 against an Easy computer.'
+      : `You finished the ${t.name} lesson. Next up: the ${LESSONS[nextId].name}.`;
+    this.add.text(w / 2, y0 + 80, msg, { fontFamily: SANS, fontSize: '15px', color: COL.text, stroke: '#000', strokeThickness: 2, wordWrap: { width: PW - 60 }, align: 'center' }).setOrigin(0.5, 0).setDepth(D);
+    const by = y0 + PH - 64;
+    const btns = [];
+    if (nextId) btns.push([`Next: ${LESSONS[nextId].name}`, () => this.world.scene.start('GameScene', tutorialGameData(nextId, world.setup.teams[0].civ))]);
+    btns.push(['Tutorials', () => { this.registry.set('menuView', 'tutorial'); this.quitToMenu(); }]);
+    btns.push(['Main Menu', () => this.quitToMenu()]);
+    const bw = 150;
+    const x1 = w / 2 - (btns.length * bw + (btns.length - 1) * 12) / 2;
+    btns.forEach(([label, fn], i) => button(this, x1 + i * (bw + 12), by, bw, 44, label, fn, { depth: D, size: label.length > 16 ? '13px' : '16px' }));
+  }
+
   // ---------- Sides panel ----------
   makeSidesPanel() {
     const w = this.world;
@@ -1116,6 +1212,7 @@ export default class UIScene extends Phaser.Scene {
   showGameOver(result) {
     this.closeMenu(true);
     this.hideTip();
+    if (result === 'tutorial') { this.showTutorialDone(); return; }
     const w = this.scale.width;
     const h = this.scale.height;
     const info = {
@@ -1271,6 +1368,7 @@ export default class UIScene extends Phaser.Scene {
     const w = this.world;
     if (!w.climate) return;
     const r = w.resources;
+    this.updateTutorial(time);
 
     for (const res of RES_ORDER) {
       const v = `${Math.floor(r[res])}`;

@@ -6,6 +6,7 @@ import { generateArt, buildingKey, unitKey, buildingTexInfo, BUILDING_POINTS, AR
 import { toIso, ISO_W, ISO_H, setWorldSize } from '../iso.js';
 import { panel, button, volumeRows, scrollText, htmlInput, FONT_SERIF, FONT_SANS, UI_COL } from '../ui.js';
 import { CIVS, CIV_CHOICES, civName } from '../civs.js';
+import { LESSONS, LESSON_ORDER, FULL_TUTORIAL, tutorialGameData, tutorialsDone } from '../tutorial.js';
 import { UNIT_TYPES } from '../unit.js';
 import { MODES, PRESETS, presetSeats, seatsSetup, seatsProblem, describeSetup, RULES, cleanRules, describeRules } from '../setup.js';
 import { Net, newCode, cleanCode, playerName, setPlayerName, lastGame, forgetLastGame, onlineAvailable } from '../net.js';
@@ -189,7 +190,8 @@ export default class MenuScene extends Phaser.Scene {
     this.starting = false;
     this.online = null; // null = not checked yet, then true / false
     this.netMsg = '';
-    this.view = 'main';
+    this.view = this.registry.get('menuView') || 'main'; // (e.g. back to the tutorial list after a lesson)
+    this.registry.remove('menuView');
     this.relayout();
   }
 
@@ -232,9 +234,11 @@ export default class MenuScene extends Phaser.Scene {
       const canInstall = !!window.installPrompt;
       const saves = listSaves().filter((s) => !s.empty).sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
       const any = saves.length > 0;
-      const k = any ? 60 : 0; // room for "Continue"
-      top = Math.max(top - 30, Math.min(top, h - ((canInstall ? 550 : 490) + k) - 10));
-      this.addUI(panel(this, (w - PW) / 2, top, PW, (canInstall ? 550 : 490) + k, D));
+      const k = any ? 54 : 0; // room for "Continue"
+      const S = 54; // between buttons
+      const PH = 30 + (canInstall ? 9 : 8) * S + k + 26;
+      top = Math.max(top - 40, Math.min(top, h - PH - 10));
+      this.addUI(panel(this, (w - PW) / 2, top, PW, PH, D));
       if (any) {
         const latest = saves[0];
         btn(top + 30, `Continue  ·  ${fmtTime(latest.gameTime || 0)}, ${ERAS[latest.era || 0].name}`, () => {
@@ -242,21 +246,22 @@ export default class MenuScene extends Phaser.Scene {
           if (data) this.scene.start('GameScene', { load: data });
         }, { size: '16px' });
       }
-      btn(top + 30 + k, 'New Game', () => this.show('new'));
-      btn(top + 90 + k, 'Freeplay (practice)', () => {
+      btn(top + 30 + k, 'Tutorial', () => this.show('tutorial'));
+      btn(top + 30 + S + k, 'New Game', () => this.show('new'));
+      btn(top + 30 + 2 * S + k, 'Freeplay (practice)', () => {
         const o = this.options;
         o.mode = 'free';
         o.seats = presetSeats('free', o.difficulty);
         o.tab = 'rules';
         this.show('new');
       });
-      btn(top + 150 + k, 'Play Online', () => this.show('online'));
-      btn(top + 210 + k, 'Load Game', () => this.show('load')).setEnabled(any);
-      btn(top + 270 + k, 'Replays', () => this.show('replays')).setEnabled(listReplays().length > 0);
-      btn(top + 330 + k, 'How to Play', () => this.show('help'));
-      btn(top + 390 + k, 'Settings', () => this.show('settings'));
+      btn(top + 30 + 3 * S + k, 'Play Online', () => this.show('online'));
+      btn(top + 30 + 4 * S + k, 'Load Game', () => this.show('load')).setEnabled(any);
+      btn(top + 30 + 5 * S + k, 'Replays', () => this.show('replays')).setEnabled(listReplays().length > 0);
+      btn(top + 30 + 6 * S + k, 'How to Play', () => this.show('help'));
+      btn(top + 30 + 7 * S + k, 'Settings', () => this.show('settings'));
       if (canInstall) {
-        btn(top + 450 + k, 'Install Game', async () => {
+        btn(top + 30 + 8 * S + k, 'Install Game', async () => {
           const prompt = window.installPrompt;
           if (!prompt) return;
           prompt.prompt();
@@ -265,6 +270,29 @@ export default class MenuScene extends Phaser.Scene {
           this.show('main');
         });
       }
+    } else if (view === 'tutorial') {
+      // One lesson per age, or all of them in one game.
+      const TW = 560;
+      const rowH = 62;
+      const ids = [...LESSON_ORDER, 'full'];
+      const PH = 96 + ids.length * rowH + 70;
+      top = Math.max(8, Math.min(top - 40, h - PH - 10));
+      const x0 = (w - TW) / 2;
+      this.addUI(panel(this, x0, top, TW, PH, D));
+      this.addUI(this.add.text(w / 2, top + 20, 'Tutorial', { fontFamily: FONT_SERIF, fontSize: '26px', color: UI_COL.gold, stroke: '#000', strokeThickness: 4 }).setOrigin(0.5, 0).setDepth(D + 1));
+      this.addUI(this.add.text(w / 2, top + 58, 'New here? Start with the Coal Age, or play the full tutorial in one go.', { fontFamily: FONT_SANS, fontSize: '13px', fontStyle: 'italic', color: UI_COL.dim, stroke: '#000', strokeThickness: 2 }).setOrigin(0.5, 0).setDepth(D + 1));
+      const done = tutorialsDone();
+      ids.forEach((id, i) => {
+        const L = id === 'full' ? FULL_TUTORIAL : LESSONS[id];
+        const y = top + 92 + i * rowH + (id === 'full' ? 12 : 0);
+        const label = id === 'full' ? 'Full tutorial (every age)' : `${i + 1}.  ${L.name}`;
+        this.addUI(button(this, x0 + 24, y, 230, 48, `${label}${done[id] ? '  (done)' : ''}`, () => {
+          const civ = (this.options.civs && this.options.civs[0]) || 'random';
+          this.scene.start('GameScene', tutorialGameData(id, civ));
+        }, { depth: D + 1, size: id === 'full' ? '15px' : '16px' })).setSelected(id === 'full');
+        this.addUI(this.add.text(x0 + 268, y + 24, L.blurb, { fontFamily: FONT_SANS, fontSize: '13px', color: UI_COL.text, stroke: '#000', strokeThickness: 2, wordWrap: { width: TW - 292 } }).setOrigin(0, 0.5).setDepth(D + 1));
+      });
+      btn(top + PH - 58, 'Back', () => this.show('main'), { w: 200 });
     } else if (view === 'settings') {
       this.addUI(panel(this, (w - PW) / 2, top, PW, 476, D));
       this.addUI(this.add.text(w / 2, top + 22, 'Settings', { fontFamily: FONT_SERIF, fontSize: '22px', color: UI_COL.gold, stroke: '#000', strokeThickness: 4 }).setOrigin(0.5, 0).setDepth(D + 1));

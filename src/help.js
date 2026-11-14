@@ -1,6 +1,7 @@
 // Text for the "How to Play" screens.
 export const HOW_TO_PLAY = [
   'Goal: knock out every rival side by destroying its Town Centre — or reach the Green Age and keep the Climate Restoration Project standing for 3 minutes. If the planet reaches +5°C, everyone loses.',
+  'New here? Main menu → Tutorial: a short guided lesson for each age, or the full tutorial in one go.',
   'Games: set up to four seats like in AoE2: you, computer players or closed, each on a team (1–4, or – for nobody\'s ally). Try 1 v 2, 1 v 3, 2 v 2 or 1v1v1v1. Allies share what they can see and start next to each other.',
   'Freeplay: practise on your own with no enemies. The economy panel shows gather rates per minute, and milestones show your time against your personal best. Finish Practice is in the game menu.',
   'Tribute: press Give next to a side in the sides panel to send it resources (10% fee). Computer allies help you out when you run short.',

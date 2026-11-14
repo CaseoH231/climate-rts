@@ -31,6 +31,7 @@ check "replay stays in sync"                 "python3 test_replay.py"   "replay 
 check "online 1v1 (lockstep, drop, rejoin)"  "python3 test_online.py"   "'desync': None"
 check "freeplay milestones + replay"         "python3 test_freeplay.py" "'over': 'practice', 'desync': None"
 check "bridges"                              "python3 test_bridge.py"   "'reachedB': True"
+check "tutorial (every lesson, start to end)" "python3 test_tutorial.py" "TUTORIAL_OK"
 if [ "$1" != "quick" ]; then
   check "16-minute AI vs AI game"            "python3 test_ai_long.py"  "LONG_OK"
 fi

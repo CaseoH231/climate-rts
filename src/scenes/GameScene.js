@@ -1,4 +1,5 @@
 // The main game world: map, units, buildings, economy, combat, climate, the AI, camera and controls.
+import { Tutorial } from '../tutorial.js';
 import { CIVS, resolveCiv } from '../civs.js';
 import {
   TILE, MAP_W, MAP_H, MAP_SEED, START_RESOURCES, TEAM_NAMES, POP_MAX, TEAM_COLORS, TERRAIN, CLIMATE,
@@ -66,6 +67,9 @@ export default class GameScene extends Phaser.Scene {
     this.me = net ? net.team || this.teamIds[0] : replay && replay.me ? replay.me : save && save.me ? save.me : you;
     this.self = this.me; // the side this person actually plays (`me` can change when spectating)
     this.freeplay = this.setup.mode === 'freeplay' || this.teamIds.length === 1; // practising alone
+    // Tutorial: a guided lesson (src/tutorial.js). It has a side of raiders with no town, which the lessons send in.
+    this.tutorialLesson = save ? (save.tutorial && save.tutorial.lesson) : (!replay && !net && data.tutorial) || null;
+    this.tutorialDone = false;
     this.practiceDone = false;
     this.foe = this.teamIds.find((t) => this.isEnemy(t, this.me)) || this.teamIds.find((t) => t !== this.me);
     // Game settings (map size, resources, starting age, population, reveal, peace time, victory, climate).
@@ -94,13 +98,15 @@ export default class GameScene extends Phaser.Scene {
     this.syncChecks = 0;
     // Phaser reuses this scene object for every game, so clear anything left over from the last one.
     this.replayEnded = false;
+    this.tutArrow = null;
+    this.trades = 0;
     this.endNote = null;
     this.lastOut = null;
     this.netWait = null;
     this.netDown = false;
     this.catchingUp = null;
     this.gameOver = null;
-    this.recording = !save && !replay ? {
+    this.recording = !save && !replay && !this.tutorialLesson ? {
       id: Date.now(), v: GAME_VERSION, date: Date.now(), seed, mapType: this.mapType, difficulty: this.difficulty,
       fog: net ? net.settings.fog !== false : data.fog !== false, cmds: [], hashes: [], ticks: 0, result: null,
       mp: this.mp, me: this.me, names: net ? net.names() : null, setup: this.setup, rules: this.rules,
@@ -169,6 +175,7 @@ export default class GameScene extends Phaser.Scene {
     for (const id of this.teamIds) this.teams[id] = { resources: { ...startRes }, upgrades: new Set(), era: this.rules.era, out: false, resigned: false };
     // Each side's civilisation ("Random" is settled from the seed, the same way on every computer).
     this.setup.teams.forEach((t, i) => { if (this.teams[t.id]) this.teams[t.id].civ = resolveCiv(t.civ, seed, i); });
+    this.setup.teams.forEach((t) => { if (t.raiders && this.teams[t.id]) this.teams[t.id].raiders = true; });
     this.resources = this.teams[this.me].resources; // shortcut for the person at this computer
     this.upgrades = this.teams[this.me].upgrades;
     this.buildings = [];
@@ -193,6 +200,7 @@ export default class GameScene extends Phaser.Scene {
     } else {
       // --- Starting bases ---
       for (const id of this.teamIds) {
+        if (this.teams[id].raiders) continue; // (tutorial raiders have no town)
         const st = this.starts[id];
         this.setupBase(st, id, ['worker', 'worker', 'worker', 'worker', 'soldier', 'soldier', 'soldier'], st.y < MAP_H / 2 ? 2 : -2);
       }
@@ -204,6 +212,9 @@ export default class GameScene extends Phaser.Scene {
         for (const k of ['food', 'wood', 'stone']) this.teams[a.team].resources[k] += bonus;
       }
     }
+
+    this.tutorial = this.tutorialLesson ? new Tutorial(this, this.tutorialLesson, save && save.tutorial) : null;
+    if (this.tutorial) this.tutorial.begin();
 
     // --- Fog of war ---
     const reveal = replay || this.spectator ? 'visible' : this.rules.reveal;
@@ -481,6 +492,31 @@ export default class GameScene extends Phaser.Scene {
 
   isAlly(a, b) {
     return a === b || this.alliance[a] === this.alliance[b];
+  }
+
+  // (visual) A gold arrow bobbing over whatever the tutorial's current step is about.
+  updateTutorialArrow(time) {
+    if (!this.tutorial) return;
+    if (!this.tutArrow) {
+      const g = this.add.graphics().setDepth(9.6e5);
+      g.fillStyle(0xf2d060, 1).lineStyle(2, 0x2a1d0c, 1);
+      g.beginPath(); g.moveTo(-9, -22); g.lineTo(9, -22); g.lineTo(9, -10); g.lineTo(16, -10); g.lineTo(0, 4); g.lineTo(-16, -10); g.lineTo(-9, -10); g.closePath();
+      g.fillPath(); g.strokePath();
+      this.tutArrow = g;
+    }
+    const f = !this.gameOver && this.tutorial.focus();
+    this.tutArrow.setVisible(!!f);
+    if (!f) return;
+    const i = toIso(f.x, f.y);
+    this.tutArrow.setPosition(i.x, i.y - 40 - Math.abs(Math.sin(time / 260)) * 10);
+  }
+
+  // Pan the camera to what the tutorial is pointing at.
+  showTutorialFocus() {
+    const f = this.tutorial && this.tutorial.focus();
+    if (!f) return;
+    const i = toIso(f.x, f.y);
+    this.cameras.main.pan(i.x, i.y, 500, 'Sine.easeInOut');
   }
 
   // The patch of land a side's Town Centre stands on (0 if it has none).
@@ -1207,6 +1243,7 @@ export default class GameScene extends Phaser.Scene {
       return false;
     }
     this.spend({ [pay]: cost }, team);
+    if (team === this.self) this.trades = (this.trades || 0) + 1; // (the tutorial watches for this)
     // Bought coal still gets burned somewhere — it heats the planet like mined coal.
     this.teams[team].resources[buy] += 100;
     if (buy === 'fuel') {
@@ -1925,7 +1962,7 @@ export default class GameScene extends Phaser.Scene {
     // A side is out when its Town Centre falls (or it resigns). Everything it has left crumbles away.
     for (const id of this.teamIds) {
       const T = this.teams[id];
-      if (T.out) continue;
+      if (T.out || T.raiders) continue;
       // (an unfinished Town Centre doesn't keep you in)
       if (T.resigned || !this.buildings.some((b) => b.team === id && b.type === 'town_centre' && b.complete)) this.eliminate(id);
     }
@@ -1938,6 +1975,9 @@ export default class GameScene extends Phaser.Scene {
       result = this.alliance[this.self] === winner ? 'green' : 'defeat';
     } else if (this.climate.temp >= 5) {
       result = 'collapse';
+    } else if (this.tutorialLesson) {
+      if (this.tutorialDone) result = 'tutorial';
+      else if (this.teams[this.self].out) result = 'defeat';
     } else if (this.freeplay) {
       // practice only ends when you say so (or your town falls)
       if (this.practiceDone) { result = 'practice'; this.endNote = this.practice ? this.practice.summary() : ''; }
@@ -1960,7 +2000,7 @@ export default class GameScene extends Phaser.Scene {
     this.winner = winner;
     this.stats.sample(this);
     this.cancelTargeting();
-    audio.play(result === 'victory' || result === 'green' || result === 'over' || result === 'practice' ? 'victory' : 'defeat');
+    audio.play(['victory', 'green', 'over', 'practice', 'tutorial'].includes(result) ? 'victory' : 'defeat');
     this.clearSelection();
     this.finishRecording(result);
     if (this.net) this.net.send({ t: 'over' });
@@ -2058,6 +2098,7 @@ export default class GameScene extends Phaser.Scene {
     const view = this.cameras.main.worldView;
     this.fx.updateDamage(delta, this.buildings, view);
     this.fx.updateGore(delta, view);
+    this.updateTutorialArrow(time);
     this.prewarmStyles(delta);
     this.wildlife.render(time, this.fog);
     this.fx.updateBirds(delta, view, this.climate.temp);
@@ -2354,6 +2395,7 @@ export default class GameScene extends Phaser.Scene {
     this.step(TICK_MS);
     this.tick++;
     if (this.practice) this.practice.update(TICK_MS);
+    if (this.tutorial) this.tutorial.update(TICK_MS);
     if (this.tick % HASH_EVERY === 0) this.checkHash();
   }
 

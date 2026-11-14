@@ -29,6 +29,7 @@ Age of Emissions — an Age of Empires 2–style isometric RTS about climate cha
 | `src/pathfinding.js` | A* with stamp-based scratch arrays |
 | `src/climate.js`, `src/ai.js`, `src/wildlife.js`, `src/practice.js`, `src/stats.js` | climate/disasters, computer player, deer/fish, Freeplay mode, end-of-game stats |
 | `src/rng.js`, `src/replay.js`, `src/net.js`, `src/save.js` | seeded RNG, replays, online client, saves |
+| `src/tutorial.js` | tutorial lessons (steps: text, button to highlight, where to point, when it's done), starting a tutorial game |
 | `src/civs.js` | civilisations: bonuses, unique units, Random (settled from the seed) |
 | `src/setup.js`, `src/help.js`, `src/audio.js`, `src/cursors.js`, `src/ui.js` | game set-up model, help text, sound + settings storage, cursors, UI helpers |
 | `worker/index.js`, `worker/room-core.js` | Cloudflare Worker + Durable Object that relays online games |
@@ -53,7 +54,7 @@ bash tests/run_tests.sh          # everything (~6–8 min)
 bash tests/run_tests.sh quick    # skips the 16-minute AI game
 ```
 
-It starts a static server on :8765 and the local multiplayer server (`tests/mpserver.mjs`, uses `worker/room-core.js`) on :8790, then prints PASS/FAIL for: room logic, replay sync, online 1v1 (lockstep, drop, rejoin), Freeplay, bridges, and a 16-minute computer-vs-computer game (it also passes if one side genuinely wins after 12+ minutes). Run it before every push. The Python tests use headless Chromium with SwiftShader WebGL; they wait for `game.textures.exists('atlas_done')` before starting.
+It starts a static server on :8765 and the local multiplayer server (`tests/mpserver.mjs`, uses `worker/room-core.js`) on :8790, then prints PASS/FAIL for: room logic, replay sync, online 1v1 (lockstep, drop, rejoin), Freeplay, bridges, the full tutorial (played start to end), and a 16-minute computer-vs-computer game (it also passes if one side genuinely wins after 12+ minutes). Run it before every push. The Python tests use headless Chromium with SwiftShader WebGL; they wait for `game.textures.exists('atlas_done')` before starting.
 
 Also look at the game yourself when you change visuals: take a screenshot with Playwright and Read the PNG.
 
