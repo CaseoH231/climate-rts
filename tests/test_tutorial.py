@@ -8,7 +8,7 @@ DRIVE = """() => { const w = game.scene.getScene('GameScene'); const t = w.tutor
   const U = w.units.find(u => u.team===me && u.type==='worker').constructor;
   const title = s.title; const before = t.i;
   const worker = () => w.units.find(u => u.team===me && u.type==='worker' && !(u.order && u.order.kind==='gather'));
-  const gather = (res) => { const r = w.map.nearestResource(res, tc.tx+1, tc.ty+1, 40); worker().orderGather(r); };
+  const gather = (res) => { const u = worker(); for (const r of w.map.resourceTilesNear(res, tc.tx+1, tc.ty+1, 40).slice(0, 12)) { u.orderGather(r); if (u.order) break; } };
   if (s.manual) t.press();
   else if (title === 'Select a worker') { const u = w.units.find(u => u.team===me && u.type==='worker'); w.selected.add(u); }
   else if (title === 'Chop wood') gather('wood');
@@ -32,7 +32,7 @@ async def main():
         errs=[]; pg.on("pageerror", lambda e: errs.append(str(e)))
         await pg.goto("http://localhost:8765/index.html")
         await pg.wait_for_function("window.game && game.textures && game.textures.exists('atlas_done')", timeout=120000)
-        await pg.evaluate("(l) => import('./src/tutorial.js').then(m => game.scene.getScenes(true)[0].scene.start('GameScene', m.tutorialGameData(l)))", LESSON)
+        await pg.evaluate("(l) => import('./src/tutorial.js').then(m => { game.scene.getScenes(true)[0].scene.start('GameScene', { ...m.tutorialGameData(l), seed: 424242 }); return 0; })", LESSON)
         await pg.wait_for_function("(() => { const g = game.scene.getScene('GameScene'); return g && g.sys.isActive() && g.tutorial && game.scene.getScene('UIScene').sys.isActive(); })()", timeout=60000)
         await pg.wait_for_timeout(1500)
         print(await pg.evaluate("(() => { const w = game.scene.getScene('GameScene'); return { era: w.eraOf(w.self), steps: w.tutorial.steps.length, buildings: w.buildings.map(b=>b.type).join(','), raiders: w.teams.enemy.raiders, rec: !!w.recording }; })()"))

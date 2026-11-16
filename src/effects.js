@@ -425,6 +425,23 @@ export class Effects {
     }
   }
 
+  // A jet of flame from a Firebrand's nozzle to its target.
+  flameJet(x0, y0, x1, y1, dur = 200) {
+    const s = this.scene;
+    const v = s.cameras.main.worldView;
+    if (x1 < v.x - 60 || x1 > v.right + 60 || y1 < v.y - 60 || y1 > v.bottom + 60) return;
+    for (let i = 0; i < 6; i++) {
+      const f = s.add.image(x0, y0, 'fx_flame').setBlendMode(Phaser.BlendModes.ADD).setScale(0.35)
+        .setAngle(Math.atan2(y1 - y0, x1 - x0) * 180 / Math.PI + 90).setDepth(Math.max(y0, y1) + 30).setAlpha(0.9);
+      s.tweens.add({
+        targets: f, x: x1 + (Math.random() - 0.5) * 8, y: y1 + (Math.random() - 0.5) * 6, scale: 0.8 + Math.random() * 0.4, alpha: 0,
+        delay: i * 25, duration: Math.max(140, dur), ease: 'Quad.easeOut', onComplete: () => f.destroy(),
+      });
+    }
+    const p = s.add.image(x1, y1 - 4, 'fx_puff').setTint(0x3a3430).setAlpha(0.4).setScale(0.4).setDepth(y1 + 31);
+    s.tweens.add({ targets: p, y: p.y - 14, scale: 1.4, alpha: 0, delay: dur, duration: 700, onComplete: () => p.destroy() });
+  }
+
   // A thrown hunting spear.
   spear(x0, y0, x1, y1, animal = false) {
     const s = this.scene;

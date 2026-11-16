@@ -563,7 +563,7 @@ export default class UIScene extends Phaser.Scene {
         const d = BUILDING_TYPES[type];
         cmds.push({
           thumb: w.buildingTexKey(type, this.world.me), name: d.name, cost: d.cost, desc: d.desc, hl: `build:${type}`,
-          locked: (d.buildEra ?? d.era) > era ? `Requires the ${ERAS[d.buildEra ?? d.era].name}` : null, lockEra: d.buildEra ?? d.era, action: () => w.startPlacing(type),
+          locked: w.buildEraFor(type, w.me) > era ? `Requires the ${ERAS[w.buildEraFor(type, w.me)].name}` : null, lockEra: w.buildEraFor(type, w.me), action: () => w.startPlacing(type),
         });
       }
       while (cmds.length < 11) cmds.push(null);
@@ -596,7 +596,7 @@ export default class UIScene extends Phaser.Scene {
     const cmds = [];
     for (const r of RES) {
       if (r === pay) { cmds.push(null); continue; }
-      const cost = w.tradeCost(pay, r);
+      const cost = w.tradeCost(pay, r, w.me);
       cmds.push({
         thumb: `i_${r}`, name: `Buy 100 ${RES_NAME[r]}`, cost: { [pay]: cost }, hl: 'trade',
         desc: r === 'fuel' ? 'Bought coal gets burned too: it adds CO₂ just like mining it.' : 'Buying makes this more expensive for a while.',

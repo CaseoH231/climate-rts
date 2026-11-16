@@ -38,6 +38,10 @@ const COUNTERS = {
   ranger: ['scout', 'armoured_car'],
   marine: ['soldier'],
   sapper: ['archer', 'rifleman'],
+  outrider: ['soldier'],
+  halberdier: ['archer', 'rifleman'],
+  firebrand: ['rifleman', 'armoured_car'],
+  skirmisher: ['scout', 'soldier'],
 };
 
 export class EnemyAI {
@@ -265,7 +269,7 @@ export class EnemyAI {
     const market = mine.some((b) => b.type === 'market' && b.complete);
     if (market) {
       const pay = ['wood', 'stone', 'fuel'].sort((a, b) => r[b] - r[a] || (a < b ? -1 : 1))[0];
-      if (w.canAfford({ [pay]: w.tradeCost(pay, 'food') }, this.team)) { w.trade(pay, 'food', this.team); this.stuck = 0; return; }
+      if (w.canAfford({ [pay]: w.tradeCost(pay, 'food', this.team) }, this.team)) { w.trade(pay, 'food', this.team); this.stuck = 0; return; }
     }
     const army = w.units.some((u) => u.team === this.team && u.isMilitary && !u.dead);
     const training = mine.some((b) => b.queue.length);

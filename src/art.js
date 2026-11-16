@@ -2035,6 +2035,9 @@ UNIT_ART.grenadier = UNIT_ART.soldier;
 UNIT_ART.ranger = UNIT_ART.archer;
 UNIT_ART.marine = UNIT_ART.rifleman;
 UNIT_ART.sapper = UNIT_ART.worker;
+UNIT_ART.halberdier = UNIT_ART.soldier;
+UNIT_ART.firebrand = UNIT_ART.rifleman;
+UNIT_ART.skirmisher = UNIT_ART.archer;
 
 // Scout: a rider on a horse, 44×40 canvas, hooves at y≈37. LEG_STEP animates a gallop.
 function scoutRider(ctx, team) {
@@ -2638,6 +2641,7 @@ export function generateArt(scene, buildingTypes, teams = ['player', 'enemy']) {
     [0, 1, 2].forEach((frame) => {
       LEG_STEP = frame === 1 ? 1 : frame === 2 ? -1 : 0;
       makeUnitCanvas(scene, unitKey('scout', team, frame), 44, 40, (ctx) => scoutRider(ctx, team));
+      makeUnitCanvas(scene, unitKey('outrider', team, frame), 44, 40, (ctx) => scoutRider(ctx, team)); // (if the 3D art is missing)
     });
     LEG_STEP = 0;
   }

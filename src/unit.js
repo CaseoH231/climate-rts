@@ -60,10 +60,26 @@ export const UNIT_TYPES = {
              attack: 8, range: 26, cooldown: 1.2, sight: 200, vsBuilding: 3.0,
              bonus: { cannon: 2.5, armoured_car: 1.6, e_tank: 1.4 },
              desc: 'Sunreach only. An engineer with a pickaxe and charges: wrecks buildings and vehicles up close.' },
+  outrider: { name: 'Outrider', era: 0, civ: 'highmoor', speed: 140, hp: 65, cost: { food: 70, wood: 20 }, trainTime: 11, mounted: true,
+             attack: 7, range: 28, cooldown: 1.0, sight: 340, vsBuilding: 0.2,
+             bonus: { archer: 1.8, ranger: 1.8, skirmisher: 1.6, worker: 1.6, cannon: 2.5, medic: 1.5 },
+             desc: 'Highmoor only. A tougher, faster rider on a hill pony: hunts archers, workers and cannons.' },
+  halberdier: { name: 'Halberdier', era: 0, civ: 'tradewind', speed: 82, hp: 65, cost: { food: 50, wood: 30 }, trainTime: 10,
+             attack: 7, range: 30, cooldown: 1.2, sight: 210, vsBuilding: 0.5,
+             bonus: { scout: 3, outrider: 3, armoured_car: 1.6, cannon: 2, e_tank: 1.3 },
+             desc: 'Tradewind only. A long halberd: deadly against riders and good against vehicles.' },
+  firebrand: { name: 'Firebrand', era: 2, civ: 'emberfall', speed: 76, hp: 75, cost: { food: 70, wood: 20, energy: 40 }, trainTime: 15,
+             attack: 13, range: 75, cooldown: 1.5, sight: 210, vsBuilding: 1.3,
+             bonus: { soldier: 1.5, archer: 1.6, ranger: 1.6, halberdier: 1.5, skirmisher: 1.5, worker: 1.3 },
+             desc: 'Emberfall only. A flamethrower: short range, burns through foot soldiers and buildings.' },
+  skirmisher: { name: 'Skirmisher', era: 0, civ: 'frostmere', speed: 88, hp: 45, cost: { food: 35, wood: 35 }, trainTime: 9,
+             attack: 6, range: 120, cooldown: 1.1, sight: 230, vsBuilding: 0.2,
+             bonus: { archer: 1.8, ranger: 1.8, scout: 1.2, soldier: 0.8 },
+             desc: 'Frostmere only. A cheap javelin thrower who beats archers.' },
 };
 
 // Foot soldiers that Body Armour protects.
-export const INFANTRY = ['soldier', 'archer', 'rifleman', 'scout', 'medic', 'grenadier', 'ranger', 'marine', 'sapper'];
+export const INFANTRY = ['soldier', 'archer', 'rifleman', 'scout', 'medic', 'grenadier', 'ranger', 'marine', 'sapper', 'outrider', 'halberdier', 'firebrand', 'skirmisher'];
 
 // Colour of the "+10" that floats up when a worker drops off a load.
 const RES_TEXT_COLOR = { food: '#f0d77a', wood: '#d9b07a', stone: '#d8d4cc', fuel: '#b8b0a8' };
@@ -100,9 +116,10 @@ export class Unit {
     const civ = scene.teams && scene.teams[team] && CIVS[scene.teams[team].civ];
     this.speed = def.speed * (type === 'worker' && civ && civ.workerSpeed ? civ.workerSpeed : 1);
     const ups = scene.teams ? scene.teams[team].upgrades : new Set();
-    this.maxHp = Math.round(def.hp * (ups.has('body_armour') && INFANTRY.includes(type) ? 1.3 : 1));
+    const civ0 = scene.teams && scene.teams[team] && CIVS[scene.teams[team].civ];
+    const tough = civ0 && civ0.armyHp && type !== 'worker' ? civ0.armyHp : 1; // (Frostmere)
+    this.maxHp = Math.round(def.hp * tough * (ups.has('body_armour') && INFANTRY.includes(type) ? 1.3 : 1));
     this.hp = this.maxHp;
-    this.hp = def.hp;
     this.path = [];
     this.dest = null;
     this.order = null;       // what the unit is doing: gather / build

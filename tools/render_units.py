@@ -66,6 +66,9 @@ def materials(team):
         # civilisation units
         'moss': mat('moss', 0x3f5a2e, 0.85, noise=0.2), 'oilskin': mat('oilskin', 0xd6ae38, 0.45, noise=0.06),
         'bomb': mat('bomb', 0x1e1e20, 0.35, metal=0.6), 'brass': mat('brass', 0xc8a050, 0.35, metal=1.0),
+        'fur': mat('fur', 0x8a6a48, 0.95, noise=0.4, scale=200), 'furlight': mat('furlight', 0xd8ccb4, 0.95, noise=0.3, scale=200),
+        'silver': mat('silver', 0xb4b8bc, 0.35, metal=0.7, noise=0.05), 'greyhorse': mat('greyhorse', 0x9a948c, 0.7, noise=0.25, scale=40),
+        'padded': mat('padded', 0x8a7a5a, 0.85, noise=0.18),
     }
 
 
@@ -174,6 +177,22 @@ def tool(kind, hand, M):
         rod(g, -0.28, -0.92, 0.018, M['iron'])                    # barrel
         cube(g, (0.02, 0, -0.34), (0.05, 0.02, 0.06), M['iron'])  # lock
         tip = empty(g, (0, 0, -0.95))
+    elif kind == 'halberd':  # a long pole with an axe blade and a spike
+        rod(g, 0.7, -1.05, 0.024, M['wood'])
+        cube(g, (0.08, 0, -0.98), (0.16, 0.02, 0.18), M['steel'])
+        bpy.ops.mesh.primitive_cone_add(vertices=6, radius1=0.035, radius2=0, depth=0.22, location=(0, 0, -1.16), rotation=(math.pi, 0, 0))
+        add(bpy.context.object, g, M['steel'])
+        tip = empty(g, (0, 0, -1.26))
+    elif kind == 'nozzle':  # a flamethrower wand on a hose
+        rod(g, 0.06, -0.18, 0.03, M['iron'])
+        rod(g, -0.18, -0.62, 0.018, M['iron'])
+        cube(g, (0, 0, -0.64), (0.05, 0.05, 0.05), M['bomb'])
+        tip = empty(g, (0, 0, -0.68))
+    elif kind == 'javelin':
+        rod(g, 0.5, -0.8, 0.016, M['wood'])
+        bpy.ops.mesh.primitive_cone_add(vertices=6, radius1=0.03, radius2=0, depth=0.12, location=(0, 0, -0.86), rotation=(math.pi, 0, 0))
+        add(bpy.context.object, g, M['iron'])
+        tip = empty(g, (0, 0, -0.92))
     elif kind == 'sword':
         rod(g, 0.06, -0.04, 0.026, M['leather'])
         cube(g, (0, 0, -0.05), (0.2, 0.05, 0.04), M['iron'])
@@ -200,7 +219,7 @@ class Person:
             self.hips[side], self.knees[side] = hip, knee
         self.spine = empty(self.pelvis, (0, 0, 0))
         body = {'soldier': M['mail'], 'archer': M['leather'], 'grenadier': M['leather'], 'ranger': M['moss'],
-                'marine': M['oilskin']}.get(kind, M['tunic'])
+                'marine': M['oilskin'], 'halberdier': M['padded'], 'firebrand': M['silver'], 'skirmisher': M['fur']}.get(kind, M['tunic'])
         taper_box(self.spine, -0.1, 0.52, 0.36, 0.44, 0.24, 0.26, body)
         # a team-coloured tabard / jerkin front, belt
         taper_box(self.spine, -0.14, 0.48, 0.26, 0.3, 0.04, 0.04, M['team']).location.x = 0.12
@@ -225,7 +244,7 @@ class Person:
         # arms
         self.sh, self.el, self.hands = {}, {}, {}
         sleeve = {'soldier': M['mail'], 'archer': M['leather'], 'grenadier': M['leather'], 'ranger': M['moss'],
-                  'marine': M['oilskin']}.get(kind, M['tunic'])
+                  'marine': M['oilskin'], 'halberdier': M['padded'], 'firebrand': M['silver'], 'skirmisher': M['fur']}.get(kind, M['tunic'])
         for side, y in (('L', 0.25), ('R', -0.25)):
             s = empty(self.spine, (0, y, 0.48)); limb(s, 0.3, 0.07, 0.056, sleeve)
             e = empty(s, (0, 0, -0.3)); limb(e, 0.27, 0.056, 0.044, sleeve)
@@ -276,6 +295,17 @@ class Person:
         elif kind == 'sapper':  # an orange hard hat
             ball(h, (0, 0, 0.04), 0.125, M['orange'], sz=0.75)
             cube(h, (0, 0, 0.0), (0.3, 0.21, 0.02), M['orange'])
+        elif kind == 'halberdier':  # a steel cap with a brim and a team plume
+            ball(h, (0, 0, 0.035), 0.12, M['steel'], sz=0.8)
+            rod(h, 0.0, 0.014, 0.165, M['steel'], v=20)
+            ball(h, (-0.02, 0, 0.15), 0.045, M['team'], sx=1.6, sz=0.8)
+        elif kind == 'firebrand':  # a hood with a gas mask
+            ball(h, (-0.01, 0, 0.02), 0.128, M['silver'], sz=1.08)
+            ball(h, (0.1, 0, -0.03), 0.045, M['bomb'])
+            ball(h, (0.1, 0.045, 0.03), 0.028, M['brass']); ball(h, (0.1, -0.045, 0.03), 0.028, M['brass'])
+        elif kind in ('skirmisher', 'outrider'):  # a fur hat with a pale rim
+            rod(h, 0.0, 0.11, 0.125, M['fur'], v=18)
+            rod(h, -0.01, 0.03, 0.132, M['furlight'], v=18)
         elif kind == 'medic':  # a pale field cap with a red cross
             ball(h, (0, 0, 0.045), 0.117, M['cream'], sz=0.65)
             cube(h, (0.105, 0.0, 0.06), (0.012, 0.016, 0.05), M['red'])
@@ -316,6 +346,19 @@ class Person:
             self.toolgrip, self.tip = tool('rifle', R, M)
             cube(self.spine, (0, 0, 0.46), (0.3, 0.47, 0.09), M['orange'])  # a life-vest collar
             cube(self.spine, (0.13, 0, 0.3), (0.03, 0.3, 0.18), M['orange'])
+        elif kind == 'halberdier':
+            self.toolgrip, self.tip = tool('halberd', R, M)
+        elif kind == 'firebrand':
+            # fuel tanks on the back and the nozzle in hand
+            for y in (0.08, -0.08):
+                rod(self.spine, 0.05, 0.5, 0.075, M['red'], v=14, x=-0.2).location.y = y
+            self.toolgrip, self.tip = tool('nozzle', R, M)
+        elif kind == 'skirmisher':
+            self.toolgrip, self.tip = tool('javelin', R, M)
+            cloak = taper_box(self.spine, -0.3, 0.52, 0.38, 0.46, 0.04, 0.04, M['fur']); cloak.location.x = -0.15
+            q = empty(self.spine, (-0.16, 0.0, 0.3))  # spare javelins on the back
+            for k in range(3):
+                r_ = rod(q, -0.45, 0.45, 0.012, M['wood']); r_.location.y = -0.04 + k * 0.04; r_.rotation_euler = (0.35, 0, 0)
         elif kind == 'grenadier':
             # a round black bomb with a short fuse in the throwing hand, more on a bandolier
             self.toolgrip = empty(R)
@@ -433,6 +476,12 @@ SPECS = {
     'sapper': {'rest': REST_TOOL['rest'], 'poses': WORKER_POSES['pick']},
 }
 SPECS['ranger'] = SPECS['archer']
+# halberd upright at rest; drawn back; a long thrust
+SPECS['halberdier'] = {'rest': {'R': (15, 45), 'L': (30, 60), 't': 120, 'holdR': True},
+                       'poses': [{'R': (55, 45), 'L': (60, 50), 't': 40, 'lean': -4}, {'R': (70, 5), 'L': (60, 30), 't': 30, 'lean': 12}]}
+SPECS['firebrand'] = SPECS['rifleman']
+SPECS['skirmisher'] = {'rest': {'R': (15, 45), 'L': (0, 10), 't': 120, 'holdR': True},
+                       'poses': [{'R': (170, 40), 'L': (40, 20), 't': -120, 'lean': -10}, {'R': (100, 0), 'L': (25, 10), 'empty': True, 'lean': 14}]}
 SPECS['marine'] = SPECS['rifleman']
 
 
@@ -685,13 +734,15 @@ def render_deer(keys):
         K = K0
 
 
-def render_scout(team, keys, tier=0):
+def render_scout(team, keys, tier=0, kind='scout'):
     sc, cam = setup(RIDER)
     M = materials(team)
+    if kind == 'outrider':  # a grey hill pony
+        M = dict(M); M['horse'] = M['greyhorse']; M['tunic'] = M['fur']
     root = empty(None)
     root.rotation_euler.z = math.radians(FACING)
     h, legs = horse(M, root)
-    rider = Person(M, 'scout', tier=tier)
+    rider = Person(M, kind, tier=tier)
     rider.root.parent = root
     rider.root.location = (0.0, 0, 0.52)
     # seated: thighs forward and apart, a lance held upright
@@ -707,7 +758,7 @@ def render_scout(team, keys, tier=0):
             top, low = legs[name]
             top.rotation_euler = (0, -math.radians(a), 0)
             low.rotation_euler = (0, math.radians(kb) * (-1 if name[0] == 'F' else 1), 0)
-        k = key('scout', team, f, tier=tier)
+        k = key(kind, team, f, tier=tier)
         shoot(sc, k); keys.append(k)
 
 
@@ -730,6 +781,8 @@ if __name__ == '__main__':
             new = []
             if t == 'scout':
                 render_scout(team, new)
+            elif t == 'outrider':
+                render_scout(team, new, kind='outrider')
             elif t in ('scout1', 'scout2'):
                 render_scout(team, new, tier=int(t[-1]))
             elif t == 'cannon':

@@ -34,6 +34,39 @@ export const CIVS = {
     produce: { wind_turbine: 1.3, solar: 1.3 },
     research: 1.25,
   },
+  highmoor: {
+    name: 'Highmoor',
+    motto: 'Herders and riders of the windy hills.',
+    bonuses: ['Farms make +25% food', 'Town Centres and towers shoot 25% further'],
+    unique: 'outrider',
+    farm: 1.25,
+    towerRange: 1.25,
+  },
+  tradewind: {
+    name: 'Tradewind',
+    motto: 'A league of merchant towns.',
+    bonuses: ['Market trades cost 25% less', 'Office Towers and Factories make +40%'],
+    unique: 'halberdier',
+    trade: 0.75,
+    produce: { office: 1.4, factory: 1.4 },
+  },
+  emberfall: {
+    name: 'Emberfall',
+    motto: 'They live on the slopes of a smoking mountain.',
+    bonuses: ['Geothermal Plants from the Transition Age, and +25%', 'Buildings take half damage from wildfires'],
+    unique: 'firebrand',
+    produce: { geothermal: 1.25 },
+    earlyBuild: { geothermal: 3 },
+    fireproof: 0.5,
+  },
+  frostmere: {
+    name: 'Frostmere',
+    motto: 'Hardy folk of the cold north.',
+    bonuses: ['Army units have +15% health', 'Heatwaves don\'t slow your workers'],
+    unique: 'skirmisher',
+    armyHp: 1.15,
+    heatproof: true,
+  },
 };
 export const CIV_IDS = Object.keys(CIVS);
 

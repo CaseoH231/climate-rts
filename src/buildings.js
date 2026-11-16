@@ -108,7 +108,8 @@ export const BUILDING_TYPES = {
   },
   barracks: {
     name: 'Barracks', w: 3, h: 3, hp: 500, cost: { wood: 125, stone: 50 }, buildTime: 22, era: 0,
-    trains: ['soldier', 'archer', 'scout', 'rifleman', 'medic', 'cannon', 'armoured_car', 'e_tank', 'grenadier', 'ranger', 'marine', 'sapper'],
+    trains: ['soldier', 'archer', 'scout', 'rifleman', 'medic', 'cannon', 'armoured_car', 'e_tank',
+      'grenadier', 'ranger', 'marine', 'sapper', 'outrider', 'halberdier', 'firebrand', 'skirmisher'],
     desc: 'Trains your army (and your civilisation\'s unique unit).',
   },
   tower: {
@@ -451,7 +452,7 @@ export class Building {
     if (this.def.attack) {
       this.cooldown -= s;
       if (this.cooldown <= 0) {
-        const e = world.findEnemyUnitNear(this.cx, this.cy, this.def.attack.range, this.team);
+        const e = world.findEnemyUnitNear(this.cx, this.cy, world.attackRange(this), this.team);
         if (e) {
           // one extra arrow for every 3 people sheltering inside
           const arrows = 1 + Math.floor(this.garrison.length / 3);

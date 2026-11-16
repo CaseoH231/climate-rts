@@ -220,7 +220,7 @@ export class Tutorial {
   placeNear(type, t) {
     const w = this.world;
     const def = BUILDING_TYPES[type];
-    for (let r = 4; r < 16; r++) {
+    for (let r = 4; r < 30; r++) {
       for (let dy = -r; dy <= r; dy++) {
         for (let dx = -r; dx <= r; dx++) {
           if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;

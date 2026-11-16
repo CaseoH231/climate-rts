@@ -787,6 +787,20 @@ export default class GameScene extends Phaser.Scene {
     return this.teams[team].era;
   }
 
+  // How far a Town Centre or tower shoots (Highmoor's reach further).
+  attackRange(b) {
+    const civ = CIVS[this.teams[b.team].civ];
+    return b.def.attack.range * ((civ && civ.towerRange) || 1);
+  }
+
+  // The age a side can first build something in (Emberfall gets Geothermal early).
+  buildEraFor(type, team) {
+    const def = BUILDING_TYPES[type];
+    const civ = CIVS[this.teams[team] && this.teams[team].civ];
+    const early = civ && civ.earlyBuild && civ.earlyBuild[type];
+    return early != null ? early : def.buildEra ?? def.era;
+  }
+
   // How much faster a side researches and advances (civilisation bonus).
   researchSpeed(team) {
     const civ = CIVS[this.teams[team].civ];
@@ -808,8 +822,9 @@ export default class GameScene extends Phaser.Scene {
     if (ups.has('electric_tools')) m *= 1.2;
     if ((res === 'stone' || res === 'fuel') && ups.has('mining_carts')) m *= 1.3;
     if (isFarm && ups.has('plough')) m *= 1.3;
+    if (isFarm && civ && civ.farm) m *= civ.farm;
     if (res === 'food' && this.climate.drought > 0) m *= 0.5;
-    if (this.climate.heatwave > 0 && !ups.has('cool_roofs')) m *= 0.7;
+    if (this.climate.heatwave > 0 && !ups.has('cool_roofs') && !(civ && civ.heatproof)) m *= 0.7;
     return m;
   }
 
@@ -1036,7 +1051,7 @@ export default class GameScene extends Phaser.Scene {
 
   // Fire a projectile from grid point (x, y) at height z towards a target (drawn isometrically).
   shoot(x, y, target, dmg, attacker, z = 0) {
-    const kind = attacker.type === 'rifleman' || attacker.type === 'marine' ? 'gun' : attacker.type === 'armoured_car' || attacker.type === 'grenadier' ? 'cannon' : 'arrow';
+    const kind = { rifleman: 'gun', marine: 'gun', armoured_car: 'cannon', grenadier: 'cannon', firebrand: 'whoosh' }[attacker.type] || 'arrow';
     this.sfx(kind, x, y);
     const from = toIso(x, y);
     from.y -= z;
@@ -1049,6 +1064,9 @@ export default class GameScene extends Phaser.Scene {
     if (attacker && (attacker.type === 'rifleman' || attacker.type === 'armoured_car') && (!attacker.container || attacker.container.visible)) {
       this.fx.muzzle(from.x, from.y, attacker.type === 'armoured_car');
     }
+    // (visual) a jet of flame for the Firebrand, a thrown javelin for the Skirmisher, an arrow / bullet otherwise
+    if (attacker && attacker.type === 'firebrand') { this.fx.flameJet(from.x, from.y, to.x, to.y, flight / this.speed); return; }
+    if (attacker && attacker.type === 'skirmisher') { this.fx.spear(from.x, from.y, to.x, to.y); return; }
     const arrow = this.add.rectangle(from.x, from.y, 10, 1.5, 0xe8e2cf).setRotation(Math.atan2(to.y - from.y, to.x - from.x)).setDepth(9e5);
     this.tweens.add({
       targets: arrow, x: to.x, y: to.y, duration: flight / this.speed,
@@ -1074,7 +1092,7 @@ export default class GameScene extends Phaser.Scene {
         else {
           this.fx.impact(t.isoX, t.isoY - 6, false);
           const a = p.attacker && p.attacker.type;
-          if (a === 'cannon' || a === 'armoured_car' || a === 'e_tank' || a === 'grenadier') this.fx.explosion(t.isoX, t.isoY); // (gore setting only)
+          if (['cannon', 'armoured_car', 'e_tank', 'grenadier', 'firebrand'].includes(a)) this.fx.explosion(t.isoX, t.isoY); // (gore setting only)
         }
       }
       this.dealDamage(p.target, p.dmg, p.attacker);
@@ -1130,7 +1148,8 @@ export default class GameScene extends Phaser.Scene {
       if (u.team !== team) continue;
       if (id === 'body_armour' && INFANTRY.includes(u.type)) {
         const frac = u.hp / u.maxHp;
-        u.maxHp = Math.round(u.def.hp * 1.3);
+        const civ = CIVS[this.teams[team].civ];
+        u.maxHp = Math.round(u.def.hp * 1.3 * (civ && civ.armyHp && u.type !== 'worker' ? civ.armyHp : 1));
         u.hp = u.maxHp * frac;
         u.updateHpBar();
       }
@@ -1231,13 +1250,14 @@ export default class GameScene extends Phaser.Scene {
 
   // ---------- Market ----------
   // How much of `pay` it costs to buy 100 of `buy` right now.
-  tradeCost(pay, buy) {
-    return Math.ceil((100 * this.market[buy] * MARKET_FEE) / this.market[pay]);
+  tradeCost(pay, buy, team = this.me) {
+    const civ = this.teams[team] && CIVS[this.teams[team].civ];
+    return Math.ceil((100 * this.market[buy] * MARKET_FEE * ((civ && civ.trade) || 1)) / this.market[pay]);
   }
 
   trade(pay, buy, team = 'player') {
     if (pay === buy) return false;
-    const cost = this.tradeCost(pay, buy);
+    const cost = this.tradeCost(pay, buy, team);
     if (!this.canAfford({ [pay]: cost }, team)) {
       if (team === this.me) this.fail(`Need ${this.missingText({ [pay]: cost }, team)} more`);
       return false;
@@ -1439,6 +1459,8 @@ export default class GameScene extends Phaser.Scene {
     if (b.dead) return;
     const disaster = cause === 'fire' || cause === 'a storm';
     if (disaster && this.teams[b.team].upgrades.has('climate_shields')) amount *= 0.5;
+    const bciv = CIVS[this.teams[b.team].civ];
+    if (cause === 'fire' && bciv && bciv.fireproof) amount *= bciv.fireproof; // (Emberfall)
     b.hp -= amount;
     if (b.hp <= 0) {
       this.sfx('collapse', b.cx, b.cy);
@@ -1520,7 +1542,7 @@ export default class GameScene extends Phaser.Scene {
   placeProblem(type, team) {
     const def = BUILDING_TYPES[type];
     if (!def) return "Can't build that";
-    const era = def.buildEra ?? def.era; // (the Town Centre can only be built from the Industrial Age)
+    const era = this.buildEraFor(type, team); // (Town Centres from the Industrial Age; civs can unlock some early)
     if (era > this.eraOf(team)) return `${def.name} requires the ${ERAS[era].name}`;
     if (def.wonder && this.buildings.some((b) => b.team === team && b.def.wonder)) return 'You can only build one Climate Restoration Project';
     return null;
