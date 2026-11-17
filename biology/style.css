@@ -161,3 +161,14 @@ svg.dg.hl .lb.on { opacity: 1; }
   .dlg-head, .dlg-body, .dlg-foot { padding-left: 16px; padding-right: 16px; }
   .dlg-head h2 { font-size: 1.35rem; }
 }
+
+/* topic picker */
+.sect { margin: 4px 0 10px; font-size: 1rem; }
+.sect small { font-weight: 400; color: var(--muted); }
+.presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; margin-bottom: 20px; }
+.preset { display: grid; gap: 2px; text-align: left; border-left: 6px solid var(--c); padding: 10px 12px; }
+.preset b { color: var(--c); }
+.preset span { font-size: .88rem; }
+.preset small { color: var(--muted); font-size: .78rem; }
+.blank-row { display: flex; gap: 8px; }
+.blank-row input { flex: 1; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); }

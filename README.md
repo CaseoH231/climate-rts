@@ -37,6 +37,7 @@ A biology revision helper that lives in the `biology/` folder and has nothing to
 Online at **https://climate-rts.adrian11jonker.workers.dev/biology/** (it deploys with the game on every push to `main`).
 To run it on your computer: right-click `biology/index.html` → **Open with Live Server**.
 
+- **+ New topic** offers ready-made topics (Cell transport, Enzymes, Photosynthesis, Respiration, Cell division, DNA & genetics, Microscopy, Specialised cells), each with starter definitions, or a blank one.
 - Notes are sorted into **topics** (left-hand list). Each note is a coloured card; click it to open the definition, key points and a **coloured, labelled diagram**.
 - **Cell explorer**: click part of an animal, plant or bacterial cell to open that organelle's notes.
 - **Hide the labels** on a diagram to test yourself, then click each label in the list to reveal it.

@@ -1,7 +1,7 @@
 // Service worker: lets the installed app open with no internet.
 // Network first (so updates show straight away), saved copy when offline. Bump CACHE on each release.
-const CACHE = 'bio-study-v1';
-const FILES = ['./', 'index.html', 'style.css', 'app.js', 'data.js', 'diagrams.js', 'manifest.webmanifest',
+const CACHE = 'bio-study-v2';
+const FILES = ['./', 'index.html', 'style.css', 'app.js', 'data.js', 'diagrams.js', 'presets.js', 'manifest.webmanifest',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {

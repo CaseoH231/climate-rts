@@ -1,4 +1,5 @@
 import { STARTER } from './data.js';
+import { PRESETS } from './presets.js';
 import { DIAGRAMS, DIAGRAM_WORDS, CELLS, diagramSVG, cellSVG } from './diagrams.js';
 
 // ---------- saving ----------
@@ -109,7 +110,7 @@ function openPart(key, name) {
 $('#topics').addEventListener('click', (ev) => {
   const b = ev.target.closest('button');
   if (!b) return;
-  if (b.id === 'add-topic') return newTopic();
+  if (b.id === 'add-topic') return openTopicPicker();
   current = b.dataset.topic; query = ''; $('#search').value = '';
   render(); window.scrollTo({ top: 0 });
 });
@@ -125,7 +126,7 @@ $('#main').addEventListener('click', (ev) => {
   const t = topicOf(current);
   if (act === 'add') openEdit(null, { topic: current });
   if (act === 'paste') openPaste();
-  if (act === 'new-topic') newTopic();
+  if (act === 'new-topic') openTopicPicker();
   if (act === 'rename-topic') {
     const n = prompt('New name for this topic:', t.name);
     if (n && n.trim()) { t.name = n.trim(); save(); render(); }
@@ -155,6 +156,41 @@ function newTopic(name) {
   db.topics.push(t); save();
   if (name === undefined) { current = t.id; query = ''; render(); }
   return t;
+}
+
+// Pick a ready-made topic (with starter notes) or make a blank one.
+function openTopicPicker() {
+  const has = (name) => db.topics.find((t) => t.name.toLowerCase() === name.toLowerCase());
+  openDialog(`
+    <div class="dlg-head"><h2 class="grow">Add a topic</h2><button data-close aria-label="Close">✕</button></div>
+    <div class="dlg-body">
+      <h4 class="sect">Ready-made topics <small>– each comes with starter definitions you can edit</small></h4>
+      <div class="presets">${PRESETS.map((p, i) => `<button class="preset" data-p="${i}" style="--c:${p.color}">
+        <b>${esc(p.name)}</b><span>${esc(p.blurb)}</span>
+        <small>${has(p.name) ? '✓ Added – click to fill in any missing notes' : `${p.entries.length} notes`}</small></button>`).join('')}</div>
+      <h4 class="sect">Or start a blank topic</h4>
+      <form id="blank-topic" class="blank-row"><input type="text" name="name" required placeholder="e.g. Ecology"><button class="primary">Create</button></form>
+    </div>`, 'small');
+  $$('.preset', dlg).forEach((b) => { b.onclick = () => addPreset(PRESETS[b.dataset.p]); });
+  $('#blank-topic').onsubmit = (ev) => {
+    ev.preventDefault();
+    const t = newTopic(ev.target.name.value);
+    if (!t) return;
+    current = t.id; query = ''; $('#search').value = ''; dlg.close(); render();
+  };
+}
+
+function addPreset(p) {
+  let t = db.topics.find((x) => x.name.toLowerCase() === p.name.toLowerCase());
+  if (!t) { t = { id: uid(), name: p.name, color: p.color, entries: [] }; db.topics.push(t); }
+  let added = 0;
+  for (const e of p.entries) {
+    if (t.entries.some((x) => x.title.toLowerCase() === e.title.toLowerCase())) continue;
+    t.entries.push({ id: uid(), ...e, notes: [...e.notes], diagram: '', image: '' });
+    added++;
+  }
+  save(); current = t.id; query = ''; $('#search').value = ''; dlg.close(); render();
+  toast(added ? `${p.name}: added ${added} note${added === 1 ? '' : 's'}` : `${p.name} already has all its notes`);
 }
 
 // ---------- one note, opened up ----------

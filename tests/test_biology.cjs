@@ -18,9 +18,14 @@ const { chromium } = require('playwright');
   await p.fill('#paste-text', 'Golgi apparatus: packages proteins\n- makes vesicles\nEnzyme - a biological catalyst\n\nActive site\nWhere the substrate binds');
   await p.selectOption('#paste-topic', '__new'); await p.click('#paste-go');
   const pasted = await p.$$eval('.card h3', (h) => h.map((x) => x.textContent));
+  await p.click('#add-topic'); await p.click('.preset >> text=Enzymes');
+  const preset = await p.$$eval('.card', (c) => c.length);
+  await p.click('#add-topic'); await p.click('.preset >> text=Enzymes'); // adding again must not duplicate
+  const preset2 = await p.$$eval('.card', (c) => c.length);
   await p.evaluate(() => localStorage.clear());
-  console.log('cards', ids.length, 'diagrams', figs, 'explorer', opened, 'pasted', pasted.join('|'), 'errors', errs.length);
-  const ok = ids.length === 12 && figs === 12 && opened === 'Plasmids' && pasted.length === 3 && pasted.includes('Active site') && !errs.length;
+  console.log('cards', ids.length, 'diagrams', figs, 'explorer', opened, 'pasted', pasted.join('|'), 'preset', preset, preset2, 'errors', errs.length);
+  const ok = ids.length === 12 && figs === 12 && opened === 'Plasmids' && pasted.length === 3 && pasted.includes('Active site') &&
+    preset === 6 && preset2 === 6 && !errs.length;
   console.log(ok ? 'biology ok' : 'biology FAILED ' + errs.join('; '));
   await b.close();
 })();
