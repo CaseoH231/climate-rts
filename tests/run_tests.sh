@@ -27,6 +27,7 @@ check() { # name, command, text that must appear in its output
 }
 
 check "room logic (lobby, seats, presets)"   "node test_room.mjs"        "all passed"
+check "bio study notes app"                  "node test_biology.cjs"     "biology ok"
 check "replay stays in sync"                 "python3 test_replay.py"   "replay True"
 check "online 1v1 (lockstep, drop, rejoin)"  "python3 test_online.py"   "'desync': None"
 check "freeplay milestones + replay"         "python3 test_freeplay.py" "'over': 'practice', 'desync': None"

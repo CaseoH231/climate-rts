@@ -5,3 +5,9 @@
   Content-Type: application/manifest+json
 /src/*
   Cache-Control: no-cache
+/biology/sw.js
+  Cache-Control: no-cache
+/biology/*
+  Cache-Control: no-cache
+/biology/manifest.webmanifest
+  Content-Type: application/manifest+json

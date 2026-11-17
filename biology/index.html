@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bio Study Notes</title>
+  <meta name="description" content="Organise your biology notes into topics with coloured, labelled diagrams and flashcards.">
+  <meta name="theme-color" content="#15803d">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="./"><img src="icons/icon.svg" alt="" width="34" height="34"><span>Bio Study Notes</span></a>
+    <input id="search" type="search" placeholder="Search your notes…" aria-label="Search your notes">
+    <div class="actions">
+      <button id="btn-add" class="primary">+ Add note</button>
+      <button id="btn-paste">Paste notes</button>
+      <button id="btn-cards">Flashcards</button>
+      <button id="btn-install" hidden>Install app</button>
+      <details class="more">
+        <summary aria-label="More options">⋯</summary>
+        <div class="menu">
+          <button id="btn-export">Download a backup</button>
+          <button id="btn-import">Load a backup…</button>
+          <button id="btn-reset">Reset to starter notes</button>
+          <input id="file-import" type="file" accept=".json,application/json" hidden>
+        </div>
+      </details>
+    </div>
+  </header>
+  <div class="layout">
+    <nav id="topics" aria-label="Topics"></nav>
+    <main id="main"></main>
+  </div>
+  <dialog id="dlg"></dialog>
+  <div id="toast" role="status"></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
