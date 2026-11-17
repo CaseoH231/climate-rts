@@ -1,6 +1,0 @@
-# Files in this folder that should not be served as part of the website
-wrangler.jsonc
-.assetsignore
-README.md
-.wrangler
-node_modules
