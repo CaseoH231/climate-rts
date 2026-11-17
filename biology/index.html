@@ -5,34 +5,35 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Bio Study Notes</title>
   <meta name="description" content="Organise your biology notes into topics with coloured, labelled diagrams and flashcards.">
-  <meta name="theme-color" content="#15803d">
+  <meta name="theme-color" content="#1d4a2c">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&display=swap" rel="stylesheet">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header class="top">
-    <a class="brand" href="./"><img src="icons/icon.svg" alt="" width="34" height="34"><span>Bio Study Notes</span></a>
-    <input id="search" type="search" placeholder="Search your notes…" aria-label="Search your notes">
-    <div class="actions">
-      <button id="btn-add" class="primary">+ Add note</button>
-      <button id="btn-paste">Paste notes</button>
-      <button id="btn-cards">Flashcards</button>
-      <button id="btn-install" hidden>Install app</button>
-      <details class="more">
-        <summary aria-label="More options">⋯</summary>
-        <div class="menu">
-          <button id="btn-export">Download a backup</button>
-          <button id="btn-import">Load a backup…</button>
-          <button id="btn-reset">Reset to starter notes</button>
-          <input id="file-import" type="file" accept=".json,application/json" hidden>
-        </div>
-      </details>
-    </div>
-  </header>
-  <div class="layout">
-    <nav id="topics" aria-label="Topics"></nav>
+  <div class="shell">
+    <aside>
+      <a class="brand" href="./"><img src="icons/icon.svg" alt="" width="38" height="38"><div><h1>Bio Study Notes</h1><small id="sub"></small></div></a>
+      <input id="search" type="search" placeholder="Search your notes…" aria-label="Search your notes">
+      <nav id="topics" aria-label="Topics"></nav>
+      <div class="side-tools">
+        <button id="btn-cards"><span>✦</span>Flashcards</button>
+        <button id="btn-paste"><span>✎</span>Paste notes</button>
+        <button id="btn-install" hidden><span>⤓</span>Install app</button>
+        <details class="more">
+          <summary><span>⋯</span>Backup &amp; reset</summary>
+          <div class="menu">
+            <button id="btn-export">Download a backup</button>
+            <button id="btn-import">Load a backup…</button>
+            <button id="btn-reset">Reset to starter notes</button>
+            <input id="file-import" type="file" accept=".json,application/json" hidden>
+          </div>
+        </details>
+      </div>
+    </aside>
     <main id="main"></main>
   </div>
   <dialog id="dlg"></dialog>

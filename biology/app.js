@@ -22,7 +22,8 @@ function save() {
 }
 
 let db = load();
-let current = db.topics[0]?.id;
+const HOME = '__home';
+let current = HOME;
 let query = '';
 let cellKind = 'animal';
 let shownIds = []; // order of cards on screen, for next / previous
@@ -53,8 +54,11 @@ dlg.addEventListener('click', (e) => { if (e.target === dlg || e.target.closest(
 
 // ---------- main screen ----------
 function render() {
-  if (!topicOf(current)) current = db.topics[0]?.id;
-  $('#topics').innerHTML = db.topics.map((t) =>
+  if (current !== HOME && !topicOf(current)) current = HOME;
+  const notes = all();
+  $('#sub').textContent = `${notes.length} note${notes.length === 1 ? '' : 's'} · ${db.topics.length} topic${db.topics.length === 1 ? '' : 's'}`;
+  $('#topics').innerHTML = `<button class="topic home ${current === HOME && !query ? 'on' : ''}" data-topic="${HOME}"><span class="ico">⌂</span><span class="nm">Dashboard</span></button>
+    <div class="nav-label">Topics</div>` + db.topics.map((t) =>
     `<button class="topic ${t.id === current && !query ? 'on' : ''}" data-topic="${t.id}" style="--c:${t.color}">
       <span class="dot"></span><span class="nm">${esc(t.name)}</span><span class="n">${t.entries.length}</span></button>`).join('') +
     '<button class="topic add" id="add-topic">+ New topic</button>';
@@ -64,24 +68,46 @@ function render() {
     const q = query.toLowerCase();
     const hits = all().filter(({ e }) => [e.title, e.definition, e.found, ...(e.notes || [])].join(' ').toLowerCase().includes(q));
     shownIds = hits.map((h) => h.e.id);
-    main.innerHTML = `<div class="main-head"><h2>Search</h2><p class="sub">${hits.length} note${hits.length === 1 ? '' : 's'} matching “${esc(query)}”</p></div>` +
+    main.innerHTML = `<div class="bar"><h2>Search</h2></div><p class="lead">${hits.length} note${hits.length === 1 ? '' : 's'} matching “${esc(query)}”</p>` +
       (hits.length ? `<div class="grid">${hits.map(({ e, t }) => card(e, t, true)).join('')}</div>` : '<p class="empty">Nothing found.</p>');
     return;
   }
+  if (current === HOME) { main.innerHTML = dashboard(); shownIds = []; return; }
   const t = topicOf(current);
-  if (!t) {
-    main.innerHTML = '<div class="empty"><p>You have no topics yet.</p><button class="primary" data-act="new-topic">+ New topic</button></div>';
-    return;
-  }
   shownIds = t.entries.map((e) => e.id);
   const hasCells = t.entries.some((e) => ['nucleus', 'membrane', 'chloroplast', 'mitochondria', 'plasmid', 'wall'].includes(e.diagram));
   main.innerHTML = `
-    <div class="main-head" style="--c:${t.color}"><span class="bar"></span><h2>${esc(t.name)}</h2>
-      <button class="link" data-act="rename-topic">Rename</button><button class="link" data-act="colour-topic">Colour</button><button class="link danger" data-act="delete-topic">Delete topic</button>
-      <p class="sub">${t.entries.length} note${t.entries.length === 1 ? '' : 's'} · click a card to open it</p></div>
+    <div class="bar" style="--c:${t.color}"><h2><span class="tdot"></span>${esc(t.name)}</h2><div class="tools">
+      <button data-act="rename-topic">Rename</button><button data-act="colour-topic">Colour</button><button class="danger" data-act="delete-topic">Delete</button>
+      <button class="primary" data-act="add">+ Add note</button></div></div>
+    <p class="lead">${t.entries.length} note${t.entries.length === 1 ? '' : 's'} · click a card to open it</p>
     ${hasCells ? explorer() : ''}
     ${t.entries.length ? `<div class="grid">${t.entries.map((e) => card(e, t)).join('')}</div>`
       : `<div class="empty"><p>No notes in this topic yet.</p><button class="primary" data-act="add">+ Add a note</button><button data-act="paste">Paste notes</button></div>`}`;
+}
+
+const stat = (v, l) => `<div class="stat"><b>${v}</b><span>${l}</span></div>`;
+
+function dashboard() {
+  const notes = all();
+  const hr = new Date().getHours();
+  const figs = notes.filter(({ e }) => DIAGRAMS[e.diagram] || e.image).length;
+  const points = notes.reduce((n, { e }) => n + (e.notes?.length || 0), 0);
+  const recent = [...notes].reverse().slice(0, 6);
+  return `<div class="bar"><h2>Dashboard</h2><div class="tools"><button data-act="new-topic">+ New topic</button><button class="primary" data-act="add">+ Add note</button></div></div>
+    <section class="hero"><div class="hello"><h2>${hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening'}</h2>
+      <p>${notes.length ? `You have ${notes.length} notes across ${db.topics.length} topic${db.topics.length === 1 ? '' : 's'}. Ready for a quick quiz?` : 'Add your first notes, or pick a ready-made topic.'}</p>
+      <div class="row">${notes.length ? '<button class="primary" data-act="cards">Start flashcards</button>' : ''}<button data-act="paste">Paste my notes</button></div></div>
+      <div class="hero-art">${cellSVG('plant')}<small>Click a part of the cell</small></div></section>
+    <div class="stats">${stat(notes.length, 'notes')}${stat(db.topics.length, 'topics')}${stat(figs, 'with a diagram')}${stat(points, 'key points')}${stat(db.rounds || 0, 'flashcard rounds done')}</div>
+    <h3 class="sect-h">Topics</h3>
+    ${db.topics.length ? `<div class="tgrid">${db.topics.map((t) => `<button class="tcard" data-topic="${t.id}" style="--c:${t.color}">
+      <h3>${esc(t.name)}</h3><span class="tn">${t.entries.length} note${t.entries.length === 1 ? '' : 's'}</span>
+      <div class="chips">${t.entries.slice(0, 5).map((e) => `<span class="chip">${esc(e.title)}</span>`).join('')}${t.entries.length > 5 ? `<span class="chip">+${t.entries.length - 5} more</span>` : ''}</div></button>`).join('')}
+      <button class="tcard add" data-act="new-topic"><h3>+ New topic</h3><span class="tn">Ready-made or blank</span></button></div>`
+    : '<div class="empty"><p>You have no topics yet.</p><button class="primary" data-act="new-topic">+ New topic</button></div>'}
+    ${recent.length ? `<h3 class="sect-h">Latest notes</h3><div class="card-list"><ul class="list">${recent.map(({ e, t }) =>
+      `<li><button class="lrow" data-entry="${e.id}"><b style="color:${colorOf(e, t)}">${esc(e.title)}</b><span>${esc(e.definition)}</span><small>${esc(t.name)}</small></button></li>`).join('')}</ul></div>` : ''}`;
 }
 
 function card(e, t, showTopic = false) {
@@ -117,15 +143,18 @@ $('#topics').addEventListener('click', (ev) => {
 
 $('#main').addEventListener('click', (ev) => {
   const c = ev.target.closest('[data-entry]');
-  if (c) return openDetail(c.dataset.entry);
+  if (c) { if (current === HOME && !query) shownIds = [...all()].reverse().slice(0, 6).map((x) => x.e.id); return openDetail(c.dataset.entry); }
+  const tp = ev.target.closest('[data-topic]');
+  if (tp) { current = tp.dataset.topic; render(); return window.scrollTo({ top: 0 }); }
   const tab = ev.target.closest('[data-cell]');
   if (tab) { cellKind = tab.dataset.cell; return render(); }
   const p = ev.target.closest('.part');
   if (p) return openPart(p.dataset.k, $('title', p).textContent);
   const act = ev.target.closest('[data-act]')?.dataset.act;
   const t = topicOf(current);
-  if (act === 'add') openEdit(null, { topic: current });
+  if (act === 'add') openEdit(null, { topic: current === HOME ? db.topics[0]?.id : current });
   if (act === 'paste') openPaste();
+  if (act === 'cards') openCards();
   if (act === 'new-topic') openTopicPicker();
   if (act === 'rename-topic') {
     const n = prompt('New name for this topic:', t.name);
@@ -143,18 +172,17 @@ $('#main').addEventListener('keydown', (ev) => {
   if (p && (ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); openPart(p.dataset.k, $('title', p).textContent); }
 });
 $('#main').addEventListener('mouseover', (ev) => {
-  const tip = $('#ex-tip');
+  const tip = $('#ex-tip') || $('.hero-art small');
   if (!tip) return;
   const p = ev.target.closest('.part');
-  tip.textContent = p ? `${$('title', p).textContent} – click to open` : ' ';
+  tip.textContent = p ? `${$('title', p).textContent} – click to open` : tip.closest('.hero-art') ? 'Click a part of the cell' : ' ';
 });
 
 function newTopic(name) {
-  const n = name ?? prompt('Name of the new topic (e.g. Enzymes, Photosynthesis):');
+  const n = name;
   if (!n || !n.trim()) return null;
   const t = { id: uid(), name: n.trim(), color: PALETTE[db.topics.length % PALETTE.length], entries: [] };
   db.topics.push(t); save();
-  if (name === undefined) { current = t.id; query = ''; render(); }
   return t;
 }
 
@@ -459,6 +487,7 @@ function runCards(deck, mode) {
   const queue = [...deck];
   const show = (revealed) => {
     if (!queue.length) {
+      db.rounds = (db.rounds || 0) + 1; save();
       openDialog(`<div class="dlg-head"><h2 class="grow">All done!</h2><button data-close aria-label="Close">✕</button></div>
         <div class="dlg-body" style="text-align:center"><p class="score">${right} / ${total}</p><p>You got ${right} right first go out of ${total} cards.</p></div>
         <div class="dlg-foot"><span class="grow"></span><button id="fc-again" class="primary">Go again</button></div>`, 'small');
@@ -484,7 +513,6 @@ function runCards(deck, mode) {
 }
 
 // ---------- header buttons ----------
-$('#btn-add').onclick = () => openEdit(null, { topic: current });
 $('#btn-paste').onclick = openPaste;
 $('#btn-cards').onclick = openCards;
 $('#search').addEventListener('input', (ev) => { query = ev.target.value.trim(); render(); });
@@ -504,13 +532,13 @@ $('#file-import').onchange = async (ev) => {
     const d = JSON.parse(await file.text());
     if (!Array.isArray(d.topics)) throw new Error('bad');
     if (!confirm('Replace all your current notes with this backup?')) return;
-    db = d; save(); current = db.topics[0]?.id; render(); toast('Backup loaded');
+    db = d; save(); current = HOME; render(); toast('Backup loaded');
   } catch { toast('That file is not a Bio Study Notes backup.'); }
   $('.more').open = false;
 };
 $('#btn-reset').onclick = () => {
   if (!confirm('Throw away all your notes and go back to the starter organelle notes?')) return;
-  db = clone(STARTER); save(); current = db.topics[0].id; render(); $('.more').open = false;
+  db = clone(STARTER); save(); current = HOME; render(); $('.more').open = false;
 };
 document.addEventListener('click', (ev) => { const m = $('.more'); if (m.open && !m.contains(ev.target)) m.open = false; });
 

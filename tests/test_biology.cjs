@@ -5,6 +5,7 @@ const { chromium } = require('playwright');
   const errs = []; p.on('pageerror', (e) => errs.push(e.message));
   p.on('dialog', (d) => d.accept('Test topic'));
   await p.goto('http://localhost:8765/biology/');
+  await p.click('.topic >> text=Cell organelles');
   const ids = await p.$$eval('.card', (cs) => cs.map((c) => c.dataset.entry));
   let figs = 0;
   for (const id of ids) {
