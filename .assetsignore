@@ -10,7 +10,3 @@ wrangler.toml
 .assetsignore
 README.md
 tools
-biology/wrangler.jsonc
-biology/.assetsignore
-biology/_headers
-biology/README.md

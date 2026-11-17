@@ -31,22 +31,6 @@ The `_headers` file tells Cloudflare not to cache the game code too hard, so upd
 
 `wrangler.jsonc` is Cloudflare's settings file. It says: serve the folder as the website, and run `worker/index.js` for anything under `/api/` (that's the online-play server). `.assetsignore` keeps the server code and this README off the website. Online play uses **Durable Objects**, which are included in Cloudflare's free Workers plan.
 
-## Bio Study Notes (a separate app in `biology/`)
-
-A biology revision helper that lives in the `biology/` folder and has nothing to do with the game.
-It's its own Cloudflare Worker, **bio-study** → **https://bio-study.adrian11jonker.workers.dev** (how to update it is in `biology/README.md`). It still also opens at https://climate-rts.adrian11jonker.workers.dev/biology/.
-To run it on your computer: right-click `biology/index.html` → **Open with Live Server**.
-
-- **+ New topic** offers ready-made topics (Cell transport, Enzymes, Photosynthesis, Respiration, Cell division, DNA & genetics, Microscopy, Specialised cells), each with starter definitions, or a blank one.
-- It opens on a **Dashboard** (greeting, a clickable plant cell, totals, your topics and latest notes). The dark sidebar holds search, your topics, Flashcards, Paste notes and Backup.
-- Notes are sorted into **topics** (left-hand list). Each note is a coloured card; click it to open the definition, key points and a **coloured, labelled diagram**.
-- **Cell explorer**: click part of an animal, plant or bacterial cell to open that organelle's notes.
-- **Hide the labels** on a diagram to test yourself, then click each label in the list to reveal it.
-- **+ Add note** / **Edit**: name, definition, key points, where it's found, a built-in diagram, and your own picture (e.g. a photo of a diagram you drew).
-- **Paste notes**: paste lines like `Nucleus: contains DNA` (lines starting with `-` become key points) and they're turned into cards. Organelle names get their diagram automatically.
-- **Flashcards**: definition → name, name → definition, or diagram → name.
-- **Install app** (Chrome/Edge) puts it on your desktop and it works offline. Notes are saved in the browser on that device — use **⋯ → Download a backup** to keep a copy or move them to another device.
-
 ## Play online (up to 4 players)
 
 1. Main menu → **Play Online**, type your name.
