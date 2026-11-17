@@ -6,16 +6,14 @@ Plain HTML/CSS/JS, no build step. Its own Cloudflare Worker: **bio-study**.
 ## Run it on your computer
 Right-click `index.html` → **Open with Live Server**.
 
-## Cloudflare (one-time set-up)
-1. Cloudflare → **Workers & Pages → Create → Workers → Import a repository**.
-2. Pick the **climate-rts** repository.
-3. Project name: **bio-study** (must match `name` in `wrangler.jsonc`).
-4. Open **Advanced settings** → **Root directory / Path**: `biology`
-5. Build command: leave empty. Deploy command: `npx wrangler deploy`. Branch: `main`.
-6. **Deploy**. It's then at **https://bio-study.adrian11jonker.workers.dev**, and every push to `main` updates it.
+## Cloudflare
+It's the Worker **bio-study** → **https://bio-study.adrian11jonker.workers.dev**.
+It is **not** connected to GitHub, so pushing doesn't update it. To publish changes (or ask Claude to):
 
-Optional: in **bio-study → Settings → Builds → Build watch paths**, include only `biology/*` so game changes don't redeploy it
-(and in **climate-rts**, exclude `biology/*`).
+```bash
+python3 tools/build_bio_worker.py /tmp/bioworker
+cd /tmp/bioworker && npx wrangler deploy
+```
 
-`wrangler.jsonc` says "serve this folder as a website". `_headers` stops browsers holding on to old versions,
-and `.assetsignore` keeps the settings files off the site.
+`tools/build_bio_worker.py` packs every file in this folder into one Worker script, so no separate file upload is needed.
+(`wrangler.jsonc` here is only used if you ever connect the folder to Cloudflare through GitHub, with root directory `biology`.)

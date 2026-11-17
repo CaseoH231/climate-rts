@@ -34,7 +34,7 @@ The `_headers` file tells Cloudflare not to cache the game code too hard, so upd
 ## Bio Study Notes (a separate app in `biology/`)
 
 A biology revision helper that lives in the `biology/` folder and has nothing to do with the game.
-It's its own Cloudflare Worker, **bio-study** → **https://bio-study.adrian11jonker.workers.dev** (set-up steps in `biology/README.md`). It still also opens at https://climate-rts.adrian11jonker.workers.dev/biology/.
+It's its own Cloudflare Worker, **bio-study** → **https://bio-study.adrian11jonker.workers.dev** (how to update it is in `biology/README.md`). It still also opens at https://climate-rts.adrian11jonker.workers.dev/biology/.
 To run it on your computer: right-click `biology/index.html` → **Open with Live Server**.
 
 - **+ New topic** offers ready-made topics (Cell transport, Enzymes, Photosynthesis, Respiration, Cell division, DNA & genetics, Microscopy, Specialised cells), each with starter definitions, or a blank one.
