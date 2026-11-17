@@ -1,0 +1,5 @@
+# Cloudflare caching rules for Bio Study Notes: always check for a newer version so updates show straight away
+/*
+  Cache-Control: no-cache
+/manifest.webmanifest
+  Content-Type: application/manifest+json

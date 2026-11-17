@@ -1,0 +1,10 @@
+// Cloudflare settings for Bio Study Notes as its own Worker ("bio-study").
+// In Cloudflare this project's root directory is set to "biology", so "." below means this folder.
+{
+  "name": "bio-study",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    // A plain website: every file in this folder is served as-is (see .assetsignore for what's left out).
+    "directory": "."
+  }
+}
